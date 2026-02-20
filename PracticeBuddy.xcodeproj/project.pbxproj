@@ -6,13 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		04C7EB572F47CBE100A1FDD4 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB562F47CBE100A1FDD4 /* FirebaseAuth */; };
+		04C7EB592F47CBE100A1FDD4 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB582F47CBE100A1FDD4 /* FirebaseCore */; };
+		04C7EB5B2F47CBE100A1FDD4 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB5A2F47CBE100A1FDD4 /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		042C311E2F27FD2F00529D2C /* PracticeBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PracticeBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		042C31302F2800C800529D2C /* Exceptions for "PracticeBuddy" folder in "PracticeBuddy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Docs/PROJECT_SNAPSHOT.md,
+			);
+			target = 042C311D2F27FD2F00529D2C /* PracticeBuddy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		042C31202F27FD2F00529D2C /* PracticeBuddy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				042C31302F2800C800529D2C /* Exceptions for "PracticeBuddy" folder in "PracticeBuddy" target */,
+			);
 			path = PracticeBuddy;
 			sourceTree = "<group>";
 		};
@@ -23,6 +42,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				04C7EB592F47CBE100A1FDD4 /* FirebaseCore in Frameworks */,
+				04C7EB572F47CBE100A1FDD4 /* FirebaseAuth in Frameworks */,
+				04C7EB5B2F47CBE100A1FDD4 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +87,9 @@
 			);
 			name = PracticeBuddy;
 			packageProductDependencies = (
+				04C7EB562F47CBE100A1FDD4 /* FirebaseAuth */,
+				04C7EB582F47CBE100A1FDD4 /* FirebaseCore */,
+				04C7EB5A2F47CBE100A1FDD4 /* FirebaseFirestore */,
 			);
 			productName = PracticeBuddy;
 			productReference = 042C311E2F27FD2F00529D2C /* PracticeBuddy.app */;
@@ -94,6 +119,9 @@
 			);
 			mainGroup = 042C31152F27FD2F00529D2C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 042C311F2F27FD2F00529D2C /* Products */;
 			projectDirPath = "";
@@ -251,11 +279,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = PracticeBuddy/PracticeBuddy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 73J84HKXBC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Practice Buddy";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PracticeBuddy uses your microphone to detect pitch in the tuner.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -266,7 +298,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexmalaimare.PracticeBuddy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexmalaimare.practicebuddy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -283,11 +315,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = PracticeBuddy/PracticeBuddy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 73J84HKXBC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Practice Buddy";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "PracticeBuddy uses your microphone to detect pitch in the tuner.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -298,7 +334,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexmalaimare.PracticeBuddy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexmalaimare.practicebuddy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -332,6 +368,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		04C7EB562F47CBE100A1FDD4 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		04C7EB582F47CBE100A1FDD4 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		04C7EB5A2F47CBE100A1FDD4 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 042C31162F27FD2F00529D2C /* Project object */;
 }
