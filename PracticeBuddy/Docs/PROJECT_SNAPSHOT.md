@@ -176,6 +176,15 @@ Current Product Areas
       - `notificationBuddies`
     - Cloud Function scaffold added for assignment-created push fanout
     - Firebase Functions deployment is optional and deferred until Blaze plan is enabled
+  - App-managed Pro trial implemented:
+    - user-triggered one-time 7-day free trial (not auto-started)
+    - effective Pro entitlement = lifetime purchase OR active trial
+    - trial status/countdown and trial-ended messaging in Store screen
+    - mirrored profile fields include:
+      - `hasLifetimePro`
+      - `trialUsed`
+      - `trialStartedAt`
+      - `trialEndsAt`
 
 8) Optimization / Cleanup Pass
 - Full source review pass completed across app modules (UI, Firebase, StoreKit, audio/tools, settings).
@@ -188,7 +197,34 @@ Current Product Areas
   - moved Firebase configure call into app delegate launch path to avoid startup initialization warning
   - removed custom-font `.weight(...)` chaining to avoid repeated SwiftUI font descriptor warnings
   - linked `AppIntents.framework` to suppress appintents metadata warning
+- Firebase quota-safe pass applied:
+  - non-critical realtime listeners are now paused when app leaves active state and resumed on foreground
+  - implemented for:
+    - `AssignmentLinkManager` (student assignment listeners)
+    - `WarmupOfWeekManager` (studio warmup listeners)
+  - this reduces background Firestore read churn on Spark while preserving foreground behavior
 - No high-risk refactors were applied in this pass to preserve current UI/functionality stability.
+
+9) Studio + Invite Flow (Teacher/Student)
+- Home IA updated for teachers:
+  - `Teacher Tools` section moved to Home (between Session Templates and Practice Tools)
+  - Settings -> Pro -> Teacher Tools now redirects back to Home for studio workflow
+- Studio creation permission fix:
+  - Firestore rules updated to support owner+member creation in same batch using `getAfter(...)`
+- Invite UX updated:
+  - Studio Manager exposes `Copy Invite Link` and `Share` actions (full URL not displayed)
+  - invite links now use HTTPS format:
+    - `https://practicebuddytracker.web.app/join-studio?code=...`
+  - app still supports custom scheme fallback:
+    - `practicebuddy://join-studio?code=...`
+- Deep-link join behavior:
+  - app handles incoming invite links and auto-attempts studio join for signed-in users
+  - shows clear success/failure/sign-in-required alert states
+- Firebase Hosting prepared for Universal Links:
+  - `hosting/apple-app-site-association`
+  - `hosting/.well-known/apple-app-site-association`
+  - `hosting/join-studio/index.html` fallback landing page
+  - `firebase.json` updated with hosting config + AASA headers
 
 Included Local Font Files
 - PlayfairDisplay-Regular.ttf
@@ -207,6 +243,8 @@ Supporting Docs
 - `PracticeBuddy/Docs/FIRESTORE_RULES_BUDDIES.md`
 - `PracticeBuddy/Docs/GOOGLE_FONTS_PALETTES.md`
 - `firebase/functions/README.md`
+- `hosting/apple-app-site-association`
+- `hosting/.well-known/apple-app-site-association`
 
 Known Notes
 - TestFlight upload may show non-blocking symbol warnings for some Firebase dependency frameworks (`grpc`, `absl`, etc.); build upload still works.
@@ -216,6 +254,8 @@ Known Notes
 - Firestore rules now also include:
   - `studios/{studioId}/planTemplates/{templateId}`
   - `studios/{studioId}/warmups/{warmupId}`
+  - studio member create path compatibility for batch create (`getAfter` owner check)
+- Universal Links require Associated Domains capability + deployed AASA files on hosted domain.
 
 Where We Are Now
 - App is in a significantly more complete state than the older “Day 8” snapshot.

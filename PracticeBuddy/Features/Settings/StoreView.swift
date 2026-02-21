@@ -6,6 +6,7 @@ struct StoreView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 3
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -28,11 +29,55 @@ struct StoreView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
-                    Text(purchaseManager.isPro ? "Status: Unlocked" : "Status: Free")
+                    Text(statusText)
                         .font(type.footnote)
-                        .foregroundStyle(purchaseManager.isPro ? theme.accent : palette.textSecondary)
+                        .foregroundStyle(statusColor)
                 }
                 .padding(.vertical, 6)
+            }
+            .listRowBackground(palette.surface)
+
+            Section("Free Trial") {
+                if purchaseManager.hasLifetimePro {
+                    Text("You already own Practice Buddy Pro permanently.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else if purchaseManager.isProTrialActive {
+                    if let end = purchaseManager.proTrialEndsAt {
+                        Text("Trial active until \(end.formatted(date: .abbreviated, time: .shortened)).")
+                            .font(type.footnote)
+                            .foregroundStyle(theme.accent)
+                        Text(trialCountdownText(until: end))
+                            .font(type.footnote)
+                            .foregroundStyle(theme.accent)
+                    } else {
+                        Text("Trial active.")
+                            .font(type.footnote)
+                            .foregroundStyle(theme.accent)
+                    }
+                    Text("After trial, Pro features lock again unless you unlock permanently.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else if purchaseManager.hasUsedProTrial {
+                    Text("Free trial ended. Unlock Practice Buddy Pro to continue using Pro features.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else {
+                    Button {
+                        Task { await purchaseManager.startFreeTrial() }
+                    } label: {
+                        Text("Start 7-Day Free Trial")
+                            .font(type.body.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(theme.accent)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .listRowBackground(palette.surface)
 
@@ -68,8 +113,8 @@ struct StoreView: View {
             if purchaseManager.accountType == .teacher {
                 Section("Teacher Tools") {
                     if purchaseManager.isPro {
-                        NavigationLink {
-                            PBLazyView(StudioManagerView())
+                        Button {
+                            selectedTab = 0
                         } label: {
                             Label("Studio Manager", systemImage: "person.3")
                                 .font(type.body)
@@ -201,7 +246,7 @@ struct StoreView: View {
     }
 
     private var primaryCTADisabled: Bool {
-        purchaseManager.isPro || proProduct == nil
+        purchaseManager.hasLifetimePro || proProduct == nil
     }
 
     private var accountTypeHelpText: String {
@@ -212,5 +257,39 @@ struct StoreView: View {
             return "Your one account type change has been used."
         }
         return "You can change account type once if needed."
+    }
+
+    private var statusText: String {
+        if purchaseManager.hasLifetimePro {
+            return "Status: Unlocked (Purchased)"
+        }
+        if purchaseManager.isProTrialActive {
+            return "Status: Free Trial Active"
+        }
+        if purchaseManager.hasUsedProTrial {
+            return "Status: Free (Trial Ended)"
+        }
+        return "Status: Free"
+    }
+
+    private var statusColor: Color {
+        if purchaseManager.hasLifetimePro || purchaseManager.isProTrialActive {
+            return theme.accent
+        }
+        return palette.textSecondary
+    }
+
+    private func trialCountdownText(until end: Date) -> String {
+        let now = Date()
+        guard end > now else { return "Trial ended." }
+
+        let secondsLeft = end.timeIntervalSince(now)
+        let daysLeft = Int(ceil(secondsLeft / 86_400))
+        if daysLeft >= 1 {
+            return daysLeft == 1 ? "1 day left in trial." : "\(daysLeft) days left in trial."
+        }
+
+        let hoursLeft = max(1, Int(ceil(secondsLeft / 3_600)))
+        return hoursLeft == 1 ? "1 hour left in trial." : "\(hoursLeft) hours left in trial."
     }
 }

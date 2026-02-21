@@ -40,6 +40,7 @@ final class AssignmentLinkManager: ObservableObject {
     private var currentUID: String?
     private var currentStudioID: String?
     private var completionByAssignmentID: [String: Bool] = [:]
+    private var currentAccountType: PBAccountType = .student
 
     init(repository: FirebaseStudiosRepository? = nil) {
         self.repository = repository ?? FirebaseStudiosRepository()
@@ -53,9 +54,10 @@ final class AssignmentLinkManager: ObservableObject {
     }
 
     func start(uid: String?, accountType: PBAccountType) {
-        if uid == currentUID, accountType == .student { return }
+        if uid == currentUID, accountType == currentAccountType, accountType == .student, userListener != nil { return }
         stop()
         currentUID = uid
+        currentAccountType = accountType
         guard accountType == .student, let uid else { return }
 
         userListener = repository.listenToUserDocument(uid: uid) { [weak self] data in
@@ -77,6 +79,16 @@ final class AssignmentLinkManager: ObservableObject {
         completionByAssignmentID = [:]
         currentUID = nil
         currentStudioID = nil
+        currentAccountType = .student
+    }
+
+    func pauseRealtime() {
+        userListener?.remove()
+        assignmentsListener?.remove()
+        submissionListeners.values.forEach { $0.remove() }
+        userListener = nil
+        assignmentsListener = nil
+        submissionListeners = [:]
     }
 
     var linkedAssignment: LinkedAssignmentItem? {

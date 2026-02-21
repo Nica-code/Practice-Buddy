@@ -2,8 +2,15 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    private struct InviteJoinAlert: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var purchaseManager: PurchaseManager
 
@@ -16,6 +23,8 @@ struct ContentView: View {
     @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
 
     @State private var didInit = false
+    @State private var inviteJoinAlert: InviteJoinAlert?
+    private let studiosRepository = FirebaseStudiosRepository()
 
     var body: some View {
         let fontChoice = PBFontChoice.byID(selectedFontID)
@@ -78,40 +87,35 @@ struct ContentView: View {
         }
         .onAppear {
             purchaseManager.linkToUser(uid: firebase.currentUserID)
-            assignmentLinkManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType)
-            warmupOfWeekManager.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.accountType,
-                isPro: purchaseManager.isPro
-            )
-            Task { await assignmentLinkManager.flushPendingQueue() }
+            resumeRealtimeManagers()
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             purchaseManager.linkToUser(uid: newUID)
-            assignmentLinkManager.start(uid: newUID, accountType: purchaseManager.accountType)
-            warmupOfWeekManager.start(
-                uid: newUID,
-                accountType: purchaseManager.accountType,
-                isPro: purchaseManager.isPro
-            )
-            Task { await assignmentLinkManager.flushPendingQueue() }
+            if scenePhase == .active {
+                resumeRealtimeManagers()
+            }
         }
         .onChange(of: purchaseManager.accountType) { _, newType in
+            guard scenePhase == .active else { return }
             assignmentLinkManager.start(uid: firebase.currentUserID, accountType: newType)
-            warmupOfWeekManager.start(
-                uid: firebase.currentUserID,
-                accountType: newType,
-                isPro: purchaseManager.isPro
-            )
+            warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: newType, isPro: purchaseManager.isPro)
             Task { await assignmentLinkManager.flushPendingQueue() }
         }
         .onChange(of: purchaseManager.isPro) { _, isPro in
-            warmupOfWeekManager.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.accountType,
-                isPro: isPro
-            )
+            guard scenePhase == .active else { return }
+            warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType, isPro: isPro)
             Task { await assignmentLinkManager.flushPendingQueue() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                resumeRealtimeManagers()
+            } else {
+                assignmentLinkManager.pauseRealtime()
+                warmupOfWeekManager.pauseRealtime()
+            }
+        }
+        .onOpenURL { url in
+            handleIncomingURL(url)
         }
         .environmentObject(store)
         .environmentObject(themeManager)
@@ -128,11 +132,84 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .alert(item: $inviteJoinAlert) { state in
+            Alert(
+                title: Text(state.title),
+                message: Text(state.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private var needsAccountSetup: Bool {
         guard firebase.currentUserID != nil else { return true }
         if firebase.isAnonymousUser { return true }
         return !purchaseManager.hasCompletedInitialRoleSelection
+    }
+
+    private func resumeRealtimeManagers() {
+        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType)
+        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType, isPro: purchaseManager.isPro)
+        Task { await assignmentLinkManager.flushPendingQueue() }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard let inviteCode = studioInviteCode(from: url) else { return }
+
+        guard let uid = firebase.currentUserID, !firebase.isAnonymousUser else {
+            inviteJoinAlert = InviteJoinAlert(
+                title: "Sign In Required",
+                message: "Please sign in first, then open the studio invite link again."
+            )
+            return
+        }
+
+        Task {
+            do {
+                try await studiosRepository.joinStudio(studentUID: uid, rawInviteCode: inviteCode)
+                await MainActor.run {
+                    inviteJoinAlert = InviteJoinAlert(
+                        title: "Joined Studio",
+                        message: "You have successfully joined the studio."
+                    )
+                }
+            } catch {
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                await MainActor.run {
+                    inviteJoinAlert = InviteJoinAlert(
+                        title: "Could Not Join Studio",
+                        message: msg
+                    )
+                }
+            }
+        }
+    }
+
+    private func studioInviteCode(from url: URL) -> String? {
+        if let scheme = url.scheme?.lowercased(), scheme == "practicebuddy" {
+            guard let host = url.host?.lowercased(), host == "join-studio" else {
+                return nil
+            }
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+               !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return code
+            }
+            let pathCode = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return pathCode.isEmpty ? nil : pathCode
+        }
+
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" else { return nil }
+        guard let host = url.host?.lowercased() else { return nil }
+        let allowedHost = AppInfo.inviteLinkBaseURL?.host?.lowercased()
+        guard host == allowedHost else { return nil }
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        guard path == "join-studio" else { return nil }
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let code = components.queryItems?.first(where: { $0.name.lowercased() == "code" })?.value,
+           !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return code.uppercased()
+        }
+        return nil
     }
 }

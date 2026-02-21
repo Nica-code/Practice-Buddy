@@ -210,21 +210,55 @@ struct StudioManagerView: View {
                 Text(studio.name)
                     .font(type.body.weight(.semibold))
                     .foregroundStyle(theme.textPrimary)
-                Text("Invite code: \(studio.inviteCode)")
+                Text("Invite link ready")
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
                     .monospacedDigit()
             }
             Spacer()
-            Button("Copy") {
-                UIPasteboard.general.string = studio.inviteCode
-                viewModel.statusMessage = "Invite code copied."
+            Button("Copy Invite Link") {
+                guard let inviteURL = inviteURLString(for: studio.inviteCode) else { return }
+                UIPasteboard.general.string = inviteURL
+                viewModel.statusMessage = "Invite link copied."
             }
             .buttonStyle(.bordered)
+
+            if let inviteURL = inviteURL(for: studio.inviteCode) {
+                ShareLink(item: inviteURL) {
+                    Text("Share")
+                        .font(type.footnote)
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .padding(10)
         .background(theme.surfaceAlt)
         .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+    }
+
+    private func inviteURL(for code: String) -> URL? {
+        if let base = AppInfo.inviteLinkBaseURL,
+           var components = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+            var path = components.path
+            if path.hasSuffix("/") {
+                path.removeLast()
+            }
+            components.path = "\(path)/join-studio"
+            components.queryItems = [URLQueryItem(name: "code", value: code)]
+            if let url = components.url {
+                return url
+            }
+        }
+
+        var fallback = URLComponents()
+        fallback.scheme = "practicebuddy"
+        fallback.host = "join-studio"
+        fallback.queryItems = [URLQueryItem(name: "code", value: code)]
+        return fallback.url
+    }
+
+    private func inviteURLString(for code: String) -> String? {
+        inviteURL(for: code)?.absoluteString
     }
 
     private var memberList: some View {

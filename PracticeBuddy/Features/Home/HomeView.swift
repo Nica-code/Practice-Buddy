@@ -229,6 +229,7 @@ struct HomeView: View {
                 .listRowBackground(palette.surface)
 
                 templatesSection
+                teacherToolsSection
 
                 practiceToolsSection
                 linkedAssignmentsSection
@@ -557,6 +558,40 @@ struct HomeView: View {
             .padding(.vertical, 4)
         }
         .listRowBackground(palette.surface)
+    }
+
+    @ViewBuilder
+    private var teacherToolsSection: some View {
+        if purchaseManager.accountType == .teacher {
+            Section("Teacher Tools") {
+                if purchaseManager.isPro {
+                    NavigationLink {
+                        PBLazyView(StudioManagerView())
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Studio Manager")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Create your studio, manage roster, and publish assignments.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Teacher tools are part of Practice Buddy Pro.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Button("Open Practice Buddy Pro") {
+                            selectedTab = 3
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                    }
+                }
+            }
+            .listRowBackground(palette.surface)
+        }
     }
 
     private var practiceLabSection: some View {

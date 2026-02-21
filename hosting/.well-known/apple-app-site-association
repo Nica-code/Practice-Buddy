@@ -1,0 +1,17 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["73J84HKXBC.com.alexmalaimare.practicebuddy"],
+        "components": [
+          {
+            "/": "/join-studio",
+            "?": {
+              "code": "*"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

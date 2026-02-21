@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import FirebaseFirestore
 import StoreKit
+import UIKit
 
 @MainActor
 enum PBAccountType: String, CaseIterable, Identifiable {
@@ -21,13 +22,22 @@ enum PBAccountType: String, CaseIterable, Identifiable {
 @MainActor
 final class PurchaseManager: ObservableObject {
     static let proProductID = "practicebuddy.pro.lifetime"
+    static let proTrialDurationDays = 7
     static let proKey = "pb.pro.isUnlocked"
     static let accountTypeKey = "pb.pro.accountType"
     static let accountTypeSetKey = "pb.pro.accountTypeSet"
     static let accountTypeChangeUsedKey = "pb.pro.accountTypeChangeUsed"
+    static let trialUsedKey = "pb.pro.trialUsed"
+    static let trialStartedAtKey = "pb.pro.trialStartedAt"
+    static let trialEndsAtKey = "pb.pro.trialEndsAt"
 
     @Published private(set) var ownedProductIDs: Set<String> = []
     @Published private(set) var isPro: Bool
+    @Published private(set) var hasLifetimePro: Bool
+    @Published private(set) var isProTrialActive: Bool
+    @Published private(set) var hasUsedProTrial: Bool
+    @Published private(set) var proTrialStartedAt: Date?
+    @Published private(set) var proTrialEndsAt: Date?
     @Published private(set) var accountType: PBAccountType
     @Published private(set) var hasCompletedInitialRoleSelection: Bool
     @Published private(set) var accountTypeChangeUsed: Bool
@@ -38,24 +48,39 @@ final class PurchaseManager: ObservableObject {
     private var userListener: ListenerRegistration?
     private var linkedUID: String?
     private var updatesTask: Task<Void, Never>?
+    private var foregroundCancellable: AnyCancellable?
 
     init() {
         let defaults = UserDefaults.standard
-        let storedPro = defaults.bool(forKey: Self.proKey)
+        let storedLifetimePro = defaults.bool(forKey: Self.proKey)
+        let storedTrialUsed = defaults.bool(forKey: Self.trialUsedKey)
+        let storedTrialStart = Self.readDateDefault(key: Self.trialStartedAtKey, defaults: defaults)
+        let storedTrialEnd = Self.readDateDefault(key: Self.trialEndsAtKey, defaults: defaults)
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
         let storedTypeSet = defaults.bool(forKey: Self.accountTypeSetKey)
         let storedTypeChangeUsed = defaults.bool(forKey: Self.accountTypeChangeUsedKey)
 
-        isPro = storedPro
+        hasLifetimePro = storedLifetimePro
+        hasUsedProTrial = storedTrialUsed
+        proTrialStartedAt = storedTrialStart
+        proTrialEndsAt = storedTrialEnd
+        isProTrialActive = false
+        isPro = false
         accountType = storedType
         hasCompletedInitialRoleSelection = storedTypeSet
         accountTypeChangeUsed = storedTypeChangeUsed
-        if storedPro {
+        if storedLifetimePro {
             ownedProductIDs = [Self.proProductID]
         }
+        recalculateProAccess()
 
         updatesTask = observeTransactionUpdates()
+        foregroundCancellable = NotificationCenter.default
+            .publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                self?.recalculateProAccess()
+            }
         Task {
             await loadProducts()
             await refreshEntitlements()
@@ -65,6 +90,7 @@ final class PurchaseManager: ObservableObject {
     deinit {
         userListener?.remove()
         updatesTask?.cancel()
+        foregroundCancellable?.cancel()
     }
 
     func owns(productID: String) -> Bool {
@@ -137,8 +163,22 @@ final class PurchaseManager: ObservableObject {
                     return
                 }
 
-                if let remotePro = data["isPro"] as? Bool, remotePro != self.isPro {
-                    self.applyProState(remotePro)
+                let remoteLifetime = (data["hasLifetimePro"] as? Bool) ?? (data["isPro"] as? Bool)
+                if let remoteLifetime, remoteLifetime != self.hasLifetimePro {
+                    self.applyLifetimeProState(remoteLifetime)
+                }
+
+                let remoteTrialUsed = (data["trialUsed"] as? Bool) ?? self.hasUsedProTrial
+                let remoteTrialStart = Self.firestoreDate(data["trialStartedAt"])
+                let remoteTrialEnd = Self.firestoreDate(data["trialEndsAt"])
+                self.applyTrialState(
+                    used: remoteTrialUsed,
+                    startedAt: remoteTrialStart ?? self.proTrialStartedAt,
+                    endsAt: remoteTrialEnd ?? self.proTrialEndsAt
+                )
+
+                if let trialMessage = self.expiredTrialMessageIfNeeded() {
+                    self.syncStatus = trialMessage
                 }
                 if let raw = data["accountType"] as? String,
                    let remoteType = PBAccountType(rawValue: raw),
@@ -191,17 +231,34 @@ final class PurchaseManager: ObservableObject {
     }
 
     func debugUnlockPro() {
-        applyProState(true)
+        applyLifetimeProState(true)
         Task {
             await pushLocalStateToFirestore()
         }
     }
 
     func debugLockPro() {
-        applyProState(false)
+        applyLifetimeProState(false)
         Task {
             await pushLocalStateToFirestore()
         }
+    }
+
+    func startFreeTrial() async {
+        guard !hasLifetimePro else {
+            syncStatus = "Pro is already unlocked."
+            return
+        }
+        guard !hasUsedProTrial else {
+            syncStatus = "Free trial already used."
+            return
+        }
+
+        let now = Date()
+        let end = Calendar.current.date(byAdding: .day, value: Self.proTrialDurationDays, to: now) ?? now
+        applyTrialState(used: true, startedAt: now, endsAt: end)
+        syncStatus = "7-day free trial started."
+        await pushLocalStateToFirestore()
     }
 
     func loadProducts() async {
@@ -222,18 +279,45 @@ final class PurchaseManager: ObservableObject {
             }
         }
 
-        applyProState(hasPro)
+        applyLifetimeProState(hasPro)
         await pushLocalStateToFirestore()
     }
 
-    private func applyProState(_ value: Bool) {
-        isPro = value
+    private func applyLifetimeProState(_ value: Bool) {
+        hasLifetimePro = value
         if value {
             ownedProductIDs.insert(Self.proProductID)
         } else {
             ownedProductIDs.remove(Self.proProductID)
         }
         UserDefaults.standard.set(value, forKey: Self.proKey)
+        recalculateProAccess()
+    }
+
+    private func applyTrialState(used: Bool, startedAt: Date?, endsAt: Date?) {
+        hasUsedProTrial = used
+        proTrialStartedAt = startedAt
+        proTrialEndsAt = endsAt
+        let defaults = UserDefaults.standard
+        defaults.set(used, forKey: Self.trialUsedKey)
+        Self.writeDateDefault(startedAt, key: Self.trialStartedAtKey, defaults: defaults)
+        Self.writeDateDefault(endsAt, key: Self.trialEndsAtKey, defaults: defaults)
+        recalculateProAccess()
+    }
+
+    private func recalculateProAccess(now: Date = Date()) {
+        if let end = proTrialEndsAt {
+            isProTrialActive = end > now
+        } else {
+            isProTrialActive = false
+        }
+        isPro = hasLifetimePro || isProTrialActive
+    }
+
+    private func expiredTrialMessageIfNeeded(now: Date = Date()) -> String? {
+        guard hasUsedProTrial, !hasLifetimePro else { return nil }
+        guard let end = proTrialEndsAt, end <= now else { return nil }
+        return "Free trial ended. Unlock Practice Buddy Pro to continue."
     }
 
     private func applyAccountType(_ value: PBAccountType) {
@@ -256,16 +340,26 @@ final class PurchaseManager: ObservableObject {
         do {
             var payload: [String: Any] = [
                 "isPro": isPro,
+                "hasLifetimePro": hasLifetimePro,
+                "trialUsed": hasUsedProTrial,
                 "accountType": accountType.rawValue,
                 "accountTypeSet": hasCompletedInitialRoleSelection,
                 "accountTypeChangeUsed": accountTypeChangeUsed,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
-            if isPro {
+            if hasLifetimePro {
                 payload["proSince"] = FieldValue.serverTimestamp()
             }
+            if let proTrialStartedAt {
+                payload["trialStartedAt"] = Timestamp(date: proTrialStartedAt)
+            }
+            if let proTrialEndsAt {
+                payload["trialEndsAt"] = Timestamp(date: proTrialEndsAt)
+            }
             try await db.collection("users").document(uid).setData(payload, merge: true)
-            syncStatus = nil
+            if syncStatus?.contains("trial ended") != true {
+                syncStatus = nil
+            }
         } catch {
             syncStatus = "Pro sync failed: \(error.localizedDescription)"
         }
@@ -285,8 +379,32 @@ final class PurchaseManager: ObservableObject {
 
     private func applyVerifiedTransaction(_ transaction: StoreKit.Transaction) async {
         if transaction.productID == Self.proProductID {
-            applyProState(true)
+            applyLifetimeProState(true)
             await pushLocalStateToFirestore()
         }
+    }
+
+    private static func readDateDefault(key: String, defaults: UserDefaults) -> Date? {
+        let value = defaults.double(forKey: key)
+        guard value > 0 else { return nil }
+        return Date(timeIntervalSince1970: value)
+    }
+
+    private static func writeDateDefault(_ value: Date?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value.timeIntervalSince1970, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private static func firestoreDate(_ value: Any?) -> Date? {
+        if let ts = value as? Timestamp {
+            return ts.dateValue()
+        }
+        if let d = value as? Date {
+            return d
+        }
+        return nil
     }
 }

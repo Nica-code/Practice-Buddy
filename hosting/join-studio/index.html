@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Join Studio • Practice Buddy</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #1a1d29;
+    }
+    .wrap {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      max-width: 520px;
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #e7e9f1;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 26px rgba(20, 24, 38, 0.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 14px; line-height: 1.45; }
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      background: #f2f4fa;
+      padding: 8px 10px;
+      border-radius: 10px;
+      display: inline-block;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    a.btn {
+      text-decoration: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      border: 1px solid #d6d9e7;
+      color: #1a1d29;
+      background: #fff;
+      font-weight: 600;
+    }
+    a.btn.primary {
+      background: #0f67ff;
+      color: #fff;
+      border-color: #0f67ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Join Studio</h1>
+      <p id="message">Opening Practice Buddy…</p>
+      <p>Invite code: <span id="code" class="code">--</span></p>
+      <div class="row">
+        <a id="openApp" class="btn primary" href="#">Open in Practice Buddy</a>
+        <a class="btn" href="https://apps.apple.com/">Get the app</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var code = (params.get('code') || '').trim().toUpperCase();
+      var codeEl = document.getElementById('code');
+      var msgEl = document.getElementById('message');
+      var openApp = document.getElementById('openApp');
+
+      if (!code) {
+        codeEl.textContent = 'Missing code';
+        msgEl.textContent = 'This invite link is incomplete. Ask your teacher for a new link.';
+        openApp.style.display = 'none';
+        return;
+      }
+
+      codeEl.textContent = code;
+      var appURL = 'practicebuddy://join-studio?code=' + encodeURIComponent(code);
+      openApp.href = appURL;
+
+      // Best-effort immediate handoff for browsers that don't trigger Universal Links.
+      window.setTimeout(function () {
+        window.location.href = appURL;
+      }, 200);
+    })();
+  </script>
+</body>
+</html>

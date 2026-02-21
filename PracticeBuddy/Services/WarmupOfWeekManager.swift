@@ -20,7 +20,7 @@ final class WarmupOfWeekManager: ObservableObject {
     }
 
     func start(uid: String?, accountType: PBAccountType, isPro: Bool) {
-        if currentUID == uid, currentAccountType == accountType, currentIsPro == isPro { return }
+        if currentUID == uid, currentAccountType == accountType, currentIsPro == isPro, userListener != nil { return }
         stop()
         currentUID = uid
         currentAccountType = accountType
@@ -45,6 +45,13 @@ final class WarmupOfWeekManager: ObservableObject {
         statusMessage = nil
         currentUID = nil
         currentStudioID = nil
+    }
+
+    func pauseRealtime() {
+        userListener?.remove()
+        warmupListener?.remove()
+        userListener = nil
+        warmupListener = nil
     }
 
     func pushWarmupOfWeek(

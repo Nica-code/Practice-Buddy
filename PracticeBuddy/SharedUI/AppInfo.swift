@@ -50,4 +50,17 @@ enum AppInfo {
         - 
         """
     }
+
+    static var inviteLinkBaseURL: URL? {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "PBInviteLinkBaseURL") as? String {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "https" {
+                return url
+            }
+        }
+        if let fallback = URL(string: "https://practicebuddytracker.web.app") {
+            return fallback
+        }
+        return nil
+    }
 }
