@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -11,6 +12,8 @@ struct SettingsView: View {
 
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes: Int = 30
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
+    @AppStorage("pb.notifications.assignments") private var notifyAssignments: Bool = true
+    @AppStorage("pb.notifications.buddies") private var notifyBuddies: Bool = true
 
     @State private var pendingRetentionTask: Task<Void, Never>?
 
@@ -77,29 +80,40 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 NavigationLink { PBLazyView(ThemePickerView()) } label: {
-                    Label("Themes", systemImage: "paintpalette")
-                        .font(type.body)
+                    settingsLabel("Themes", systemImage: "paintpalette")
                 }
 
                 NavigationLink { PBLazyView(FontPickerView()) } label: {
-                    Label("Fonts", systemImage: "textformat")
-                        .font(type.body)
+                    settingsLabel("Fonts", systemImage: "textformat")
                 }
 
                 NavigationLink { PBLazyView(AppIconPickerView()) } label: {
-                    Label("App Icon", systemImage: "app.badge")
-                        .font(type.body)
+                    settingsLabel("App Icon", systemImage: "app.badge")
                 }
             }
             .listRowBackground(palette.surface)
 
             Section("Store") {
                 NavigationLink { PBLazyView(StoreView()) } label: {
-                    Label("Coming Soon", systemImage: "bag")
-                        .font(type.body)
+                    settingsLabel(
+                        purchaseManager.isPro ? "Practice Buddy Pro (Unlocked)" : "Practice Buddy Pro",
+                        systemImage: purchaseManager.isPro ? "sparkles" : "bag"
+                    )
                 }
 
-                Text("Future feature unlocks will appear here.")
+                Text("One-time unlock. Includes core Pro tools plus account-type extras for Teacher or Student.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            .listRowBackground(palette.surface)
+
+            Section("Notifications") {
+                Toggle("Assignments", isOn: $notifyAssignments)
+                    .font(type.body)
+                Toggle("Buddies", isOn: $notifyBuddies)
+                    .font(type.body)
+
+                Text("Controls push notifications for assignment and buddy activity updates.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -145,6 +159,33 @@ struct SettingsView: View {
                 guard !Task.isCancelled else { return }
                 store.retentionChanged()
             }
+        }
+        .task {
+            await syncNotificationPrefs()
+        }
+        .onChange(of: notifyAssignments) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyBuddies) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+    }
+
+    private func syncNotificationPrefs() async {
+        await PushTokenManager.shared.updateNotificationPreferences(
+            assignmentsEnabled: notifyAssignments,
+            buddiesEnabled: notifyBuddies
+        )
+    }
+
+    @ViewBuilder
+    private func settingsLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(palette.accent)
+            Text(title)
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
         }
     }
 }

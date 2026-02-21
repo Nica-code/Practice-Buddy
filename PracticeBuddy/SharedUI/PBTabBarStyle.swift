@@ -17,7 +17,7 @@ enum PBTabBarStyle {
         }
 
         proxy.tintColor = accent
-        proxy.unselectedItemTintColor = UIColor.secondaryLabel
+        proxy.unselectedItemTintColor = accent.withAlphaComponent(0.7)
 
         // 2) Apply directly to all visible tab bars right now (critical part).
         applyToVisibleTabBars(appearance: appearance, accent: accent)
@@ -34,7 +34,7 @@ enum PBTabBarStyle {
         appearance.shadowColor = UIColor.separator.withAlphaComponent(colorScheme == .dark ? 0.25 : 0.15)
 
         let selected = accent
-        let unselected = UIColor.secondaryLabel
+        let unselected = accent.withAlphaComponent(colorScheme == .dark ? 0.62 : 0.72)
 
         func configure(_ itemAppearance: UITabBarItemAppearance) {
             // Selected
@@ -75,7 +75,7 @@ enum PBTabBarStyle {
             }
 
             tab.tabBar.tintColor = accent
-            tab.tabBar.unselectedItemTintColor = UIColor.secondaryLabel
+            tab.tabBar.unselectedItemTintColor = accent.withAlphaComponent(0.7)
 
             tab.tabBar.setNeedsLayout()
             tab.tabBar.layoutIfNeeded()

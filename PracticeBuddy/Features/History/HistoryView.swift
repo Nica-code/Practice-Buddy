@@ -40,9 +40,11 @@ struct HistoryView: View {
     private let logger = Logger(subsystem: "PracticeBuddy", category: "history")
 
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
 
     @State private var searchText: String = ""
     @State private var scope: HistoryScope = .all
@@ -52,6 +54,7 @@ struct HistoryView: View {
     @State private var showShareSheet: Bool = false
     @State private var exportErrorMessage: String? = nil
     @State private var showExportError: Bool = false
+    @State private var showProLockedAlert: Bool = false
 
     @State private var selectedSheetID: SelectedID? = nil
 
@@ -61,6 +64,7 @@ struct HistoryView: View {
     var body: some View {
         List {
             scopePickerSection
+            analyticsSection
 
             if filteredSessions.isEmpty {
                 emptyStateRow
@@ -90,7 +94,13 @@ struct HistoryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showExportOptions = true } label: {
+                Button {
+                    if purchaseManager.isPro {
+                        showExportOptions = true
+                    } else {
+                        showProLockedAlert = true
+                    }
+                } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .accessibilityLabel("Export")
@@ -117,6 +127,14 @@ struct HistoryView: View {
         } message: {
             Text(exportErrorMessage ?? "Unknown error.")
         }
+        .alert("PracticeBuddy Pro", isPresented: $showProLockedAlert) {
+            Button("Not Now", role: .cancel) {}
+            Button("Open Pro") {
+                selectedTab = 3
+            }
+        } message: {
+            Text("Export and advanced analytics are part of Pro.")
+        }
         .sheet(isPresented: $showShareSheet) {
             if let exportURL {
                 ActivityView(activityItems: [exportURL])
@@ -129,6 +147,59 @@ struct HistoryView: View {
         .sheet(item: $selectedSheetID) { wrapper in
             SessionNoteView(sessionID: wrapper.id)
         }
+    }
+
+    @ViewBuilder
+    private var analyticsSection: some View {
+        Section("Analytics") {
+            if purchaseManager.isPro {
+                HStack {
+                    Text("Total time")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: analyticsTotalSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Average session")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: analyticsAverageSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Longest session")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: analyticsLongestSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Advanced analytics is part of PracticeBuddy Pro.")
+                        .font(type.body)
+                        .foregroundStyle(palette.textSecondary)
+                    Button("Unlock Pro") {
+                        selectedTab = 3
+                    }
+                    .font(type.button)
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .listRowBackground(palette.surface)
     }
 
     private var scopePickerSection: some View {
@@ -152,6 +223,19 @@ struct HistoryView: View {
             }
         }
         .listRowBackground(palette.surface)
+    }
+
+    private var analyticsTotalSeconds: Int {
+        filteredSessions.reduce(0) { $0 + max(0, $1.durationSeconds) }
+    }
+
+    private var analyticsAverageSeconds: Int {
+        guard !filteredSessions.isEmpty else { return 0 }
+        return analyticsTotalSeconds / filteredSessions.count
+    }
+
+    private var analyticsLongestSeconds: Int {
+        filteredSessions.map { max(0, $0.durationSeconds) }.max() ?? 0
     }
 
     private var emptyStateRow: some View {
@@ -266,6 +350,11 @@ struct HistoryView: View {
     }
 
     private func export(format: ExportFormat) {
+        guard purchaseManager.isPro else {
+            showProLockedAlert = true
+            return
+        }
+
         do {
             let url = try SessionExportService.export(
                 sessions: filteredSessions,

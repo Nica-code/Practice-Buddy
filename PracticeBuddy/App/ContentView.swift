@@ -4,6 +4,8 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var firebase: FirebaseBootstrap
+    @EnvironmentObject private var purchaseManager: PurchaseManager
 
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
     @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
@@ -17,39 +19,44 @@ struct ContentView: View {
         let fontChoice = PBFontChoice.byID(selectedFontID)
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
-        TabView(selection: $selectedTab) {
-            NavigationStack {
-                PBLazyView(HomeView())
-                    .navigationTitle("")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
-            .tabItem { Label("Home", systemImage: "house") }
-            .tag(0)
+        Group {
+            if needsAccountSetup {
+                AccountSetupView()
+            } else {
+                TabView(selection: $selectedTab) {
+                    NavigationStack {
+                        PBLazyView(HomeView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Home", systemImage: "house") }
+                    .tag(0)
 
-            NavigationStack {
-                PBLazyView(HistoryView())
-                    .navigationTitle("")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
-            .tabItem { Label("History", systemImage: "clock") }
-            .tag(1)
+                    NavigationStack {
+                        PBLazyView(HistoryView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("History", systemImage: "clock") }
+                    .tag(1)
 
-            NavigationStack {
-                PBLazyView(FriendsView())
-                    .navigationTitle("")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
-            // ✅ Tab label change
-            .tabItem { Label("Buddies", systemImage: "person.2") }
-            .tag(2)
+                    NavigationStack {
+                        PBLazyView(FriendsView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Buddies", systemImage: "person.2") }
+                    .tag(2)
 
-            NavigationStack {
-                PBLazyView(SettingsView())
-                    .navigationTitle("")
-                    .navigationBarTitleDisplayMode(.inline)
+                    NavigationStack {
+                        PBLazyView(SettingsView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(3)
+                }
             }
-            .tabItem { Label("Settings", systemImage: "gearshape") }
-            .tag(3)
         }
         .onAppear {
             if !(0...3).contains(selectedTab) { selectedTab = 0 }
@@ -64,6 +71,15 @@ struct ContentView: View {
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
         }
+        .onChange(of: themeManager.theme.id) { _, _ in
+            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
+        }
+        .onAppear {
+            purchaseManager.linkToUser(uid: firebase.currentUserID)
+        }
+        .onChange(of: firebase.currentUserID) { _, newUID in
+            purchaseManager.linkToUser(uid: newUID)
+        }
         .environmentObject(store)
         .environmentObject(themeManager)
         .pbTheme(themeManager.theme)
@@ -77,5 +93,11 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+    }
+
+    private var needsAccountSetup: Bool {
+        guard firebase.currentUserID != nil else { return true }
+        if firebase.isAnonymousUser { return true }
+        return !purchaseManager.hasCompletedInitialRoleSelection
     }
 }

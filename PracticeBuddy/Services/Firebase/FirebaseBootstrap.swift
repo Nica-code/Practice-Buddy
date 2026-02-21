@@ -210,6 +210,9 @@ final class FirebaseBootstrap: ObservableObject {
     private func refreshAuthState(user: User) {
         currentUserID = user.uid
         isAnonymousUser = user.isAnonymous
+        Task {
+            await PushTokenManager.shared.syncPendingTokenIfPossible()
+        }
     }
 
     private func sha256(_ input: String) -> String {

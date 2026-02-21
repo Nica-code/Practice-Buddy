@@ -4,10 +4,12 @@ import AVFoundation
 
 struct HomeView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
 
     // Timer persisted state
     @AppStorage("pb.practice.accumulatedSeconds") private var accumulatedSeconds: Int = 0
@@ -38,6 +40,15 @@ struct HomeView: View {
         static let tickSeconds: TimeInterval = 1
         static let titleTopPadding: CGFloat = 18
         static let titleBottomPadding: CGFloat = 8
+    }
+
+    private struct PracticeTemplate: Identifiable {
+        let id: String
+        let name: String
+        let focus: String
+        let warmupMinutes: Int
+        let etudeMinutes: Int
+        let repertoireMinutes: Int
     }
 
     // Save flow
@@ -215,6 +226,8 @@ struct HomeView: View {
                 }
                 .listRowBackground(palette.surface)
 
+                templatesSection
+
                 practiceToolsSection
 
                 Section("Goal") {
@@ -296,7 +309,8 @@ struct HomeView: View {
         }
         .onDisappear {
             stopTicker()
-            metronome.stop()
+            // Keep metronome running across app/tab transitions.
+            // This allows continued playback when screen locks/backgrounds.
             tuner.stopListening()
             tuner.stopReferenceTone()
         }
@@ -536,6 +550,43 @@ struct HomeView: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    @ViewBuilder
+    private var templatesSection: some View {
+        Section("Session Templates") {
+            if purchaseManager.isPro {
+                ForEach(practiceTemplates) { template in
+                    Button {
+                        hapticSoftTap()
+                        applyTemplate(template)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(template.name)
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text(template.focus)
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Template-based planning is a Pro feature.")
+                        .font(type.body)
+                        .foregroundStyle(palette.textSecondary)
+                    Button("Unlock Pro") {
+                        selectedTab = 3
+                    }
+                    .font(type.button)
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.vertical, 4)
+            }
         }
         .listRowBackground(palette.surface)
     }
@@ -846,6 +897,69 @@ struct HomeView: View {
         metronomeBeatsPerBar = MetronomeEngine.clampBeatsPerBar(metronomeBeatsPerBar)
         metronomeSubdivisionRaw = (MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none).rawValue
         metronomeSoundStyleRaw = (MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click).rawValue
+    }
+
+    private var practiceTemplates: [PracticeTemplate] {
+        [
+            PracticeTemplate(
+                id: "template_quick_reset",
+                name: "Quick Reset (20m)",
+                focus: "Warmup 5 • Etude 7 • Repertoire 8",
+                warmupMinutes: 5,
+                etudeMinutes: 7,
+                repertoireMinutes: 8
+            ),
+            PracticeTemplate(
+                id: "template_balanced_session",
+                name: "Balanced Session (45m)",
+                focus: "Warmup 10 • Etude 15 • Repertoire 20",
+                warmupMinutes: 10,
+                etudeMinutes: 15,
+                repertoireMinutes: 20
+            ),
+            PracticeTemplate(
+                id: "template_deep_work",
+                name: "Deep Work (60m)",
+                focus: "Warmup 10 • Etude 20 • Repertoire 30",
+                warmupMinutes: 10,
+                etudeMinutes: 20,
+                repertoireMinutes: 30
+            )
+        ]
+    }
+
+    private func applyTemplate(_ template: PracticeTemplate) {
+        noteTitle = template.name
+        noteFocus = template.focus
+        noteMood = .good
+        journalReflection = ""
+        journalPieces = [
+            PracticeSessionJournalPiece(
+                title: "Warmup",
+                tempo: "\(template.warmupMinutes) min",
+                wentWell: "",
+                needsWork: "",
+                nextAction: ""
+            ),
+            PracticeSessionJournalPiece(
+                title: "Etude",
+                tempo: "\(template.etudeMinutes) min",
+                wentWell: "",
+                needsWork: "",
+                nextAction: ""
+            ),
+            PracticeSessionJournalPiece(
+                title: "Repertoire",
+                tempo: "\(template.repertoireMinutes) min",
+                wentWell: "",
+                needsWork: "",
+                nextAction: ""
+            )
+        ]
+
+        accumulatedSeconds = 0
+        startEpoch = Date().timeIntervalSince1970
+        isRunning = true
     }
 }
 
