@@ -19,10 +19,6 @@ struct PracticeBuddyApp: App {
     init() {
         PBFontRegistrar.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
-
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        }
     }
 
     var body: some Scene {
@@ -33,7 +29,7 @@ struct PracticeBuddyApp: App {
                     await firebase.start()
                 }
         }
-        .modelContainer(for: PracticeSessionModel.self)
+        .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self])
         .environmentObject(firebase)
         .environmentObject(purchaseManager)
     }
@@ -72,6 +68,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
         Messaging.messaging().delegate = self
         registerForPushNotifications(application)
         return true

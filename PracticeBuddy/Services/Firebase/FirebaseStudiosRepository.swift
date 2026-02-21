@@ -44,6 +44,26 @@ struct StudioAssignmentSubmission: Identifiable, Equatable {
     let updatedAt: Date
 }
 
+struct StudioPlanTemplate: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let targetMinutes: Int
+    let goals: [String]
+    let blocks: [String]
+    let createdByUID: String
+    let updatedAt: Date
+}
+
+struct StudioWarmupOfWeek: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let instrument: String
+    let focus: String
+    let totalMinutes: Int
+    let steps: [String]
+    let updatedAt: Date
+}
+
 enum FirebaseStudiosError: LocalizedError {
     case missingOwner
     case invalidStudioName
@@ -51,6 +71,7 @@ enum FirebaseStudiosError: LocalizedError {
     case invalidInviteCode
     case alreadyInStudio
     case invalidAssignmentTitle
+    case invalidTemplateTitle
     case missingTargetStudent
 
     var errorDescription: String? {
@@ -61,6 +82,7 @@ enum FirebaseStudiosError: LocalizedError {
         case .invalidInviteCode: return "Invalid studio invite code."
         case .alreadyInStudio: return "You already joined a studio."
         case .invalidAssignmentTitle: return "Assignment title must be 2-80 characters."
+        case .invalidTemplateTitle: return "Template title must be 2-80 characters."
         case .missingTargetStudent: return "Select a student for individual assignment."
         }
     }
@@ -268,7 +290,10 @@ final class FirebaseStudiosRepository {
         studioID: String,
         assignmentID: String,
         studentUID: String,
-        completed: Bool
+        completed: Bool,
+        note: String? = nil,
+        attachmentPath: String? = nil,
+        linkedTool: String? = nil
     ) async throws {
         let ref = db.collection("studios")
             .document(studioID)
@@ -277,11 +302,22 @@ final class FirebaseStudiosRepository {
             .collection("submissions")
             .document(studentUID)
 
-        try await ref.setData([
+        var payload: [String: Any] = [
             "studentUid": studentUID,
             "completed": completed,
             "updatedAt": FieldValue.serverTimestamp()
-        ], merge: true)
+        ]
+        if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["practiceNote"] = note
+        }
+        if let attachmentPath, !attachmentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["attachmentPath"] = attachmentPath
+        }
+        if let linkedTool, !linkedTool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["linkedTool"] = linkedTool
+        }
+
+        try await ref.setData(payload, merge: true)
     }
 
     func updateAssignment(
@@ -315,6 +351,104 @@ final class FirebaseStudiosRepository {
             "target": target.rawValue,
             "targetStudentUid": targetStudentUID as Any,
             "targetStudentName": targetStudentName as Any,
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
+    }
+
+    func listenToPlanTemplates(
+        studioID: String,
+        onChange: @escaping @MainActor ([StudioPlanTemplate]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("planTemplates")
+            .order(by: "updatedAt", descending: true)
+            .limit(to: 30)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap(self.parsePlanTemplate)
+                    onChange(rows)
+                }
+            }
+    }
+
+    func savePlanTemplate(
+        studioID: String,
+        teacherUID: String,
+        title rawTitle: String,
+        targetMinutes: Int,
+        goals: [String],
+        blocks: [String]
+    ) async throws {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...80).contains(title.count) else {
+            throw FirebaseStudiosError.invalidTemplateTitle
+        }
+
+        let now = FieldValue.serverTimestamp()
+        let ref = db.collection("studios")
+            .document(studioID)
+            .collection("planTemplates")
+            .document()
+
+        try await ref.setData([
+            "title": title,
+            "targetMinutes": max(5, targetMinutes),
+            "goals": goals,
+            "blocks": blocks,
+            "createdByUid": teacherUID,
+            "updatedAt": now,
+            "createdAt": now
+        ], merge: true)
+    }
+
+    func listenToWarmupOfWeek(
+        studioID: String,
+        onChange: @escaping @MainActor (StudioWarmupOfWeek?) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("warmups")
+            .document("warmup_of_week")
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    guard let snap, snap.exists, let data = snap.data() else {
+                        onChange(nil)
+                        return
+                    }
+                    onChange(self.parseWarmupOfWeek(documentID: snap.documentID, data: data))
+                }
+            }
+    }
+
+    func saveWarmupOfWeek(
+        studioID: String,
+        teacherUID: String,
+        title rawTitle: String,
+        instrument: String,
+        focus: String,
+        totalMinutes: Int,
+        steps: [String]
+    ) async throws {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...80).contains(title.count) else {
+            throw FirebaseStudiosError.invalidTemplateTitle
+        }
+        let trimmedSteps = steps
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let ref = db.collection("studios")
+            .document(studioID)
+            .collection("warmups")
+            .document("warmup_of_week")
+
+        try await ref.setData([
+            "title": title,
+            "instrument": instrument,
+            "focus": focus,
+            "totalMinutes": max(5, totalMinutes),
+            "steps": trimmedSteps,
+            "createdByUid": teacherUID,
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
     }
@@ -455,6 +589,51 @@ final class FirebaseStudiosRepository {
             id: doc.documentID,
             studentUID: studentUID,
             completed: completed,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func parsePlanTemplate(_ doc: QueryDocumentSnapshot) -> StudioPlanTemplate? {
+        let data = doc.data()
+        guard
+            let title = data["title"] as? String,
+            let targetMinutes = data["targetMinutes"] as? Int
+        else {
+            return nil
+        }
+        let goals = (data["goals"] as? [String]) ?? []
+        let blocks = (data["blocks"] as? [String]) ?? []
+        let createdByUID = (data["createdByUid"] as? String) ?? ""
+        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        return StudioPlanTemplate(
+            id: doc.documentID,
+            title: title,
+            targetMinutes: targetMinutes,
+            goals: goals,
+            blocks: blocks,
+            createdByUID: createdByUID,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func parseWarmupOfWeek(documentID: String, data: [String: Any]) -> StudioWarmupOfWeek? {
+        guard
+            let title = data["title"] as? String,
+            let instrument = data["instrument"] as? String,
+            let focus = data["focus"] as? String,
+            let totalMinutes = data["totalMinutes"] as? Int
+        else {
+            return nil
+        }
+        let steps = (data["steps"] as? [String]) ?? []
+        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        return StudioWarmupOfWeek(
+            id: documentID,
+            title: title,
+            instrument: instrument,
+            focus: focus,
+            totalMinutes: totalMinutes,
+            steps: steps,
             updatedAt: updatedAt
         )
     }

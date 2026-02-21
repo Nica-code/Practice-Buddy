@@ -202,11 +202,11 @@ struct PBFontChoice: Identifiable, Equatable {
 
     private func font(for role: RoleSpec, size: CGFloat, weight: Font.Weight) -> Font {
         if let customName = resolvedFontName(from: role.preferredNames) {
-            return .custom(customName, size: size).weight(weight)
+            return .custom(customName, size: size)
         }
 
         if let registeredName = PBFontBundleIndex.shared.firstPostScriptName(matchingAnyStem: role.fileStems) {
-            return .custom(registeredName, size: size).weight(weight)
+            return .custom(registeredName, size: size)
         }
 
         return .system(size: size, weight: weight, design: role.fallbackDesign)

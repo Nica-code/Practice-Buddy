@@ -89,5 +89,15 @@ service cloud.firestore {
       allow create, update, delete: if isStudioOwner(studioId)
         || (isSelf(uid) && assignmentAllowsStudent(studioId, assignmentId, request.auth.uid));
     }
+
+    match /studios/{studioId}/planTemplates/{templateId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
+
+    match /studios/{studioId}/warmups/{warmupId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
   }
 }

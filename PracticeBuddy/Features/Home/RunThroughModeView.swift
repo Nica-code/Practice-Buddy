@@ -1,0 +1,359 @@
+import SwiftUI
+import SwiftData
+import AVFoundation
+import Combine
+
+struct RunThroughModeView: View {
+    @Environment(\.pbTheme) private var theme
+    @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var purchaseManager: PurchaseManager
+    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
+
+    @AppStorage("pb.runthrough.noPauseMode") private var noPauseMode: Bool = false
+    @AppStorage("pb.runthrough.useMetronome") private var useMetronome: Bool = false
+    @AppStorage("pb.runthrough.metronomeBPM") private var metronomeBPM: Int = 72
+
+    @StateObject private var recorder = RunThroughRecorder()
+    @StateObject private var metronome = MetronomeEngine()
+    @State private var timerCancellable: AnyCancellable?
+    @State private var elapsedSeconds: Int = 0
+    @State private var showFinishSheet = false
+    @State private var noteInput: String = ""
+    @State private var selfRating: Int = 3
+    @State private var markLinkedAssignmentComplete: Bool = true
+    @State private var linkedAssignmentNote: String = ""
+    @State private var statusMessage: String?
+
+    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+
+    var body: some View {
+        Form {
+            Section("Setup") {
+                Toggle("No pause mode", isOn: $noPauseMode)
+                    .font(type.body)
+                Toggle("Use metronome click", isOn: $useMetronome)
+                    .font(type.body)
+                if useMetronome {
+                    Stepper("Metronome: \(metronomeBPM) BPM", value: $metronomeBPM, in: 40...220)
+                        .font(type.body)
+                }
+            }
+            .listRowBackground(palette.surface)
+
+            Section("Run-through") {
+                HStack {
+                    Text("Status")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(recorder.stateTitle)
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Timer")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: elapsedSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                HStack(spacing: 10) {
+                    Button(recorder.isRecording ? "Stop" : "Record") {
+                        recorder.isRecording ? stopRecording(showFinish: true) : startRecording()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .font(type.button)
+
+                    if !noPauseMode {
+                        Button(recorder.isPaused ? "Resume" : "Pause") {
+                            togglePause()
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.button)
+                        .disabled(!recorder.canPauseToggle)
+                    }
+                }
+            }
+            .listRowBackground(palette.surface)
+
+            if let statusMessage {
+                Section {
+                    Text(statusMessage)
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .listRowBackground(palette.surface)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(chrome.ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showFinishSheet) {
+            NavigationStack {
+                Form {
+                    Section("Review") {
+                        HStack {
+                            Text("Duration")
+                            Spacer()
+                            Text(DurationFormatter.string(from: elapsedSeconds))
+                                .monospacedDigit()
+                        }
+                        Stepper("Self rating: \(selfRating)/5", value: $selfRating, in: 1...5)
+                        TextField("Notes (optional)", text: $noteInput, axis: .vertical)
+                            .lineLimit(3...8)
+
+                        if let linked = assignmentLinkManager.linkedAssignment {
+                            Divider().padding(.vertical, 4)
+                            Text("Linked assignment: \(linked.title)")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
+                            TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
+                                .lineLimit(2...5)
+                        }
+                    }
+                }
+                .navigationTitle("Finish Run-through")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showFinishSheet = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveRunThrough()
+                            showFinishSheet = false
+                        }
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            stopTicker()
+            if recorder.isRecording || recorder.isPaused {
+                stopRecording(showFinish: false)
+            }
+            metronome.stop()
+        }
+        .onChange(of: recorder.isRecording) { _, recording in
+            if recording {
+                startTicker()
+            } else if !recorder.isPaused {
+                stopTicker()
+            }
+        }
+        .onChange(of: recorder.statusMessage) { _, msg in
+            if let msg, !msg.isEmpty {
+                statusMessage = msg
+            }
+        }
+    }
+
+    private func startRecording() {
+        metronomeBPM = min(max(metronomeBPM, 40), 220)
+        noteInput = ""
+        selfRating = 3
+        statusMessage = nil
+        elapsedSeconds = 0
+        if useMetronome {
+            metronome.setBPM(metronomeBPM)
+            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+        }
+        recorder.startRecording()
+    }
+
+    private func stopRecording(showFinish: Bool) {
+        metronome.stop()
+        recorder.stopRecording()
+        stopTicker()
+        if let message = recorder.statusMessage {
+            statusMessage = message
+        }
+        if showFinish, recorder.lastOutputURL != nil, elapsedSeconds > 0 {
+            showFinishSheet = true
+        }
+    }
+
+    private func togglePause() {
+        if recorder.isPaused {
+            recorder.resume()
+            if recorder.isRecording {
+                startTicker()
+            }
+        } else {
+            recorder.pause()
+            stopTicker()
+        }
+        if let message = recorder.statusMessage {
+            statusMessage = message
+        }
+    }
+
+    private func startTicker() {
+        stopTicker()
+        timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { _ in
+                elapsedSeconds += 1
+            }
+    }
+
+    private func stopTicker() {
+        timerCancellable?.cancel()
+        timerCancellable = nil
+    }
+
+    private func saveRunThrough() {
+        guard let url = recorder.lastOutputURL else {
+            statusMessage = "No recording found to save."
+            return
+        }
+        let model = RunThroughModel(
+            durationSeconds: elapsedSeconds,
+            audioFilePath: url.path,
+            notes: noteInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            selfRating: selfRating,
+            noPauseMode: noPauseMode,
+            usedMetronome: useMetronome
+        )
+        modelContext.insert(model)
+        try? modelContext.save()
+
+        if assignmentLinkManager.linkedAssignment != nil {
+            let trimmed = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
+            let note = trimmed.isEmpty
+                ? "Run-through saved in History (\(DurationFormatter.string(from: elapsedSeconds)), rating \(selfRating)/5)."
+                : trimmed
+            Task {
+                await assignmentLinkManager.submitLinkedPracticeResult(
+                    tool: "run_through",
+                    note: note,
+                    attachmentPath: url.path,
+                    markComplete: markLinkedAssignmentComplete
+                )
+            }
+        }
+
+        statusMessage = "Run-through saved in History."
+    }
+}
+
+@MainActor
+final class RunThroughRecorder: ObservableObject {
+    @Published private(set) var isRecording: Bool = false
+    @Published private(set) var isPaused: Bool = false
+    @Published private(set) var lastOutputURL: URL?
+    @Published var statusMessage: String?
+
+    private var recorder: AVAudioRecorder?
+
+    var canPauseToggle: Bool { isRecording || isPaused }
+
+    var stateTitle: String {
+        if isPaused { return "Paused" }
+        if isRecording { return "Recording" }
+        return "Ready"
+    }
+
+    func startRecording() {
+        requestPermissionAndRecord()
+    }
+
+    func pause() {
+        guard let recorder, recorder.isRecording else { return }
+        recorder.pause()
+        isRecording = false
+        isPaused = true
+        statusMessage = "Recording paused."
+    }
+
+    func resume() {
+        guard let recorder, isPaused else { return }
+        if recorder.record() {
+            isRecording = true
+            isPaused = false
+            statusMessage = "Recording resumed."
+        }
+    }
+
+    func stopRecording() {
+        recorder?.stop()
+        isRecording = false
+        isPaused = false
+        statusMessage = "Recording stopped."
+    }
+
+    private func requestPermissionAndRecord() {
+        statusMessage = "Requesting microphone permission..."
+        let session = AVAudioSession.sharedInstance()
+        let handler: (Bool) -> Void = { [weak self] granted in
+            Task { @MainActor in
+                guard let self else { return }
+                guard granted else {
+                    self.statusMessage = "Microphone permission is required for recording."
+                    return
+                }
+                self.prepareAndRecord()
+            }
+        }
+
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { granted in
+                handler(granted)
+            }
+        } else {
+            session.requestRecordPermission { granted in
+                handler(granted)
+            }
+        }
+    }
+
+    private func prepareAndRecord() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP])
+            try session.setActive(true, options: [])
+
+            let url = makeOutputURL()
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.prepareToRecord()
+            if recorder.record() {
+                self.recorder = recorder
+                self.lastOutputURL = url
+                self.isRecording = true
+                self.isPaused = false
+                self.statusMessage = "Recording..."
+            } else {
+                self.statusMessage = "Recording could not start."
+            }
+        } catch {
+            statusMessage = "Recording failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func makeOutputURL() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let folder = docs.appendingPathComponent("RunThrough", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: folder.path) {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let name = "runthrough-\(Int(Date().timeIntervalSince1970)).m4a"
+        return folder.appendingPathComponent(name)
+    }
+}

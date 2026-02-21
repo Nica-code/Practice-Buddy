@@ -12,6 +12,8 @@ struct ContentView: View {
 
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var store = SessionStore()
+    @StateObject private var assignmentLinkManager = AssignmentLinkManager()
+    @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
 
     @State private var didInit = false
 
@@ -76,12 +78,45 @@ struct ContentView: View {
         }
         .onAppear {
             purchaseManager.linkToUser(uid: firebase.currentUserID)
+            assignmentLinkManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType)
+            warmupOfWeekManager.start(
+                uid: firebase.currentUserID,
+                accountType: purchaseManager.accountType,
+                isPro: purchaseManager.isPro
+            )
+            Task { await assignmentLinkManager.flushPendingQueue() }
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             purchaseManager.linkToUser(uid: newUID)
+            assignmentLinkManager.start(uid: newUID, accountType: purchaseManager.accountType)
+            warmupOfWeekManager.start(
+                uid: newUID,
+                accountType: purchaseManager.accountType,
+                isPro: purchaseManager.isPro
+            )
+            Task { await assignmentLinkManager.flushPendingQueue() }
+        }
+        .onChange(of: purchaseManager.accountType) { _, newType in
+            assignmentLinkManager.start(uid: firebase.currentUserID, accountType: newType)
+            warmupOfWeekManager.start(
+                uid: firebase.currentUserID,
+                accountType: newType,
+                isPro: purchaseManager.isPro
+            )
+            Task { await assignmentLinkManager.flushPendingQueue() }
+        }
+        .onChange(of: purchaseManager.isPro) { _, isPro in
+            warmupOfWeekManager.start(
+                uid: firebase.currentUserID,
+                accountType: purchaseManager.accountType,
+                isPro: isPro
+            )
+            Task { await assignmentLinkManager.flushPendingQueue() }
         }
         .environmentObject(store)
         .environmentObject(themeManager)
+        .environmentObject(assignmentLinkManager)
+        .environmentObject(warmupOfWeekManager)
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
         .pbGlobalFontDesign(fontChoice)

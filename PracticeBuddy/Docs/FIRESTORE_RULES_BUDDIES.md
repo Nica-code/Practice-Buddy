@@ -94,6 +94,16 @@ service cloud.firestore {
       allow create, update, delete: if isStudioOwner(studioId)
         || (isSelf(uid) && assignmentAllowsStudent(studioId, assignmentId, request.auth.uid));
     }
+
+    match /studios/{studioId}/planTemplates/{templateId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
+
+    match /studios/{studioId}/warmups/{warmupId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
   }
 }
 ```
@@ -106,5 +116,7 @@ service cloud.firestore {
 - Student join-by-code flow requires signed-in read access to `studios`.
 - Assignments v1 uses `studios/{studioId}/assignments` and
   `studios/{studioId}/assignments/{assignmentId}/submissions/{uid}`.
+- Guided Practice teacher templates use `studios/{studioId}/planTemplates/{templateId}`.
+- Warm-up of the week uses `studios/{studioId}/warmups/warmup_of_week`.
 - Push token storage uses `users/{uid}/devices/{deviceId}` (self-write only).
 - Later hardening step: move invite acceptance and studio joins to Cloud Functions and tighten direct write permissions.

@@ -55,6 +55,49 @@ Current Product Areas
   - Needle-style UI feedback for tuning accuracy
 - iOS 17 deprecation handled in recorder permission path
 
+5.1) Practice Lab (MVP in Progress)
+- New Home subsection: `Practice Lab` with tool entry points.
+- Feature 1 complete: Smart Loop Timer
+  - loop/rest cycles, target loops or until-stop, optional metronome integration, auto tempo progression
+  - focus tags
+  - SwiftData loop log persistence (`LoopPracticeLogModel`)
+  - Pro gating for presets save/load
+  - History integration including Pro tempo trend row
+- Feature 2 complete: Plan -> Execute -> Reflect
+  - guided plan goals + structure + target duration
+  - execute block timer with tool launch shortcuts
+  - reflection prompts + rating
+  - SwiftData plan log persistence (`PracticePlanLogModel`)
+  - Teacher Pro studio plan templates push/read in Firestore (`studios/{studioId}/planTemplates`)
+  - History integration for guided logs
+- Feature 3 complete: Pulse + Rhythm Accuracy
+  - mic onset detection pipeline with live early/late indicator
+  - free summary: average offset + groove score
+  - Pro detailed window stats
+  - SwiftData rhythm take persistence (`RhythmAccuracyTakeModel`)
+  - History integration for rhythm takes
+  - History deletion supported
+- Feature 4 complete: Run-through Mode
+  - one-take audio recording, optional no-pause mode, optional metronome click
+  - end-of-take self rating + notes
+  - SwiftData persistence with audio path (`RunThroughModel`)
+  - free vs Pro history behavior in History (free shows latest 3, Pro unlimited list in-app)
+  - History deletion supported (also removes local audio file)
+- Feature 1 + Feature 2 history controls
+  - Loop Sessions history deletion supported
+  - Guided Practice history deletion supported
+- Feature 5 complete: Assignment-aware practice linking
+  - Home “Today’s Assignments” checklist for students
+  - linked assignment context for starting Practice Lab tools
+  - linked result submit from loop/plan/rhythm/run-through save flows
+  - offline-safe submission queue + retry sync (`AssignmentLinkManager`)
+  - submission payload supports optional practice note / attachment path / linked tool metadata
+- Feature 6 complete: Warm-up Generator
+  - generate timed warm-up routines by time/instrument/focus
+  - run step-by-step timer and save outcome to session history
+  - Teacher Pro can push “Warm-up of the Week” to studio (`studios/{studioId}/warmups/warmup_of_week`)
+  - students can see warm-up of the week from Home and load it into generator
+
 6) Typography / Appearance
 - Font system overhauled from similar system styles to distinct palettes
 - 4 Google-font palettes now wired:
@@ -139,6 +182,12 @@ Current Product Areas
 - Safe optimization applied:
   - deduplicated initial notification-preference sync writes in Settings
     (`SettingsView` now performs one initial sync + explicit sync on toggle changes)
+- Launch-path optimization applied:
+  - bundled font registration now targets known font files directly instead of full bundle scan
+- Runtime/log warning cleanup applied:
+  - moved Firebase configure call into app delegate launch path to avoid startup initialization warning
+  - removed custom-font `.weight(...)` chaining to avoid repeated SwiftUI font descriptor warnings
+  - linked `AppIntents.framework` to suppress appintents metadata warning
 - No high-risk refactors were applied in this pass to preserve current UI/functionality stability.
 
 Included Local Font Files
@@ -164,8 +213,17 @@ Known Notes
 - Clearing DerivedData can require re-resolving Swift packages before build.
 - StoreKit 2 is now wired in-app, but requires App Store Connect product setup and sandbox test accounts for full end-to-end validation.
 - Cloud Functions/APNs server push for assignments is scaffolded in repo but requires Blaze before deploy; app currently uses free-tier local assignment notification fallback.
+- Firestore rules now also include:
+  - `studios/{studioId}/planTemplates/{templateId}`
+  - `studios/{studioId}/warmups/{warmupId}`
 
 Where We Are Now
 - App is in a significantly more complete state than the older “Day 8” snapshot.
 - Firebase auth + buddies + tuner + journal UX + font palette overhaul are all implemented and compiling.
 - Pro model, StoreKit foundation, and first gated features are now implemented and compiling; ready for iterative expansion.
+- History now supports deletion across all Practice Lab log types shown in History (Loop Sessions, Guided Practice, Rhythm Accuracy, Run-throughs).
+
+What Is Next
+- Add optional delete confirmation UI for History rows to reduce accidental removals.
+- Expand Pro analytics visualizations for Loop/Rhythm trends in History.
+- Finish live server push (FCM/Functions) path once Blaze is enabled, then remove local notification fallback.

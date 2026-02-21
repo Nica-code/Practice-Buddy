@@ -5,6 +5,8 @@ import AVFoundation
 struct HomeView: View {
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
+    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
+    @EnvironmentObject private var warmupOfWeekManager: WarmupOfWeekManager
     @Environment(\.modelContext) private var modelContext
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
@@ -229,6 +231,9 @@ struct HomeView: View {
                 templatesSection
 
                 practiceToolsSection
+                linkedAssignmentsSection
+                warmupOfWeekSection
+                practiceLabSection
 
                 Section("Goal") {
                     Picker("Period", selection: goalScope) {
@@ -550,6 +555,201 @@ struct HomeView: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var practiceLabSection: some View {
+        Section("Practice Lab") {
+            NavigationLink {
+                PBLazyView(PlanExecuteReflectView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Plan → Execute → Reflect")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Build goals, run timed blocks, and save reflection notes.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(WarmUpGeneratorView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Warm-up Generator")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Generate focused timed warm-up routines in one tap.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(SmartLoopTimerView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Smart Loop Timer")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Loop work/rest cycles, tag focus, and save loop logs.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(PulseRhythmAccuracyView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pulse + Rhythm Accuracy")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Measure early/late timing and track your groove score.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(AssignmentLinkedPracticeView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Assignment-linked Practice")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Attach practice results to today’s assignment tasks.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(RunThroughModeView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Run-through Mode")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Record one-take performances with quick self-review.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var warmupOfWeekSection: some View {
+        Section("Warm-up of the Week") {
+            if purchaseManager.accountType != .student {
+                Text("Studio warm-up appears for student accounts.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else if let warmup = warmupOfWeekManager.warmup {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(warmup.title)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("\(warmup.totalMinutes) min • \(warmup.instrument) • \(warmup.focus)")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    NavigationLink {
+                        PBLazyView(WarmUpGeneratorView())
+                    } label: {
+                        Text("Open Warm-up Generator")
+                            .font(type.footnote)
+                    }
+                }
+            } else {
+                Text("No studio warm-up published.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var linkedAssignmentsSection: some View {
+        Section("Today’s Assignments") {
+            if purchaseManager.accountType != .student {
+                Text("Assignment checklist appears for student accounts.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else if assignmentLinkManager.todayAssignments.isEmpty {
+                Text("No assignments due today.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                ForEach(assignmentLinkManager.todayAssignments) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(item.title)
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Button {
+                                Task {
+                                    await assignmentLinkManager.markAssignmentCompletion(item.id, completed: !item.completed)
+                                }
+                            } label: {
+                                Image(systemName: item.completed ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(item.completed ? palette.accent : palette.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        HStack(spacing: 10) {
+                            Button(assignmentLinkManager.isAssignmentLinked(item.id) ? "Unlink" : "Link") {
+                                assignmentLinkManager.linkAssignment(
+                                    assignmentLinkManager.isAssignmentLinked(item.id) ? nil : item.id
+                                )
+                            }
+                            .buttonStyle(.bordered)
+                            .font(type.footnote)
+
+                            if assignmentLinkManager.isAssignmentLinked(item.id) {
+                                NavigationLink {
+                                    PBLazyView(SmartLoopTimerView())
+                                } label: {
+                                    Text("Start Linked Loop")
+                                        .font(type.footnote)
+                                }
+
+                                NavigationLink {
+                                    PBLazyView(PlanExecuteReflectView())
+                                } label: {
+                                    Text("Start Linked Plan")
+                                        .font(type.footnote)
+                                }
+
+                                NavigationLink {
+                                    PBLazyView(PulseRhythmAccuracyView())
+                                } label: {
+                                    Text("Start Linked Rhythm")
+                                        .font(type.footnote)
+                                }
+
+                                NavigationLink {
+                                    PBLazyView(RunThroughModeView())
+                                } label: {
+                                    Text("Start Linked Run-through")
+                                        .font(type.footnote)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
+            if let msg = assignmentLinkManager.statusMessage, !msg.isEmpty {
+                Text(msg)
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
         }
         .listRowBackground(palette.surface)
     }
