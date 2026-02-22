@@ -10,6 +10,9 @@ final class WarmupOfWeekManager: ObservableObject {
     private let repository: FirebaseStudiosRepository
     private var userListener: ListenerRegistration?
     private var warmupListener: ListenerRegistration?
+    private var individualWarmupListener: ListenerRegistration?
+    private var studioWarmup: StudioWarmupOfWeek?
+    private var individualWarmup: StudioWarmupOfWeek?
     private var currentUID: String?
     private var currentStudioID: String?
     private var currentAccountType: PBAccountType = .student
@@ -39,8 +42,12 @@ final class WarmupOfWeekManager: ObservableObject {
     func stop() {
         userListener?.remove()
         warmupListener?.remove()
+        individualWarmupListener?.remove()
         userListener = nil
         warmupListener = nil
+        individualWarmupListener = nil
+        studioWarmup = nil
+        individualWarmup = nil
         warmup = nil
         statusMessage = nil
         currentUID = nil
@@ -50,8 +57,10 @@ final class WarmupOfWeekManager: ObservableObject {
     func pauseRealtime() {
         userListener?.remove()
         warmupListener?.remove()
+        individualWarmupListener?.remove()
         userListener = nil
         warmupListener = nil
+        individualWarmupListener = nil
     }
 
     func pushWarmupOfWeek(
@@ -87,13 +96,36 @@ final class WarmupOfWeekManager: ObservableObject {
 
     private func attachWarmup(studioID: String?) {
         warmupListener?.remove()
+        individualWarmupListener?.remove()
         warmupListener = nil
+        individualWarmupListener = nil
+        studioWarmup = nil
+        individualWarmup = nil
         warmup = nil
         currentStudioID = studioID
         guard let studioID else { return }
 
         warmupListener = repository.listenToWarmupOfWeek(studioID: studioID) { [weak self] warmup in
-            self?.warmup = warmup
+            guard let self else { return }
+            self.studioWarmup = warmup
+            self.resolveWarmupSelection()
+        }
+
+        if currentAccountType == .student, let uid = currentUID {
+            let docID = "individual_\(uid)"
+            individualWarmupListener = repository.listenToWarmupDocument(studioID: studioID, documentID: docID) { [weak self] warmup in
+                guard let self else { return }
+                self.individualWarmup = warmup
+                self.resolveWarmupSelection()
+            }
+        }
+    }
+
+    private func resolveWarmupSelection() {
+        if currentAccountType == .student {
+            warmup = individualWarmup ?? studioWarmup
+        } else {
+            warmup = studioWarmup
         }
     }
 }

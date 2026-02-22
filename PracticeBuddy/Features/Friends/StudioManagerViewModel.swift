@@ -49,6 +49,7 @@ final class StudioManagerViewModel: ObservableObject {
                 self.studio = studio
                 self.isLoading = false
                 self.attachMembersListener(studioID: studio?.id)
+                self.attachAssignmentsListener(studioID: studio?.id)
             }
         } else {
             userListener = repository.listenToUserDocument(uid: uid) { [weak self] data in
@@ -203,6 +204,50 @@ final class StudioManagerViewModel: ObservableObject {
         do {
             try await repository.deleteAssignment(studioID: studioID, assignmentID: assignmentID)
             statusMessage = "Assignment deleted."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func publishStudioWarmup(
+        title: String,
+        instrument: String,
+        focus: String,
+        totalMinutes: Int,
+        steps: [String],
+        target: StudioWarmupOfWeek.Target,
+        targetStudentUID: String?,
+        targetStudentName: String?
+    ) async {
+        guard let uid = currentUID else {
+            statusMessage = "No active account."
+            return
+        }
+        guard currentRole == .teacher else {
+            statusMessage = "Only teachers can publish studio warm-ups."
+            return
+        }
+        guard let studioID = studio?.id else {
+            statusMessage = "Create a studio first."
+            return
+        }
+
+        do {
+            try await repository.saveStudioWarmup(
+                studioID: studioID,
+                teacherUID: uid,
+                title: title,
+                instrument: instrument,
+                focus: focus,
+                totalMinutes: totalMinutes,
+                steps: steps,
+                target: target,
+                targetStudentUID: targetStudentUID,
+                targetStudentName: targetStudentName
+            )
+            statusMessage = target == .studio
+                ? "Studio warm-up published."
+                : "Individual warm-up published."
         } catch {
             statusMessage = error.localizedDescription
         }

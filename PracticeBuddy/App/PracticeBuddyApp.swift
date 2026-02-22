@@ -29,7 +29,7 @@ struct PracticeBuddyApp: App {
                     await firebase.start()
                 }
         }
-        .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self])
+        .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self, ScaleIntonationTakeModel.self])
         .environmentObject(firebase)
         .environmentObject(purchaseManager)
     }

@@ -94,7 +94,10 @@ struct StoreView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(!purchaseManager.hasCompletedInitialRoleSelection || purchaseManager.accountTypeChangeUsed)
+                .disabled(
+                    !purchaseManager.canSwitchRoleFreely &&
+                    (purchaseManager.accountTypeChangeUsed || !purchaseManager.hasCompletedInitialRoleSelection)
+                )
 
                 Text(accountTypeHelpText)
                     .font(type.footnote)
@@ -246,10 +249,13 @@ struct StoreView: View {
     }
 
     private var primaryCTADisabled: Bool {
-        purchaseManager.hasLifetimePro || proProduct == nil
+        purchaseManager.isPro || proProduct == nil
     }
 
     private var accountTypeHelpText: String {
+        if purchaseManager.canSwitchRoleFreely {
+            return "Master account: you can switch freely between Student and Teacher."
+        }
         if !purchaseManager.hasCompletedInitialRoleSelection {
             return "Set during account setup after sign-in."
         }

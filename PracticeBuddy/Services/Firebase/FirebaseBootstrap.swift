@@ -6,6 +6,7 @@ import AuthenticationServices
 import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
+import UIKit
 
 @MainActor
 final class FirebaseBootstrap: ObservableObject {
@@ -118,23 +119,36 @@ final class FirebaseBootstrap: ObservableObject {
                 fullName: credential.fullName
             )
 
-            Task { await signInWithApple(firebaseCredential) }
+            Task { await signInWithCredential(firebaseCredential, providerName: "Apple") }
         }
     }
 
-    private func signInWithApple(_ credential: AuthCredential) async {
+    func signInWithGoogle() {
+        Task {
+            do {
+                let credential = try await googleCredential()
+                await signInWithCredential(credential, providerName: "Google")
+            } catch {
+                let msg = "Google sign-in failed: \(error.localizedDescription)"
+                statusMessage = msg
+                PBLog.firebase.error("\(msg)")
+            }
+        }
+    }
+
+    private func signInWithCredential(_ credential: AuthCredential, providerName: String) async {
         do {
             let result: AuthDataResult
             if let user = Auth.auth().currentUser, user.isAnonymous {
                 result = try await linkCurrentUser(with: credential)
-                PBLog.firebase.info("Linked anonymous user with Apple credential.")
+                PBLog.firebase.info("Linked anonymous user with \(providerName) credential.")
             } else {
                 result = try await signIn(with: credential)
-                PBLog.firebase.info("Signed in with Apple credential.")
+                PBLog.firebase.info("Signed in with \(providerName) credential.")
             }
 
             refreshAuthState(user: result.user)
-            statusMessage = "Signed in with Apple."
+            statusMessage = "Signed in with \(providerName)."
         } catch {
             let ns = error as NSError
             if ns.domain == AuthErrorDomain,
@@ -142,16 +156,38 @@ final class FirebaseBootstrap: ObservableObject {
                 do {
                     let result = try await signIn(with: credential)
                     refreshAuthState(user: result.user)
-                    statusMessage = "Signed in with Apple."
+                    statusMessage = "Signed in with \(providerName)."
                     return
                 } catch {
-                    statusMessage = "Apple sign-in failed: \(error.localizedDescription)"
+                    statusMessage = "\(providerName) sign-in failed: \(error.localizedDescription)"
                     return
                 }
             }
 
-            statusMessage = "Apple sign-in failed: \(error.localizedDescription)"
-            PBLog.firebase.error("Apple sign-in failed: \(error.localizedDescription)")
+            statusMessage = "\(providerName) sign-in failed: \(error.localizedDescription)"
+            PBLog.firebase.error("\(providerName) sign-in failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func googleCredential() async throws -> AuthCredential {
+        try await withCheckedThrowingContinuation { continuation in
+            let provider = OAuthProvider(providerID: "google.com")
+            provider.customParameters = ["prompt": "select_account"]
+            provider.getCredentialWith(nil) { credential, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let credential else {
+                    continuation.resume(throwing: NSError(
+                        domain: "PracticeBuddy.FirebaseBootstrap",
+                        code: -5,
+                        userInfo: [NSLocalizedDescriptionKey: "No Google auth credential returned."]
+                    ))
+                    return
+                }
+                continuation.resume(returning: credential)
+            }
         }
     }
 

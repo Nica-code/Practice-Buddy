@@ -150,22 +150,6 @@ struct WarmUpGeneratorView: View {
                         }
                     }
 
-                    if purchaseManager.isPro, purchaseManager.accountType == .teacher {
-                        Button("Push As Warm-up of the Week") {
-                            Task {
-                                await warmupOfWeekManager.pushWarmupOfWeek(
-                                    title: generatedTitle,
-                                    instrument: instrument.rawValue.capitalized,
-                                    focus: selectedFocus.sorted().joined(separator: ", "),
-                                    totalMinutes: minutes,
-                                    steps: generatedSteps.map(\.title)
-                                )
-                                statusMessage = warmupOfWeekManager.statusMessage
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.button)
-                    }
                 }
                 .listRowBackground(palette.surface)
 
@@ -399,4 +383,3 @@ struct WarmUpGeneratorView: View {
         statusMessage = "Warm-up saved."
     }
 }
-

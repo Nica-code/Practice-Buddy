@@ -23,6 +23,21 @@ struct AccountSetupView: View {
                         .font(type.body)
                         .foregroundStyle(theme.textSecondary)
 
+                    Button {
+                        firebase.signInWithGoogle()
+                    } label: {
+                        HStack {
+                            Image(systemName: "globe")
+                            Text("Continue with Google")
+                        }
+                        .font(type.body.weight(.semibold))
+                        .foregroundStyle(theme.textPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
                     SignInWithAppleButton(.continue) { request in
                         firebase.prepareAppleSignInRequest(request)
                     } onCompletion: { result in
@@ -43,9 +58,13 @@ struct AccountSetupView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    Text("You can change this once later in Settings if needed.")
-                        .font(type.footnote)
-                        .foregroundStyle(theme.textSecondary)
+                    Text(
+                        purchaseManager.canSwitchRoleFreely
+                        ? "Master account can switch between Student and Teacher anytime in Settings."
+                        : "You can change this once later in Settings if needed."
+                    )
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
 
                     Button("Continue") {
                         purchaseManager.completeInitialAccountSetup(as: selectedRole)

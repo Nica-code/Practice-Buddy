@@ -51,6 +51,7 @@ struct HistoryView: View {
     @Query(sort: [SortDescriptor(\LoopPracticeLogModel.date, order: .reverse)]) private var loopLogs: [LoopPracticeLogModel]
     @Query(sort: [SortDescriptor(\PracticePlanLogModel.date, order: .reverse)]) private var planLogs: [PracticePlanLogModel]
     @Query(sort: [SortDescriptor(\RhythmAccuracyTakeModel.date, order: .reverse)]) private var rhythmTakes: [RhythmAccuracyTakeModel]
+    @Query(sort: [SortDescriptor(\ScaleIntonationTakeModel.date, order: .reverse)]) private var intonationTakes: [ScaleIntonationTakeModel]
     @Query(sort: [SortDescriptor(\RunThroughModel.date, order: .reverse)]) private var runThroughs: [RunThroughModel]
 
     @State private var searchText: String = ""
@@ -77,6 +78,7 @@ struct HistoryView: View {
             loopLogsSection
             planLogsSection
             rhythmLogsSection
+            intonationSection
             runThroughSection
 
             if filteredSessions.isEmpty {
@@ -115,6 +117,7 @@ struct HistoryView: View {
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(palette.accent)
                 }
                 .accessibilityLabel("Export")
             }
@@ -276,6 +279,17 @@ struct HistoryView: View {
                     .foregroundStyle(palette.textPrimary)
                 Spacer()
                 Text("\(filteredRhythmTakes.count)")
+                    .font(type.number)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
+
+            HStack {
+                Text("Intonation takes")
+                    .font(type.body)
+                    .foregroundStyle(palette.textPrimary)
+                Spacer()
+                Text("\(filteredIntonationTakes.count)")
                     .font(type.number)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
@@ -504,6 +518,73 @@ struct HistoryView: View {
         .listRowBackground(palette.surface)
     }
 
+    private var intonationSection: some View {
+        Section("Scale Intonation") {
+            if filteredIntonationTakes.isEmpty {
+                Text("No intonation takes in this scope yet.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                ForEach(filteredIntonationTakes.prefix(25)) { take in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(take.date.formatted(date: .abbreviated, time: .shortened))
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text("Score \(take.overallScore)")
+                                .font(type.number)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
+
+                        HStack {
+                            Text("\(take.keyRaw) \(take.modeRaw.capitalized) • \(take.exerciseTypeRaw)")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Spacer()
+                            Text("A=\(take.referenceHz)")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
+
+                        HStack {
+                            Text(String(format: "Center %.0f%% • Stability %.0f%% • Consistency %.0f%%", take.centeringScore, take.stabilityScore, take.consistencyScore))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Spacer()
+                            Text(String(format: "%+.1fc", take.meanOffsetCents))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
+
+                        let suggestions = parseSuggestions(take.suggestionsRaw)
+                        if let first = suggestions.first {
+                            Text("Fix: \(first)")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .lineLimit(2)
+                        }
+
+                        if purchaseManager.isPro, let firstRow = parseIntonationRows(take.perNoteJSON).first {
+                            Text("Detail: \(firstRow)")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onDelete { offsets in
+                    deleteIntonationTakes(offsets: offsets, from: Array(filteredIntonationTakes.prefix(25)))
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
     private var analyticsTotalSeconds: Int {
         filteredSessions.reduce(0) { $0 + max(0, $1.durationSeconds) }
     }
@@ -621,6 +702,25 @@ struct HistoryView: View {
         let lowered = needle.lowercased()
         return base.filter { take in
             "\(take.bpm) \(take.grooveScore) \(take.averageOffsetMs) \(take.detailJSON)".lowercased().contains(lowered)
+        }
+    }
+
+    private var filteredIntonationTakes: [ScaleIntonationTakeModel] {
+        let base = intonationTakesFilteredByScope(scope)
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return base }
+        let lowered = needle.lowercased()
+        return base.filter { take in
+            [
+                take.exerciseTypeRaw,
+                take.keyRaw,
+                take.modeRaw,
+                take.suggestionsRaw,
+                take.perNoteJSON
+            ]
+            .joined(separator: " ")
+            .lowercased()
+            .contains(lowered)
         }
     }
 
@@ -743,6 +843,25 @@ struct HistoryView: View {
         }
     }
 
+    private func intonationTakesFilteredByScope(_ scope: HistoryScope) -> [ScaleIntonationTakeModel] {
+        let cal = Calendar.current
+        let now = Date()
+
+        switch scope {
+        case .all:
+            return intonationTakes
+        case .today:
+            guard let interval = cal.dateInterval(of: .day, for: now) else { return [] }
+            return intonationTakes.filter { $0.date >= interval.start && $0.date < interval.end }
+        case .week:
+            guard let interval = cal.dateInterval(of: .weekOfYear, for: now) else { return [] }
+            return intonationTakes.filter { $0.date >= interval.start && $0.date < interval.end }
+        case .month:
+            guard let interval = cal.dateInterval(of: .month, for: now) else { return [] }
+            return intonationTakes.filter { $0.date >= interval.start && $0.date < interval.end }
+        }
+    }
+
     private func runThroughsFilteredByScope(_ scope: HistoryScope) -> [RunThroughModel] {
         let cal = Calendar.current
         let now = Date()
@@ -774,6 +893,28 @@ struct HistoryView: View {
             .split(separator: ",")
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func parseSuggestions(_ raw: String) -> [String] {
+        raw
+            .split(separator: "|")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func parseIntonationRows(_ raw: String) -> [String] {
+        raw
+            .split(separator: ";")
+            .compactMap { row in
+                let parts = row.split(separator: ",").map(String.init)
+                guard parts.count >= 6 else { return nil }
+                let degree = parts[0]
+                let name = parts[1]
+                let mean = parts[2]
+                let center = parts[3]
+                let stability = parts[4]
+                return "d\(degree) \(name) \(mean)c • C \(center)% • S \(stability)%"
+            }
     }
 
     private func delete(offsets: IndexSet, from filtered: [PracticeSessionModel]) {
@@ -858,6 +999,14 @@ struct HistoryView: View {
     }
 
     private func deleteRhythmTakes(offsets: IndexSet, from visible: [RhythmAccuracyTakeModel]) {
+        let toDelete = offsets.map { visible[$0] }
+        for item in toDelete {
+            modelContext.delete(item)
+        }
+        try? modelContext.save()
+    }
+
+    private func deleteIntonationTakes(offsets: IndexSet, from visible: [ScaleIntonationTakeModel]) {
         let toDelete = offsets.map { visible[$0] }
         for item in toDelete {
             modelContext.delete(item)

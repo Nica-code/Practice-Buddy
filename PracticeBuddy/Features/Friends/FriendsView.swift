@@ -7,6 +7,7 @@ struct FriendsView: View {
     @EnvironmentObject private var store: SessionStore
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var firebase: FirebaseBootstrap
 
     @StateObject private var buddiesVM = BuddiesViewModel()
@@ -28,6 +29,9 @@ struct FriendsView: View {
             .padding(.bottom, PBLayout.padXL)
         }
         .background(theme.background.ignoresSafeArea())
+        .toolbarBackground(chrome, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
@@ -55,6 +59,8 @@ struct FriendsView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
 
     private var myTotalMinutes: Int {
         max(0, store.sessions.reduce(0) { $0 + max(0, $1.durationSeconds) } / 60)

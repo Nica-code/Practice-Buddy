@@ -21,6 +21,7 @@ Current Product Areas
 2) Firebase + Auth
 - Firebase integrated and initialized in app lifecycle
 - Apple Sign In enabled and working with Firebase Auth
+- Google sign-in path added via Firebase OAuth provider flow (`google.com`) in onboarding
 - Session persists across relaunches (user remains signed in)
 - Anonymous bootstrap path used during initial setup flow where needed
 - First-launch account setup gate added:
@@ -185,6 +186,17 @@ Current Product Areas
       - `trialUsed`
       - `trialStartedAt`
       - `trialEndsAt`
+  - Launch entitlement policy implemented:
+    - default launch users are no longer globally auto-unlocked
+    - all-access is now granted only via explicit whitelist/admin assignment
+    - master account policy supported:
+      - detected by configured master email list (default includes `nicaviolin@icloud.com`)
+      - optional strongest path: set explicit master UID in `PBMasterUIDs`
+      - master account can switch freely between Student and Teacher in Settings
+    - entitlement/profile fields mirrored to Firestore:
+      - `entitlementTier`
+      - `canSwitchRoleFreely`
+      - `isMasterAccount`
 
 8) Optimization / Cleanup Pass
 - Full source review pass completed across app modules (UI, Firebase, StoreKit, audio/tools, settings).
@@ -242,9 +254,13 @@ Included Local Font Files
 Supporting Docs
 - `PracticeBuddy/Docs/FIRESTORE_RULES_BUDDIES.md`
 - `PracticeBuddy/Docs/GOOGLE_FONTS_PALETTES.md`
+- `PracticeBuddy/Docs/LAUNCH_RESET.md`
 - `firebase/functions/README.md`
 - `hosting/apple-app-site-association`
 - `hosting/.well-known/apple-app-site-association`
+- `scripts/all_access_whitelist.json`
+- `functions/scripts/grant_all_access_from_whitelist.js`
+- `functions/scripts/revoke_all_access_from_whitelist.js`
 
 Known Notes
 - TestFlight upload may show non-blocking symbol warnings for some Firebase dependency frameworks (`grpc`, `absl`, etc.); build upload still works.
@@ -256,6 +272,9 @@ Known Notes
   - `studios/{studioId}/warmups/{warmupId}`
   - studio member create path compatibility for batch create (`getAfter` owner check)
 - Universal Links require Associated Domains capability + deployed AASA files on hosted domain.
+- Launch reset tooling added:
+  - Firestore reset script: `scripts/firestore_launch_reset.sh`
+  - Auth user deletion remains a Firebase Console step.
 
 Where We Are Now
 - App is in a significantly more complete state than the older “Day 8” snapshot.

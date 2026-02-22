@@ -19,6 +19,7 @@ struct ContentView: View {
 
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var store = SessionStore()
+    @StateObject private var journeyManager = JourneyProgressManager()
     @StateObject private var assignmentLinkManager = AssignmentLinkManager()
     @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
 
@@ -52,11 +53,11 @@ struct ContentView: View {
                     .tag(1)
 
                     NavigationStack {
-                        PBLazyView(FriendsView())
+                        PBLazyView(StudioHubView())
                             .navigationTitle("")
                             .navigationBarTitleDisplayMode(.inline)
                     }
-                    .tabItem { Label("Buddies", systemImage: "person.2") }
+                    .tabItem { Label("Studio", systemImage: "person.2") }
                     .tag(2)
 
                     NavigationStack {
@@ -66,16 +67,26 @@ struct ContentView: View {
                     }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(3)
+
+                    NavigationStack {
+                        PBLazyView(JourneyView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Journey", systemImage: "figure.walk") }
+                    .tag(4)
                 }
             }
         }
         .onAppear {
-            if !(0...3).contains(selectedTab) { selectedTab = 0 }
+            if selectedTab == 5 { selectedTab = 4 } // migrate old Journey tab index
+            if !(0...4).contains(selectedTab) { selectedTab = 0 }
 
             guard !didInit else { return }
             didInit = true
 
             store.configure(context: modelContext)
+            journeyManager.handleSessionSnapshot(store.sessions)
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
         }
@@ -118,9 +129,13 @@ struct ContentView: View {
             handleIncomingURL(url)
         }
         .environmentObject(store)
+        .environmentObject(journeyManager)
         .environmentObject(themeManager)
         .environmentObject(assignmentLinkManager)
         .environmentObject(warmupOfWeekManager)
+        .onReceive(store.$sessions) { sessions in
+            journeyManager.handleSessionSnapshot(sessions)
+        }
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
         .pbGlobalFontDesign(fontChoice)

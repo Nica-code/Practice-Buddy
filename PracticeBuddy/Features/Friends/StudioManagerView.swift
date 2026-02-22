@@ -14,10 +14,23 @@ struct StudioManagerView: View {
         }
     }
 
+    private enum WarmupAudience: String, CaseIterable, Identifiable {
+        case studio
+        case individual
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .studio: return "Whole Studio"
+            case .individual: return "Individual"
+            }
+        }
+    }
+
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
 
     @StateObject private var viewModel = StudioManagerViewModel()
     @State private var studioNameInput: String = ""
@@ -27,6 +40,13 @@ struct StudioManagerView: View {
     @State private var assignmentDueAt: Date = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
     @State private var assignmentAudience: AssignmentAudience = .studio
     @State private var selectedStudentUID: String = ""
+    @State private var warmupAudience: WarmupAudience = .studio
+    @State private var warmupStudentUID: String = ""
+    @State private var warmupTitleInput: String = ""
+    @State private var warmupInstrumentInput: String = "Strings"
+    @State private var warmupFocusInput: String = ""
+    @State private var warmupMinutesInput: Int = 10
+    @State private var warmupStepsInput: String = ""
     @State private var teacherAssignmentFilter: StudioManagerViewModel.AssignmentFilter = .all
     @State private var editingAssignment: StudioAssignment?
     @State private var showDeleteConfirm = false
@@ -43,12 +63,10 @@ struct StudioManagerView: View {
             VStack(spacing: 14) {
                 if !purchaseManager.isPro {
                     lockedCard
+                } else if purchaseManager.accountType == .teacher {
+                    teacherContentCard
                 } else {
-                    if purchaseManager.accountType == .teacher {
-                        teacherContentCard
-                    } else {
-                        studentContentCard
-                    }
+                    studentContentCard
                 }
             }
             .padding(.horizontal)
@@ -56,6 +74,10 @@ struct StudioManagerView: View {
             .padding(.bottom, PBLayout.padXL)
         }
         .background(theme.background.ignoresSafeArea())
+        .scrollDismissesKeyboard(.interactively)
+        .toolbarBackground(chrome, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: firebase.currentUserID) {
@@ -70,6 +92,12 @@ struct StudioManagerView: View {
             guard assignmentAudience == .individual else { return }
             if !ids.contains(selectedStudentUID) {
                 selectedStudentUID = ids.first ?? ""
+            }
+        }
+        .onChange(of: viewModel.studentMembers.map(\.id)) { _, ids in
+            guard warmupAudience == .individual else { return }
+            if !ids.contains(warmupStudentUID) {
+                warmupStudentUID = ids.first ?? ""
             }
         }
         .onDisappear {
@@ -92,6 +120,8 @@ struct StudioManagerView: View {
             Text("Delete \"\(assignment.title)\"?")
         }
     }
+
+    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
 
     private var lockedCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -123,6 +153,7 @@ struct StudioManagerView: View {
                 studioHeader(studio)
                 memberList
                 teacherAssignmentsSection
+                teacherWarmupPublisherSection
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Create your studio to start inviting students.")
@@ -222,6 +253,7 @@ struct StudioManagerView: View {
                 viewModel.statusMessage = "Invite link copied."
             }
             .buttonStyle(.bordered)
+            .tint(theme.accent)
 
             if let inviteURL = inviteURL(for: studio.inviteCode) {
                 ShareLink(item: inviteURL) {
@@ -229,6 +261,7 @@ struct StudioManagerView: View {
                         .font(type.footnote)
                 }
                 .buttonStyle(.bordered)
+                .tint(theme.accent)
             }
         }
         .padding(10)
@@ -341,12 +374,7 @@ struct StudioManagerView: View {
                             .font(type.footnote)
                             .foregroundStyle(theme.textSecondary)
                     } else {
-                        Picker("Student", selection: $selectedStudentUID) {
-                            ForEach(viewModel.studentMembers) { student in
-                                Text(student.displayName).tag(student.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                        studentSelectionList(selectedID: $selectedStudentUID)
                     }
                 }
 
@@ -438,6 +466,109 @@ struct StudioManagerView: View {
         }
     }
 
+    private var teacherWarmupPublisherSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Studio Warm-up Publisher")
+                .font(type.body)
+                .foregroundStyle(theme.textPrimary)
+
+            TextField("Warm-up title", text: $warmupTitleInput)
+                .font(type.body)
+                .padding(10)
+                .background(theme.surfaceAlt)
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+            TextField("Instrument (e.g. Strings)", text: $warmupInstrumentInput)
+                .font(type.body)
+                .padding(10)
+                .background(theme.surfaceAlt)
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+            TextField("Focus (e.g. Intonation, shifts)", text: $warmupFocusInput)
+                .font(type.body)
+                .padding(10)
+                .background(theme.surfaceAlt)
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+            Stepper(value: $warmupMinutesInput, in: 5...60, step: 5) {
+                HStack {
+                    Text("Total time")
+                        .font(type.body)
+                        .foregroundStyle(theme.textPrimary)
+                    Spacer()
+                    Text("\(warmupMinutesInput) min")
+                        .font(type.number)
+                        .foregroundStyle(theme.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+
+            Picker("Assign To", selection: $warmupAudience) {
+                ForEach(WarmupAudience.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if warmupAudience == .individual {
+                if viewModel.studentMembers.isEmpty {
+                    Text("No students in roster yet.")
+                        .font(type.footnote)
+                        .foregroundStyle(theme.textSecondary)
+                } else {
+                    studentSelectionList(selectedID: $warmupStudentUID)
+                }
+            }
+
+            TextField("Steps (one step per line)", text: $warmupStepsInput, axis: .vertical)
+                .font(type.body)
+                .lineLimit(4...8)
+                .padding(10)
+                .background(theme.surfaceAlt)
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+            Button("Publish Warm-up") {
+                let title = warmupTitleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                let instrument = warmupInstrumentInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                let focus = warmupFocusInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                let steps = warmupStepsInput
+                    .split(whereSeparator: \.isNewline)
+                    .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                guard !title.isEmpty else {
+                    viewModel.statusMessage = "Enter a warm-up title."
+                    return
+                }
+                guard !steps.isEmpty else {
+                    viewModel.statusMessage = "Add at least one warm-up step."
+                    return
+                }
+
+                Task {
+                    let target: StudioWarmupOfWeek.Target = (warmupAudience == .studio) ? .studio : .individual
+                    let student = viewModel.studentMembers.first(where: { $0.id == warmupStudentUID })
+                    await viewModel.publishStudioWarmup(
+                        title: title,
+                        instrument: instrument.isEmpty ? "Strings" : instrument,
+                        focus: focus,
+                        totalMinutes: warmupMinutesInput,
+                        steps: steps,
+                        target: target,
+                        targetStudentUID: target == .individual ? student?.id : nil,
+                        targetStudentName: target == .individual ? student?.displayName : nil
+                    )
+
+                    warmupTitleInput = ""
+                    warmupFocusInput = ""
+                    warmupStepsInput = ""
+                    warmupMinutesInput = 10
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     private var studentAssignmentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Assignments")
@@ -498,6 +629,36 @@ struct StudioManagerView: View {
                     .background(theme.surfaceAlt)
                     .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func studentSelectionList(selectedID: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Select Student")
+                .font(type.footnote)
+                .foregroundStyle(theme.textSecondary)
+
+            ForEach(viewModel.studentMembers) { student in
+                let isSelected = selectedID.wrappedValue == student.id
+                Button {
+                    selectedID.wrappedValue = student.id
+                } label: {
+                    HStack {
+                        Text(student.displayName)
+                            .font(type.body)
+                            .foregroundStyle(theme.textPrimary)
+                        Spacer()
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(isSelected ? theme.accent : theme.textSecondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(theme.surfaceAlt)
+                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
         }
     }

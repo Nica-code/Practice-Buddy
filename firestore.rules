@@ -105,5 +105,13 @@ service cloud.firestore {
       allow read: if isStudioMember(studioId);
       allow create, update, delete: if isStudioOwner(studioId);
     }
+
+    match /studios/{studioId}/messages/{messageId} {
+      allow read: if isStudioMember(studioId);
+      allow create: if isStudioMember(studioId)
+        && request.resource.data.senderUid == request.auth.uid;
+      allow update, delete: if isStudioOwner(studioId)
+        || (isSignedIn() && resource.data.senderUid == request.auth.uid);
+    }
   }
 }

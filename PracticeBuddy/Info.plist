@@ -15,6 +15,12 @@
 	</array>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
+	<key>PBMasterEmails</key>
+	<array>
+		<string>nicaviolin@icloud.com</string>
+	</array>
+	<key>PBMasterUIDs</key>
+	<array/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -1,9 +1,15 @@
 import SwiftUI
 import Combine
 import AVFoundation
+import UIKit
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+import FamilyControls
+import ManagedSettings
+#endif
 
 struct HomeView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
     @EnvironmentObject private var warmupOfWeekManager: WarmupOfWeekManager
@@ -17,6 +23,7 @@ struct HomeView: View {
     @AppStorage("pb.practice.accumulatedSeconds") private var accumulatedSeconds: Int = 0
     @AppStorage("pb.practice.startEpoch") private var startEpoch: Double = 0
     @AppStorage("pb.practice.isRunning") private var isRunning: Bool = false
+    @AppStorage("pb.practice.distractionBlockEnabled") private var distractionBlockEnabled: Bool = false
 
     // Goal settings
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes: Int = 30
@@ -36,6 +43,7 @@ struct HomeView: View {
     @StateObject private var metronome = MetronomeEngine()
     @StateObject private var tuner = TunerEngine()
     @StateObject private var social = LocalSocialProvider()
+    @StateObject private var appShield = PracticeAppShieldManager()
     @State private var metronomePulseScale: CGFloat = 1.0
 
     private enum Constants {
@@ -61,7 +69,9 @@ struct HomeView: View {
     @State private var journalPieces: [PracticeSessionJournalPiece] = []
     @State private var journalReflection: String = ""
     @State private var showSavedAlert = false
+    @State private var lastSavedXP: Int = 0
     @State private var showDiscardConfirm = false
+    @State private var showAppSelectionPicker = false
 
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
@@ -161,8 +171,28 @@ struct HomeView: View {
                 .tracking(type.heroTracking)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, Constants.titleTopPadding)
-                .padding(.bottom, Constants.titleBottomPadding)
+                .padding(.bottom, 4)
                 .foregroundStyle(palette.textPrimary)
+
+            HStack(spacing: 8) {
+                Image(systemName: "figure.walk")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                Text("Journey Lv \(journey.level)")
+                    .font(type.footnote.weight(.semibold))
+                    .foregroundStyle(palette.textPrimary)
+                Text("•")
+                    .foregroundStyle(palette.textSecondary)
+                Text("\(journey.xpToNextLevel) XP to next")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(palette.surfaceAlt)
+            .clipShape(Capsule())
+            .padding(.bottom, Constants.titleBottomPadding)
 
             List {
                 Section {
@@ -196,6 +226,29 @@ struct HomeView: View {
                         .disabled(!canStop)
                     }
                     .padding(.vertical, 4)
+
+                    Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
+                        .font(type.body)
+
+                    if distractionBlockEnabled {
+                        HStack(spacing: 10) {
+                            Button("Select Apps") {
+                                showAppSelectionPicker = true
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appShield.isAvailable)
+
+                            Button("Authorize") {
+                                Task { await appShield.requestAuthorization() }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appShield.isAvailable)
+                        }
+
+                        Text(appShield.statusLine)
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
                 }
                 .listRowBackground(palette.surface)
 
@@ -223,8 +276,10 @@ struct HomeView: View {
                     ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
                         Label("Share Practice Time", systemImage: "square.and.arrow.up")
                             .font(type.body)
+                            .foregroundStyle(palette.accent)
                     }
                     .buttonStyle(.bordered)
+                    .tint(palette.accent)
                 }
                 .listRowBackground(palette.surface)
 
@@ -235,6 +290,7 @@ struct HomeView: View {
                 linkedAssignmentsSection
                 warmupOfWeekSection
                 practiceLabSection
+                practiceLabProSection
 
                 Section("Goal") {
                     Picker("Period", selection: goalScope) {
@@ -304,6 +360,7 @@ struct HomeView: View {
 
             social.configure(modelContext: modelContext)
             social.refresh()
+            appShield.refreshState()
         }
         .onChange(of: isRunning) { _, running in
             if running {
@@ -313,12 +370,20 @@ struct HomeView: View {
                 stopTicker()
             }
         }
+        .onChange(of: distractionBlockEnabled) { _, enabled in
+            if !enabled {
+                appShield.stopShielding()
+            } else if isRunning {
+                Task { await appShield.startShieldingIfPossible() }
+            }
+        }
         .onDisappear {
             stopTicker()
             // Keep metronome running across app/tab transitions.
             // This allows continued playback when screen locks/backgrounds.
             tuner.stopListening()
             tuner.stopReferenceTone()
+            appShield.stopShielding()
         }
         .onChange(of: metronomeBPM) { _, newBPM in
             let clamped = min(max(newBPM, 40), 220)
@@ -384,8 +449,13 @@ struct HomeView: View {
         .alert("Saved!", isPresented: $showSavedAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Your practice session was added to History.")
+            if lastSavedXP > 0 {
+                Text("Your practice session was added to History. +\(lastSavedXP) XP")
+            } else {
+                Text("Your practice session was added to History.")
+            }
         }
+        .practiceAppShieldPicker(isPresented: $showAppSelectionPicker, selection: appShield.selectionBinding)
     }
 
     // MARK: - Ticker control
@@ -649,6 +719,19 @@ struct HomeView: View {
             }
 
             NavigationLink {
+                PBLazyView(ScaleIntonationView())
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Scale Intonation Score")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Guided scale grading with per-note intonation and stability feedback.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+
+            NavigationLink {
                 PBLazyView(AssignmentLinkedPracticeView())
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
@@ -675,6 +758,40 @@ struct HomeView: View {
             }
         }
         .listRowBackground(palette.surface)
+    }
+
+    @ViewBuilder
+    private var practiceLabProSection: some View {
+        if purchaseManager.accountType == .student {
+            Section("Practice Lab Pro") {
+                if purchaseManager.isPro {
+                    NavigationLink {
+                        PBLazyView(SmartPracticePlanGeneratorView())
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Smart Practice Plan Generator")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Adaptive coach plan using your recent practice data and feedback.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Practice Lab Pro unlocks adaptive student coaching tools.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Button("Open Practice Buddy Pro") {
+                            selectedTab = 3
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                    }
+                }
+            }
+            .listRowBackground(palette.surface)
+        }
     }
 
     private var warmupOfWeekSection: some View {
@@ -865,12 +982,18 @@ struct HomeView: View {
             accumulatedSeconds = currentElapsedSeconds
             isRunning = false
             startEpoch = 0
+            if distractionBlockEnabled {
+                appShield.stopShielding()
+            }
         } else {
             if !hasAnyTime {
                 accumulatedSeconds = 0
             }
             startEpoch = Date().timeIntervalSince1970
             isRunning = true
+            if distractionBlockEnabled {
+                Task { await appShield.startShieldingIfPossible() }
+            }
         }
     }
 
@@ -879,6 +1002,9 @@ struct HomeView: View {
             accumulatedSeconds = currentElapsedSeconds
             isRunning = false
             startEpoch = 0
+            if distractionBlockEnabled {
+                appShield.stopShielding()
+            }
         }
         if journalPieces.isEmpty {
             journalPieces = [makeEmptyPiece()]
@@ -890,6 +1016,9 @@ struct HomeView: View {
         accumulatedSeconds = 0
         startEpoch = 0
         isRunning = false
+        if distractionBlockEnabled {
+            appShield.stopShielding()
+        }
         noteTitle = ""
         noteFocus = ""
         noteMood = .good
@@ -995,6 +1124,7 @@ struct HomeView: View {
                         let cleanedPieces = cleanedJournalPieces(from: journalPieces)
                         let journal = PracticeSessionJournal(pieces: cleanedPieces, reflection: cleanedReflection)
                         let structuredJSON = journalJSONIfNeeded(journal)
+                        lastSavedXP = max(0, currentElapsedSeconds / 60)
 
                         store.addSession(
                             date: Date(),
@@ -1505,4 +1635,191 @@ final class MetronomeEngine: ObservableObject {
 
         return buffer
     }
+}
+
+@MainActor
+final class PracticeAppShieldManager: ObservableObject {
+    private let defaults = UserDefaults.standard
+    private let selectionDataKey = "pb.practice.screenTime.selection.v1"
+
+    @Published private(set) var isAvailable: Bool = false
+    @Published private(set) var isAuthorized: Bool = false
+    @Published private(set) var selectedAppsCount: Int = 0
+    @Published var statusMessage: String?
+
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+    @Published var selection = FamilyActivitySelection() {
+        didSet {
+            selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+            persistSelection()
+        }
+    }
+    private let store = ManagedSettingsStore()
+#endif
+
+    init() {
+        refreshState()
+    }
+
+    var statusLine: String {
+        if let statusMessage, !statusMessage.isEmpty {
+            return statusMessage
+        }
+        if !isAvailable {
+            return "Screen Time app blocking is unavailable on this device/configuration."
+        }
+        if !isAuthorized {
+            return "Authorization needed. Tap Authorize, then choose apps to block."
+        }
+        if selectedAppsCount == 0 {
+            return "No apps/categories selected yet. Tap Select Apps."
+        }
+        return "\(selectedAppsCount) target(s) selected for blocking during practice."
+    }
+
+    func refreshState() {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        if #available(iOS 16.0, *) {
+            isAvailable = true
+            isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
+            loadSelection()
+        } else {
+            isAvailable = false
+            isAuthorized = false
+            selectedAppsCount = 0
+        }
+#else
+        isAvailable = false
+        isAuthorized = false
+        selectedAppsCount = 0
+#endif
+    }
+
+    func requestAuthorization() async {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard #available(iOS 16.0, *), isAvailable else {
+            statusMessage = "Screen Time blocking isn't available here."
+            return
+        }
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+            isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
+            statusMessage = isAuthorized ? "Screen Time authorization granted." : "Screen Time authorization not granted."
+        } catch {
+            isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
+            statusMessage = "Screen Time authorization failed: \(error.localizedDescription)"
+        }
+#else
+        statusMessage = "Screen Time blocking requires FamilyControls support."
+#endif
+    }
+
+    func startShieldingIfPossible() async {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard #available(iOS 16.0, *), isAvailable else {
+            statusMessage = "Screen Time blocking isn't available here."
+            return
+        }
+
+        if !isAuthorized {
+            await requestAuthorization()
+        }
+        guard isAuthorized else { return }
+
+        guard selectedAppsCount > 0 else {
+            statusMessage = "Pick apps or categories first with Select Apps."
+            return
+        }
+
+        store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
+        store.shield.applicationCategories = selection.categoryTokens.isEmpty
+            ? nil
+            : .specific(selection.categoryTokens)
+        store.shield.webDomains = selection.webDomainTokens.isEmpty ? nil : selection.webDomainTokens
+        statusMessage = "Distracting apps/categories are blocked while practice is running."
+#else
+        statusMessage = "Screen Time blocking requires FamilyControls support."
+#endif
+    }
+
+    func stopShielding() {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        store.shield.applications = nil
+        store.shield.applicationCategories = nil
+        store.shield.webDomains = nil
+#endif
+    }
+
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+    var selectionBinding: Binding<FamilyActivitySelection>? {
+        guard #available(iOS 16.0, *) else { return nil }
+        return Binding(
+            get: { self.selection },
+            set: {
+                self.selection = $0
+                self.statusMessage = nil
+            }
+        )
+    }
+
+    private func persistSelection() {
+        guard let data = try? JSONEncoder().encode(selection) else { return }
+        defaults.set(data, forKey: selectionDataKey)
+    }
+
+    private func loadSelection() {
+        guard let data = defaults.data(forKey: selectionDataKey),
+              let decoded = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) else {
+            selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+            return
+        }
+        selection = decoded
+        selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+    }
+#else
+    var selectionBinding: Binding<Never>? { nil }
+#endif
+}
+
+private struct PracticeAppShieldPickerModifier: ViewModifier {
+    @Binding var isPresented: Bool
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+    let selection: Binding<FamilyActivitySelection>?
+#else
+    let selection: Binding<Never>?
+#endif
+
+    func body(content: Content) -> some View {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        if #available(iOS 16.0, *) {
+            if let selection {
+                content.familyActivityPicker(isPresented: $isPresented, selection: selection)
+            } else {
+                content
+            }
+        } else {
+            content
+        }
+#else
+        content
+#endif
+    }
+}
+
+private extension View {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+    func practiceAppShieldPicker(
+        isPresented: Binding<Bool>,
+        selection: Binding<FamilyActivitySelection>?
+    ) -> some View {
+        modifier(PracticeAppShieldPickerModifier(isPresented: isPresented, selection: selection))
+    }
+#else
+    func practiceAppShieldPicker(
+        isPresented: Binding<Bool>,
+        selection: Binding<Never>?
+    ) -> some View {
+        modifier(PracticeAppShieldPickerModifier(isPresented: isPresented, selection: selection))
+    }
+#endif
 }

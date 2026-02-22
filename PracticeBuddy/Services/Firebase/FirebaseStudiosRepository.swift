@@ -55,13 +55,30 @@ struct StudioPlanTemplate: Identifiable, Equatable {
 }
 
 struct StudioWarmupOfWeek: Identifiable, Equatable {
+    enum Target: String {
+        case studio
+        case individual
+    }
+
     let id: String
     let title: String
     let instrument: String
     let focus: String
     let totalMinutes: Int
     let steps: [String]
+    let target: Target
+    let targetStudentUID: String?
+    let targetStudentName: String?
     let updatedAt: Date
+}
+
+struct StudioChatMessage: Identifiable, Equatable {
+    let id: String
+    let studioID: String
+    let senderUID: String
+    let senderName: String
+    let text: String
+    let createdAt: Date
 }
 
 enum FirebaseStudiosError: LocalizedError {
@@ -73,6 +90,7 @@ enum FirebaseStudiosError: LocalizedError {
     case invalidAssignmentTitle
     case invalidTemplateTitle
     case missingTargetStudent
+    case invalidWarmupTitle
 
     var errorDescription: String? {
         switch self {
@@ -84,6 +102,7 @@ enum FirebaseStudiosError: LocalizedError {
         case .invalidAssignmentTitle: return "Assignment title must be 2-80 characters."
         case .invalidTemplateTitle: return "Template title must be 2-80 characters."
         case .missingTargetStudent: return "Select a student for individual assignment."
+        case .invalidWarmupTitle: return "Warm-up title must be 2-80 characters."
         }
     }
 }
@@ -406,10 +425,18 @@ final class FirebaseStudiosRepository {
         studioID: String,
         onChange: @escaping @MainActor (StudioWarmupOfWeek?) -> Void
     ) -> ListenerRegistration {
+        listenToWarmupDocument(studioID: studioID, documentID: "warmup_of_week", onChange: onChange)
+    }
+
+    func listenToWarmupDocument(
+        studioID: String,
+        documentID: String,
+        onChange: @escaping @MainActor (StudioWarmupOfWeek?) -> Void
+    ) -> ListenerRegistration {
         db.collection("studios")
             .document(studioID)
             .collection("warmups")
-            .document("warmup_of_week")
+            .document(documentID)
             .addSnapshotListener { snap, _ in
                 Task { @MainActor in
                     guard let snap, snap.exists, let data = snap.data() else {
@@ -430,17 +457,55 @@ final class FirebaseStudiosRepository {
         totalMinutes: Int,
         steps: [String]
     ) async throws {
+        try await saveStudioWarmup(
+            studioID: studioID,
+            teacherUID: teacherUID,
+            title: rawTitle,
+            instrument: instrument,
+            focus: focus,
+            totalMinutes: totalMinutes,
+            steps: steps,
+            target: .studio,
+            targetStudentUID: nil,
+            targetStudentName: nil
+        )
+    }
+
+    func saveStudioWarmup(
+        studioID: String,
+        teacherUID: String,
+        title rawTitle: String,
+        instrument: String,
+        focus: String,
+        totalMinutes: Int,
+        steps: [String],
+        target: StudioWarmupOfWeek.Target,
+        targetStudentUID: String?,
+        targetStudentName: String?
+    ) async throws {
         let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (2...80).contains(title.count) else {
-            throw FirebaseStudiosError.invalidTemplateTitle
+            throw FirebaseStudiosError.invalidWarmupTitle
+        }
+        if target == .individual && (targetStudentUID ?? "").isEmpty {
+            throw FirebaseStudiosError.missingTargetStudent
         }
         let trimmedSteps = steps
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+
+        let docID: String
+        switch target {
+        case .studio:
+            docID = "warmup_of_week"
+        case .individual:
+            docID = "individual_\(targetStudentUID ?? "")"
+        }
+
         let ref = db.collection("studios")
             .document(studioID)
             .collection("warmups")
-            .document("warmup_of_week")
+            .document(docID)
 
         try await ref.setData([
             "title": title,
@@ -448,6 +513,9 @@ final class FirebaseStudiosRepository {
             "focus": focus,
             "totalMinutes": max(5, totalMinutes),
             "steps": trimmedSteps,
+            "target": target.rawValue,
+            "targetStudentUid": targetStudentUID as Any,
+            "targetStudentName": targetStudentName as Any,
             "createdByUid": teacherUID,
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
@@ -459,6 +527,45 @@ final class FirebaseStudiosRepository {
             .collection("assignments")
             .document(assignmentID)
         try await ref.delete()
+    }
+
+    func listenToStudioMessages(
+        studioID: String,
+        limit: Int = 250,
+        onChange: @escaping @MainActor ([StudioChatMessage]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("messages")
+            .order(by: "createdAt", descending: false)
+            .limit(to: max(20, min(limit, 500)))
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap { self.parseChatMessage(studioID: studioID, document: $0) }
+                    onChange(rows)
+                }
+            }
+    }
+
+    func sendStudioMessage(
+        studioID: String,
+        senderUID: String,
+        senderName: String,
+        rawText: String
+    ) async throws {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("messages")
+            .document()
+            .setData([
+                "senderUid": senderUID,
+                "senderName": senderName,
+                "text": String(text.prefix(700)),
+                "createdAt": FieldValue.serverTimestamp()
+            ])
     }
 
     func joinStudio(studentUID: String, rawInviteCode: String) async throws {
@@ -626,6 +733,10 @@ final class FirebaseStudiosRepository {
             return nil
         }
         let steps = (data["steps"] as? [String]) ?? []
+        let targetRaw = (data["target"] as? String) ?? StudioWarmupOfWeek.Target.studio.rawValue
+        let target = StudioWarmupOfWeek.Target(rawValue: targetRaw) ?? .studio
+        let targetStudentUID = data["targetStudentUid"] as? String
+        let targetStudentName = data["targetStudentName"] as? String
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
         return StudioWarmupOfWeek(
             id: documentID,
@@ -634,7 +745,31 @@ final class FirebaseStudiosRepository {
             focus: focus,
             totalMinutes: totalMinutes,
             steps: steps,
+            target: target,
+            targetStudentUID: targetStudentUID,
+            targetStudentName: targetStudentName,
             updatedAt: updatedAt
+        )
+    }
+
+    private func parseChatMessage(studioID: String, document: QueryDocumentSnapshot) -> StudioChatMessage? {
+        let data = document.data()
+        guard
+            let senderUID = data["senderUid"] as? String,
+            let senderName = data["senderName"] as? String,
+            let text = data["text"] as? String
+        else {
+            return nil
+        }
+
+        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        return StudioChatMessage(
+            id: document.documentID,
+            studioID: studioID,
+            senderUID: senderUID,
+            senderName: senderName,
+            text: text,
+            createdAt: createdAt
         )
     }
 

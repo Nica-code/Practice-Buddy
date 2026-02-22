@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import FirebaseFirestore
+import FirebaseAuth
 import StoreKit
 import UIKit
 
@@ -20,6 +21,20 @@ enum PBAccountType: String, CaseIterable, Identifiable {
 }
 
 @MainActor
+enum PBEntitlementTier: String, CaseIterable {
+    case free
+    case pro
+    case allAccess = "all_access"
+
+    var isUnlocked: Bool {
+        switch self {
+        case .free: return false
+        case .pro, .allAccess: return true
+        }
+    }
+}
+
+@MainActor
 final class PurchaseManager: ObservableObject {
     static let proProductID = "practicebuddy.pro.lifetime"
     static let proTrialDurationDays = 7
@@ -27,6 +42,9 @@ final class PurchaseManager: ObservableObject {
     static let accountTypeKey = "pb.pro.accountType"
     static let accountTypeSetKey = "pb.pro.accountTypeSet"
     static let accountTypeChangeUsedKey = "pb.pro.accountTypeChangeUsed"
+    static let entitlementTierKey = "pb.pro.entitlementTier"
+    static let canSwitchRoleFreelyKey = "pb.pro.canSwitchRoleFreely"
+    static let isMasterAccountKey = "pb.pro.isMasterAccount"
     static let trialUsedKey = "pb.pro.trialUsed"
     static let trialStartedAtKey = "pb.pro.trialStartedAt"
     static let trialEndsAtKey = "pb.pro.trialEndsAt"
@@ -34,6 +52,9 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var ownedProductIDs: Set<String> = []
     @Published private(set) var isPro: Bool
     @Published private(set) var hasLifetimePro: Bool
+    @Published private(set) var entitlementTier: PBEntitlementTier
+    @Published private(set) var canSwitchRoleFreely: Bool
+    @Published private(set) var isMasterAccount: Bool
     @Published private(set) var isProTrialActive: Bool
     @Published private(set) var hasUsedProTrial: Bool
     @Published private(set) var proTrialStartedAt: Date?
@@ -53,6 +74,9 @@ final class PurchaseManager: ObservableObject {
     init() {
         let defaults = UserDefaults.standard
         let storedLifetimePro = defaults.bool(forKey: Self.proKey)
+        let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
+        let storedCanSwitch = defaults.bool(forKey: Self.canSwitchRoleFreelyKey)
+        let storedIsMaster = defaults.bool(forKey: Self.isMasterAccountKey)
         let storedTrialUsed = defaults.bool(forKey: Self.trialUsedKey)
         let storedTrialStart = Self.readDateDefault(key: Self.trialStartedAtKey, defaults: defaults)
         let storedTrialEnd = Self.readDateDefault(key: Self.trialEndsAtKey, defaults: defaults)
@@ -62,6 +86,9 @@ final class PurchaseManager: ObservableObject {
         let storedTypeChangeUsed = defaults.bool(forKey: Self.accountTypeChangeUsedKey)
 
         hasLifetimePro = storedLifetimePro
+        entitlementTier = storedTier
+        canSwitchRoleFreely = storedCanSwitch
+        isMasterAccount = storedIsMaster
         hasUsedProTrial = storedTrialUsed
         proTrialStartedAt = storedTrialStart
         proTrialEndsAt = storedTrialEnd
@@ -158,7 +185,10 @@ final class PurchaseManager: ObservableObject {
                     return
                 }
 
+                self.applyMasterAccount(self.resolveMasterStatus(for: uid))
+
                 guard let data = snapshot?.data() else {
+                    self.applyLaunchProgramPolicy()
                     await self.pushLocalStateToFirestore()
                     return
                 }
@@ -166,6 +196,22 @@ final class PurchaseManager: ObservableObject {
                 let remoteLifetime = (data["hasLifetimePro"] as? Bool) ?? (data["isPro"] as? Bool)
                 if let remoteLifetime, remoteLifetime != self.hasLifetimePro {
                     self.applyLifetimeProState(remoteLifetime)
+                }
+
+                if let tierRaw = data["entitlementTier"] as? String,
+                   let tier = PBEntitlementTier(rawValue: tierRaw),
+                   tier != self.entitlementTier {
+                    self.applyEntitlementTier(tier)
+                }
+
+                let remoteCanSwitch = (data["canSwitchRoleFreely"] as? Bool) ?? false
+                if remoteCanSwitch != self.canSwitchRoleFreely {
+                    self.applyCanSwitchRoleFreely(remoteCanSwitch)
+                }
+
+                let remoteMaster = (data["isMasterAccount"] as? Bool) ?? self.isMasterAccount
+                if remoteMaster != self.isMasterAccount {
+                    self.applyMasterAccount(remoteMaster)
                 }
 
                 let remoteTrialUsed = (data["trialUsed"] as? Bool) ?? self.hasUsedProTrial
@@ -180,6 +226,7 @@ final class PurchaseManager: ObservableObject {
                 if let trialMessage = self.expiredTrialMessageIfNeeded() {
                     self.syncStatus = trialMessage
                 }
+
                 if let raw = data["accountType"] as? String,
                    let remoteType = PBAccountType(rawValue: raw),
                    remoteType != self.accountType {
@@ -195,16 +242,28 @@ final class PurchaseManager: ObservableObject {
                 if remoteChangeUsed != self.accountTypeChangeUsed {
                     self.applyAccountTypeChangeUsed(remoteChangeUsed)
                 }
+
+                self.applyLaunchProgramPolicy()
             }
         }
 
         Task {
+            applyMasterAccount(resolveMasterStatus(for: uid))
+            applyLaunchProgramPolicy()
             await pushLocalStateToFirestore()
         }
     }
 
     func setAccountType(_ newType: PBAccountType) {
         guard newType != accountType else { return }
+
+        if canSwitchRoleFreely {
+            applyAccountType(newType)
+            applyHasCompletedInitialRoleSelection(true)
+            syncStatus = "Account type updated."
+            Task { await pushLocalStateToFirestore() }
+            return
+        }
 
         if !hasCompletedInitialRoleSelection {
             completeInitialAccountSetup(as: newType)
@@ -231,6 +290,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     func debugUnlockPro() {
+        applyEntitlementTier(.allAccess)
         applyLifetimeProState(true)
         Task {
             await pushLocalStateToFirestore()
@@ -238,6 +298,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     func debugLockPro() {
+        applyEntitlementTier(.free)
         applyLifetimeProState(false)
         Task {
             await pushLocalStateToFirestore()
@@ -245,6 +306,10 @@ final class PurchaseManager: ObservableObject {
     }
 
     func startFreeTrial() async {
+        guard !entitlementTier.isUnlocked else {
+            syncStatus = "Pro is already unlocked."
+            return
+        }
         guard !hasLifetimePro else {
             syncStatus = "Pro is already unlocked."
             return
@@ -271,15 +336,18 @@ final class PurchaseManager: ObservableObject {
     }
 
     func refreshEntitlements() async {
-        var hasPro = false
+        var hasProPurchase = false
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             if transaction.productID == Self.proProductID {
-                hasPro = true
+                hasProPurchase = true
             }
         }
 
-        applyLifetimeProState(hasPro)
+        applyLifetimeProState(hasProPurchase)
+        if hasProPurchase && entitlementTier == .free {
+            applyEntitlementTier(.pro)
+        }
         await pushLocalStateToFirestore()
     }
 
@@ -292,6 +360,22 @@ final class PurchaseManager: ObservableObject {
         }
         UserDefaults.standard.set(value, forKey: Self.proKey)
         recalculateProAccess()
+    }
+
+    private func applyEntitlementTier(_ value: PBEntitlementTier) {
+        entitlementTier = value
+        UserDefaults.standard.set(value.rawValue, forKey: Self.entitlementTierKey)
+        recalculateProAccess()
+    }
+
+    private func applyCanSwitchRoleFreely(_ value: Bool) {
+        canSwitchRoleFreely = value
+        UserDefaults.standard.set(value, forKey: Self.canSwitchRoleFreelyKey)
+    }
+
+    private func applyMasterAccount(_ value: Bool) {
+        isMasterAccount = value
+        UserDefaults.standard.set(value, forKey: Self.isMasterAccountKey)
     }
 
     private func applyTrialState(used: Bool, startedAt: Date?, endsAt: Date?) {
@@ -311,11 +395,11 @@ final class PurchaseManager: ObservableObject {
         } else {
             isProTrialActive = false
         }
-        isPro = hasLifetimePro || isProTrialActive
+        isPro = entitlementTier.isUnlocked || hasLifetimePro || isProTrialActive
     }
 
     private func expiredTrialMessageIfNeeded(now: Date = Date()) -> String? {
-        guard hasUsedProTrial, !hasLifetimePro else { return nil }
+        guard hasUsedProTrial, !hasLifetimePro, !entitlementTier.isUnlocked else { return nil }
         guard let end = proTrialEndsAt, end <= now else { return nil }
         return "Free trial ended. Unlock Practice Buddy Pro to continue."
     }
@@ -341,6 +425,9 @@ final class PurchaseManager: ObservableObject {
             var payload: [String: Any] = [
                 "isPro": isPro,
                 "hasLifetimePro": hasLifetimePro,
+                "entitlementTier": entitlementTier.rawValue,
+                "canSwitchRoleFreely": canSwitchRoleFreely,
+                "isMasterAccount": isMasterAccount,
                 "trialUsed": hasUsedProTrial,
                 "accountType": accountType.rawValue,
                 "accountTypeSet": hasCompletedInitialRoleSelection,
@@ -379,9 +466,45 @@ final class PurchaseManager: ObservableObject {
 
     private func applyVerifiedTransaction(_ transaction: StoreKit.Transaction) async {
         if transaction.productID == Self.proProductID {
+            if entitlementTier == .free {
+                applyEntitlementTier(.pro)
+            }
             applyLifetimeProState(true)
             await pushLocalStateToFirestore()
         }
+    }
+
+    private func resolveMasterStatus(for uid: String) -> Bool {
+        let info = Bundle.main.infoDictionary
+        let masterUIDs = (info?["PBMasterUIDs"] as? [String]) ?? []
+        if masterUIDs.contains(uid) { return true }
+
+        let configuredEmails = (info?["PBMasterEmails"] as? [String])?.map { $0.lowercased() } ?? ["nicaviolin@icloud.com"]
+        guard let currentUser = Auth.auth().currentUser else { return false }
+        let directEmail = currentUser.email?.lowercased()
+        let providerEmails = currentUser.providerData.compactMap { $0.email?.lowercased() }
+        let allEmails = Set(([directEmail].compactMap { $0 }) + providerEmails)
+        return !allEmails.intersection(configuredEmails).isEmpty
+    }
+
+    private func applyLaunchProgramPolicy() {
+        if isMasterAccount {
+            applyCanSwitchRoleFreely(true)
+            applyAccountTypeChangeUsed(false)
+            applyHasCompletedInitialRoleSelection(true)
+            if accountType != .teacher {
+                applyAccountType(.teacher)
+            }
+            if entitlementTier != .allAccess {
+                applyEntitlementTier(.allAccess)
+            }
+            if !hasLifetimePro {
+                applyLifetimeProState(true)
+            }
+            return
+        }
+
+        applyCanSwitchRoleFreely(false)
     }
 
     private static func readDateDefault(key: String, defaults: UserDefaults) -> Date? {
