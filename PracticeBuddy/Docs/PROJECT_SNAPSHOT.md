@@ -14,7 +14,7 @@ Environment
 Current Product Areas
 
 1) Core App Structure
-- Tab-based app: Home, History, Buddies, Settings
+- Tab-based app: Home, History, Journey, Studio, Settings
 - NavigationStack per tab
 - Shared theme and typography systems via environment
 
@@ -237,6 +237,41 @@ Current Product Areas
   - `hosting/.well-known/apple-app-site-association`
   - `hosting/join-studio/index.html` fallback landing page
   - `firebase.json` updated with hosting config + AASA headers
+
+10) Social / Studio Chat (MVP)
+- Added text-only Studio Chat (Firestore-backed) with realtime updates.
+- New `Studio` hub tab merges:
+  - Buddies management
+  - Studio Chat
+- Studio Chat UI includes:
+  - message stream
+  - sender bubbles
+  - composer with send
+  - empty/loading states
+- Keyboard UX improvements:
+  - composer behaves like messaging apps (send dismisses keyboard)
+  - tap outside composer dismisses keyboard
+  - Studio Manager supports interactive keyboard dismissal while editing forms
+- Firestore rules extended for studio chat messages:
+  - `studios/{studioId}/messages/{messageId}`
+  - read: studio members
+  - create: studio members with sender UID bound to auth UID
+  - update/delete: studio owner or sender
+
+11) Journey (Levels + XP + Quests) Phase 1+2
+- Added `Journey` tab as a dedicated gamification surface.
+- XP rule implemented:
+  - `1 minute practiced = 1 XP`
+  - XP awarded only from completed/saved sessions
+- Level progression implemented with quadratic scaling:
+  - `xpToNext(level) = 50 + 10 * level^2`
+- Session de-duplication implemented via processed session ID tracking.
+- Existing users are seeded once from existing session history.
+- Daily/weekly quest scaffolding implemented and live:
+  - Daily: minutes, session count, reflection
+  - Weekly: total minutes, active practice days
+- Home includes a Journey chip (level + XP to next) for always-visible motivation.
+- End-session save alert now shows earned XP for that session.
 
 Included Local Font Files
 - PlayfairDisplay-Regular.ttf

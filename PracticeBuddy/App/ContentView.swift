@@ -53,6 +53,14 @@ struct ContentView: View {
                     .tag(1)
 
                     NavigationStack {
+                        PBLazyView(JourneyView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Journey", systemImage: "figure.walk") }
+                    .tag(4)
+
+                    NavigationStack {
                         PBLazyView(StudioHubView())
                             .navigationTitle("")
                             .navigationBarTitleDisplayMode(.inline)
@@ -67,14 +75,6 @@ struct ContentView: View {
                     }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(3)
-
-                    NavigationStack {
-                        PBLazyView(JourneyView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Journey", systemImage: "figure.walk") }
-                    .tag(4)
                 }
             }
         }

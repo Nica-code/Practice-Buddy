@@ -8,7 +8,6 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage("pb.settings.historyRetention") private var historyRetention: Int = 0
-    @AppStorage("pb.settings.theme") private var themeRawValue: String = AppTheme.system.rawValue
 
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes: Int = 30
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
@@ -66,19 +65,6 @@ struct SettingsView: View {
             .listRowBackground(palette.surface)
 
             Section("Appearance") {
-                Picker(
-                    "Theme",
-                    selection: Binding<AppTheme>(
-                        get: { AppTheme(rawValue: themeRawValue) ?? .system },
-                        set: { themeRawValue = $0.rawValue }
-                    )
-                ) {
-                    ForEach(AppTheme.allCases) { t in
-                        Text(t.displayName).tag(t)
-                    }
-                }
-                .pickerStyle(.segmented)
-
                 NavigationLink { PBLazyView(ThemePickerView()) } label: {
                     settingsLabel("Themes", systemImage: "paintpalette")
                 }

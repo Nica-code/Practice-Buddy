@@ -24,19 +24,20 @@ struct AccountSetupView: View {
                         .foregroundStyle(theme.textSecondary)
 
                     Button {
-                        firebase.signInWithGoogle()
+                        // Coming soon
                     } label: {
                         HStack {
                             Image(systemName: "globe")
-                            Text("Continue with Google")
+                            Text("Continue with Google (Coming Soon)")
                         }
                         .font(type.body.weight(.semibold))
-                        .foregroundStyle(theme.textPrimary)
+                        .foregroundStyle(theme.textSecondary)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(theme.surfaceAlt)
                         .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .disabled(true)
 
                     SignInWithAppleButton(.continue) { request in
                         firebase.prepareAppleSignInRequest(request)

@@ -35,11 +35,11 @@ struct AboutSectionView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Alex Malaimare")
+                Text("Contact Information")
                     .font(.headline)
                     .foregroundStyle(palette.textPrimary)
 
-                Text("Violinist & Developer")
+                Text(emailAddress)
                     .font(.subheadline)
                     .foregroundStyle(palette.textSecondary)
             }

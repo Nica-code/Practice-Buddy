@@ -91,7 +91,7 @@ extension PBTheme {
     // MARK: - Classic (MODEL)
     static let classic = PBTheme(
         id: "classic",
-        name: "Classic",
+        name: "Sonata",
         access: .free,
         palette: classicBase(accent: Color(red: 0.17, green: 0.47, blue: 0.74)),
         dynamicPalette: { scheme in
@@ -113,7 +113,7 @@ extension PBTheme {
     // IMPORTANT: Keep id = "midnight" so existing saved selections still work.
     static let midnight = PBTheme(
         id: "midnight",
-        name: "Mint",
+        name: "Legato",
         access: .free,
         palette: classicBase(accent: Color(red: 0.14, green: 0.56, blue: 0.35)),
         dynamicPalette: { scheme in
@@ -180,7 +180,7 @@ extension PBTheme {
     // MARK: - Pink Neon
     static let pinkNeon = PBTheme(
         id: "pink_neon",
-        name: "Pink Neon",
+        name: "Cantabile",
         access: .free,
         palette: .init(
             background: Color(red: 244.0 / 255.0, green: 194.0 / 255.0, blue: 214.0 / 255.0), // Pantone-like 1895 family
@@ -212,7 +212,7 @@ extension PBTheme {
         }
     )
 
-    static let all: [PBTheme] = [classic, midnight, concertHall, warmMaple, pinkNeon]
+    static let all: [PBTheme] = [pinkNeon, concertHall, midnight, warmMaple, classic]
 
     static func byID(_ id: String) -> PBTheme {
         all.first(where: { $0.id == id }) ?? classic

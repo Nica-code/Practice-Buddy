@@ -12,10 +12,6 @@ struct PracticeBuddyApp: App {
     @StateObject private var firebase = FirebaseBootstrap()
     @StateObject private var purchaseManager = PurchaseManager()
 
-    // Your project already stores a theme raw string in AppStorage.
-    // We won't assume exact enum cases; we'll map strings safely.
-    @AppStorage("pb.settings.theme") private var themeRaw: String = "system"
-
     init() {
         PBFontRegistrar.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
@@ -24,7 +20,7 @@ struct PracticeBuddyApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .preferredColorScheme(mappedColorScheme(from: themeRaw))
+                .preferredColorScheme(.light)
                 .task {
                     await firebase.start()
                 }
@@ -32,22 +28,6 @@ struct PracticeBuddyApp: App {
         .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self, ScaleIntonationTakeModel.self])
         .environmentObject(firebase)
         .environmentObject(purchaseManager)
-    }
-
-    private func mappedColorScheme(from raw: String) -> ColorScheme? {
-        let v = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-        // Accept common values: "auto", "system", "systemdefault", etc.
-        if v.contains("auto") || v.contains("system") {
-            return nil
-        }
-        if v.contains("light") {
-            return .light
-        }
-        if v.contains("dark") {
-            return .dark
-        }
-        return nil
     }
 }
 
