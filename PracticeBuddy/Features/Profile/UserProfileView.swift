@@ -12,26 +12,37 @@ struct UserProfileView: View {
     @State private var avatarID: String = "avatar_note"
     @State private var bio: String = ""
     @State private var instrument: String = ""
+    @State private var animateHeader = false
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
 
     var body: some View {
-        List {
-            headerSection
-            progressSection
-            personalizeSection
+        VStack(spacing: 0) {
+            topProfileCard
+
+            List {
+                progressSection
+                personalizeSection
+            }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
         }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(.compact)
-        .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .background {
+            PBBackdropView(palette: palette)
+        }
         .toolbarBackground(chrome, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            if !animateHeader {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
+                    animateHeader = true
+                }
+            }
             guard let profile = buddiesVM.myProfile else { return }
             avatarID = profile.avatarID
             bio = profile.bio
@@ -39,8 +50,13 @@ struct UserProfileView: View {
         }
     }
 
-    private var headerSection: some View {
-        Section("Profile") {
+    private var topProfileCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Profile")
+                .font(type.appTitle)
+                .tracking(type.heroTracking)
+                .foregroundStyle(palette.textPrimary)
+
             Text("Manage your public profile and personal details.")
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
@@ -78,7 +94,13 @@ struct UserProfileView: View {
                     .foregroundStyle(palette.textSecondary)
             }
         }
-        .listRowBackground(palette.surface)
+        .padding(PBLayout.padLG)
+        .pbModernCard(palette: palette)
+        .padding(.horizontal, PBLayout.padSM)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .offset(y: animateHeader ? 0 : 12)
+        .opacity(animateHeader ? 1 : 0)
     }
 
     private var progressSection: some View {

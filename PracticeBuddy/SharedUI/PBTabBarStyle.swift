@@ -26,24 +26,46 @@ enum PBTabBarStyle {
     @MainActor
     private static func makeAppearance(colorScheme: ColorScheme, accent: UIColor) -> UITabBarAppearance {
         let appearance = UITabBarAppearance()
-        appearance.configureWithDefaultBackground()
+        appearance.configureWithTransparentBackground()
 
         appearance.backgroundEffect = UIBlurEffect(
-            style: colorScheme == .dark ? .systemChromeMaterialDark : .systemChromeMaterialLight
+            style: colorScheme == .dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
         )
-        appearance.shadowColor = UIColor.separator.withAlphaComponent(colorScheme == .dark ? 0.25 : 0.15)
+
+        let baseBackground = colorScheme == .dark
+            ? UIColor.black.withAlphaComponent(0.72)
+            : UIColor.systemBackground.withAlphaComponent(0.86)
+        let accentOverlay = accent.withAlphaComponent(colorScheme == .dark ? 0.12 : 0.08)
+        appearance.backgroundColor = blendedColor(base: baseBackground, overlay: accentOverlay)
+        appearance.shadowColor = UIColor.separator.withAlphaComponent(colorScheme == .dark ? 0.22 : 0.12)
 
         let selected = accent
         let unselected = accent.withAlphaComponent(colorScheme == .dark ? 0.62 : 0.72)
+        let selectedTextFont = UIFont.systemFont(ofSize: 10, weight: .semibold)
+        let normalTextFont = UIFont.systemFont(ofSize: 10, weight: .medium)
 
         func configure(_ itemAppearance: UITabBarItemAppearance) {
             // Selected
             itemAppearance.selected.iconColor = selected
-            itemAppearance.selected.titleTextAttributes = [.foregroundColor: selected]
+            itemAppearance.selected.titleTextAttributes = [
+                .foregroundColor: selected,
+                .font: selectedTextFont
+            ]
 
             // Unselected
             itemAppearance.normal.iconColor = unselected
-            itemAppearance.normal.titleTextAttributes = [.foregroundColor: unselected]
+            itemAppearance.normal.titleTextAttributes = [
+                .foregroundColor: unselected,
+                .font: normalTextFont
+            ]
+            itemAppearance.disabled.iconColor = UIColor.secondaryLabel
+            itemAppearance.disabled.titleTextAttributes = [
+                .foregroundColor: UIColor.secondaryLabel,
+                .font: normalTextFont
+            ]
+
+            itemAppearance.selected.badgeBackgroundColor = selected.withAlphaComponent(0.92)
+            itemAppearance.normal.badgeBackgroundColor = selected.withAlphaComponent(0.74)
         }
 
         // ✅ IMPORTANT: Configure all layouts so titles never “disappear”
@@ -76,6 +98,7 @@ enum PBTabBarStyle {
 
             tab.tabBar.tintColor = accent
             tab.tabBar.unselectedItemTintColor = accent.withAlphaComponent(0.7)
+            tab.tabBar.isTranslucent = true
 
             tab.tabBar.setNeedsLayout()
             tab.tabBar.layoutIfNeeded()
@@ -88,5 +111,27 @@ enum PBTabBarStyle {
         if let presented = vc.presentedViewController {
             applyToTabBars(in: presented, appearance: appearance, accent: accent)
         }
+    }
+
+    private static func blendedColor(base: UIColor, overlay: UIColor) -> UIColor {
+        var baseR: CGFloat = 0
+        var baseG: CGFloat = 0
+        var baseB: CGFloat = 0
+        var baseA: CGFloat = 0
+        var overR: CGFloat = 0
+        var overG: CGFloat = 0
+        var overB: CGFloat = 0
+        var overA: CGFloat = 0
+
+        base.getRed(&baseR, green: &baseG, blue: &baseB, alpha: &baseA)
+        overlay.getRed(&overR, green: &overG, blue: &overB, alpha: &overA)
+
+        let outA = overA + baseA * (1 - overA)
+        guard outA > 0 else { return .clear }
+
+        let outR = (overR * overA + baseR * baseA * (1 - overA)) / outA
+        let outG = (overG * overA + baseG * baseA * (1 - overA)) / outA
+        let outB = (overB * overA + baseB * baseA * (1 - overA)) / outA
+        return UIColor(red: outR, green: outG, blue: outB, alpha: outA)
     }
 }

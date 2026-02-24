@@ -651,6 +651,25 @@ final class DuelLeagueManager: ObservableObject {
                 "startedAt": NSNull(),
                 "completedAt": NSNull()
             ])
+            // Optimistic local state so the UI flips to "Cancel" immediately
+            // instead of waiting for listener round-trip.
+            myOpenChallenge = DuelChallenge(
+                id: ref.documentID,
+                createdByUID: uid,
+                opponentUID: nil,
+                participants: [uid],
+                status: .open,
+                queueType: .open,
+                objective: "Random scale challenge",
+                createdAt: Date(),
+                startedAt: nil,
+                completedAt: nil,
+                creatorScore: nil,
+                opponentScore: nil,
+                winnerUID: nil,
+                creatorRatingDelta: 0,
+                opponentRatingDelta: 0
+            )
             statusMessage = "Queued. Waiting for another player."
         } catch {
             statusMessage = error.localizedDescription
@@ -724,6 +743,8 @@ final class DuelLeagueManager: ObservableObject {
 
     func cancelOpenChallenge() async {
         guard let uid = configuredUID, let open = myOpenChallenge, open.createdByUID == uid else { return }
+        let previousOpen = open
+        myOpenChallenge = nil
         do {
             try await db.collection("duelChallenges").document(open.id).setData([
                 "status": DuelChallengeStatus.canceled.rawValue,
@@ -731,6 +752,7 @@ final class DuelLeagueManager: ObservableObject {
             ], merge: true)
             statusMessage = "Open duel canceled."
         } catch {
+            myOpenChallenge = previousOpen
             statusMessage = error.localizedDescription
         }
     }

@@ -29,7 +29,9 @@ struct FriendsView: View {
             .padding(.top, 12)
             .padding(.bottom, PBLayout.padXL)
         }
-        .background(theme.background.ignoresSafeArea())
+        .background {
+            PBBackdropView(palette: palette)
+        }
         .toolbarBackground(chrome, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
@@ -68,6 +70,7 @@ struct FriendsView: View {
     }
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     private var myTotalMinutes: Int {
         store.totalAllMinutes
@@ -195,7 +198,7 @@ struct FriendsView: View {
                         Button("Save") {
                             Task { await buddiesVM.saveDisplayName(displayNameInput) }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
                     }
 
                     Text("You can set your display name once.")
@@ -258,8 +261,7 @@ struct FriendsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 
     private var buddiesCard: some View {
@@ -289,13 +291,12 @@ struct FriendsView: View {
                         await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 
     private var leaderboardCard: some View {
@@ -354,7 +355,6 @@ struct FriendsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 }

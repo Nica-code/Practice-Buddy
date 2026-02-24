@@ -25,6 +25,7 @@ struct JourneyView: View {
     @State private var rewardsMessage: String?
     @State private var didLoadDuelTargets = false
     @State private var duelLeaderboardScope: DuelLeaderboardScope = .global
+    @State private var animateHeader = false
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -34,25 +35,30 @@ struct JourneyView: View {
     }
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
             topSection
 
-            if selectedSection == .overview {
-                levelSection
-                duelLeagueSection
-                pieceDashboardSection
-                skillTrendsSection
-                questsSection
-                aboutSection
-            } else {
-                rewardsBalanceSection
-                rewardsCatalogSection
+            List {
+                if selectedSection == .overview {
+                    levelSection
+                    duelLeagueSection
+                    pieceDashboardSection
+                    skillTrendsSection
+                    questsSection
+                    aboutSection
+                } else {
+                    rewardsBalanceSection
+                    rewardsCatalogSection
+                }
             }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
+            .animation(.snappy(duration: 0.28, extraBounce: 0.02), value: selectedSection)
         }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(.compact)
-        .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .background {
+            PBBackdropView(palette: palette)
+        }
         .toolbarBackground(chrome, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
@@ -67,6 +73,11 @@ struct JourneyView: View {
             Text(rewardsMessage ?? "")
         }
         .onAppear {
+            if !animateHeader {
+                withAnimation(.spring(response: 0.52, dampingFraction: 0.86)) {
+                    animateHeader = true
+                }
+            }
             guard !didLoadDuelTargets else { return }
             didLoadDuelTargets = true
             Task {
@@ -77,30 +88,34 @@ struct JourneyView: View {
     }
 
     private var topSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Play")
-                    .font(type.sectionTitle)
-                    .foregroundStyle(palette.textPrimary)
-                Text(
-                    selectedSection == .overview
-                    ? "Track level, quests, and piece progress."
-                    : "Spend tokens and unlock cosmetics."
-                )
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Play")
+                .font(type.appTitle)
+                .tracking(type.heroTracking)
+                .foregroundStyle(palette.textPrimary)
 
-                Picker("Play Section", selection: $selectedSection) {
-                    ForEach(JourneySection.allCases) { section in
-                        Text(LocalizedStringKey(section.rawValue)).tag(section)
-                    }
+            Text(
+                selectedSection == .overview
+                ? "Track level, duels, quests, and piece progress."
+                : "Spend tokens and unlock cosmetics."
+            )
+            .font(type.footnote)
+            .foregroundStyle(palette.textSecondary)
+
+            Picker("Play Section", selection: $selectedSection) {
+                ForEach(JourneySection.allCases) { section in
+                    Text(LocalizedStringKey(section.rawValue)).tag(section)
                 }
-                .pickerStyle(.segmented)
-                .padding(.top, 2)
             }
-            .padding(.vertical, 4)
+            .pickerStyle(.segmented)
         }
-        .listRowBackground(palette.surface)
+        .padding(PBLayout.padLG)
+        .pbModernCard(palette: palette)
+        .padding(.horizontal, PBLayout.padSM)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .offset(y: animateHeader ? 0 : 12)
+        .opacity(animateHeader ? 1 : 0)
     }
 
     private var levelSection: some View {
@@ -181,32 +196,51 @@ struct JourneyView: View {
             .padding(.vertical, 4)
 
             if let open = duelLeague.myOpenChallenge {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Waiting for match")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    Text(open.objective)
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Cancel Open Duel", role: .destructive) {
-                        Task { await duelLeague.cancelOpenChallenge() }
+                HStack(spacing: 10) {
+                    Image(systemName: "hourglass.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("You are queued for a duel")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text(open.objective)
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
                     }
-                    .buttonStyle(.bordered)
-                    .font(type.footnote)
+                    Spacer(minLength: 0)
+                    ProgressView()
+                        .controlSize(.small)
                 }
-                .padding(.vertical, 2)
-            } else {
-                Button {
-                    Task { await duelLeague.queueAsyncScaleDuel() }
-                } label: {
-                    Text("Queue Async Scale Duel")
-                        .font(type.button)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(palette.accent)
-                .disabled(duelLeague.isLoading || firebase.currentUserID == nil || firebase.isAnonymousUser)
+                .padding(10)
+                .background(palette.accent.opacity(0.16))
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
             }
+
+            let isQueuedForOpenDuel = duelLeague.myOpenChallenge != nil
+            Button {
+                Task {
+                    if isQueuedForOpenDuel {
+                        await duelLeague.cancelOpenChallenge()
+                    } else {
+                        await duelLeague.queueAsyncScaleDuel()
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isQueuedForOpenDuel ? "xmark.circle.fill" : "bolt.horizontal.circle.fill")
+                    Text(isQueuedForOpenDuel ? "Cancel Queue" : "Queue Async Scale Duel")
+                        .font(type.button)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(
+                PBActionButtonStyle(
+                    variant: isQueuedForOpenDuel ? .secondary : .primary,
+                    palette: palette
+                )
+            )
+            .disabled(duelLeague.isLoading || firebase.currentUserID == nil || firebase.isAnonymousUser)
 
             HStack {
                 Menu {
@@ -222,7 +256,7 @@ struct JourneyView: View {
                 } label: {
                     Label("Invite Friend", systemImage: "person.badge.plus")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
 
                 Menu {
                     if duelLeague.studioCandidates.isEmpty {
@@ -237,7 +271,7 @@ struct JourneyView: View {
                 } label: {
                     Label("Invite Studio", systemImage: "person.3")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
 
                 Spacer()
                 Button {

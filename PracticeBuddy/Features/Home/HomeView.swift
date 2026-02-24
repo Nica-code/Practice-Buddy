@@ -59,6 +59,7 @@ struct HomeView: View {
     @State private var selectedCheckInFocusTag: String = ""
     @State private var checkInStatusMessage: String?
     @State private var backgroundEnteredAt: Date?
+    @State private var animateHeader: Bool = false
 
     private enum Constants {
         static let tickSeconds: TimeInterval = 1
@@ -241,261 +242,7 @@ struct HomeView: View {
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("Let’s Practice!")
-                .font(type.appTitle)
-                .tracking(type.heroTracking)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, Constants.titleTopPadding)
-                .padding(.bottom, 4)
-                .foregroundStyle(palette.textPrimary)
-
-            HStack(spacing: 8) {
-                Button {
-                    selectedTab = 1
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "figure.walk")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(palette.accent)
-                        Text(L10n.f("Lv %@", "\(journey.level)"))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("•")
-                            .foregroundStyle(palette.textSecondary)
-                        Text(L10n.f("%@ XP to next level", "\(journey.xpToNextLevel)"))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                            .monospacedDigit()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(palette.surfaceAlt)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-
-                if purchaseManager.availableRoleModes.count > 1 || purchaseManager.canSwitchRoleFreely {
-                    Menu {
-                        ForEach(purchaseManager.canSwitchRoleFreely ? PBAccountType.allCases : purchaseManager.availableRoleModes) { role in
-                            Button {
-                                purchaseManager.setAccountType(role)
-                            } label: {
-                                if role == purchaseManager.accountType {
-                                    Label(LocalizedStringKey(role.title), systemImage: "checkmark")
-                                } else {
-                                    Text(LocalizedStringKey(role.title))
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "person.crop.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(palette.accent)
-                            Text(LocalizedStringKey(purchaseManager.accountType.title))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textPrimary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(palette.surfaceAlt)
-                        .clipShape(Capsule())
-                    }
-                }
-            }
-            .padding(.bottom, Constants.titleBottomPadding)
-
-            Picker("Home Area", selection: $selectedHomeArea) {
-                ForEach(HomeArea.allCases) { area in
-                    Text(LocalizedStringKey(area.rawValue)).tag(area)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 6)
-
-            List {
-                switch selectedHomeArea {
-                case .today:
-                    sessionControlSection
-                    practiceTimeSection
-                    goalSection
-                    recentHistorySection
-                case .practice:
-                    templatesSection
-                    practiceToolsSection
-                    practiceLabSection
-                    practiceLabProSection
-                case .studio:
-                    teacherToolsSection
-                    linkedAssignmentsSection
-                    warmupOfWeekSection
-                }
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-        }
-        .background(chrome.ignoresSafeArea())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            impact.prepare()
-            notify.prepare()
-            sanitizeMetronomeSettings()
-            metronome.setBPM(metronomeBPM)
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: metronomeBeatsPerBar,
-                subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-            )
-
-            if isRunning {
-                startTicker()
-            }
-
-            social.configure(modelContext: modelContext)
-            social.refresh()
-            appShield.refreshState()
-            checkInManager.restoreCounters(
-                checkInCount: checkInCountSaved,
-                missedCheckInCount: missedCheckInCountSaved,
-                events: decodedCheckInEvents(from: checkInEventsJSON)
-            )
-            checkInManager.updateConfiguration(
-                promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-            )
-        }
-        .onChange(of: isRunning) { _, running in
-            if running {
-                now = Date()
-                startTicker()
-            } else {
-                stopTicker()
-            }
-        }
-        .onChange(of: distractionBlockEnabled) { _, enabled in
-            if !enabled {
-                appShield.stopShielding()
-            } else if isRunning {
-                Task { await appShield.startShieldingIfPossible() }
-            }
-        }
-        .onChange(of: checkInsEnabled) { _, enabled in
-            if !enabled {
-                checkInStatusMessage = nil
-                unverifiedSeconds = 0
-                checkInManager.reset()
-                checkInEventsJSON = ""
-                clearPendingCheckInNotifications()
-            } else if hasAnyTime {
-                checkInManager.restoreCounters(
-                    checkInCount: checkInCountSaved,
-                    missedCheckInCount: missedCheckInCountSaved,
-                    events: decodedCheckInEvents(from: checkInEventsJSON)
-                )
-                checkInManager.updateConfiguration(
-                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                )
-                if scenePhase != .active {
-                    scheduleBackgroundCheckInNotification()
-                }
-            }
-        }
-        .onChange(of: checkInIntervalPresetRaw) { _, _ in
-            checkInManager.updateConfiguration(
-                promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-            )
-            if scenePhase != .active, isRunning, verificationEnabledForSession {
-                scheduleBackgroundCheckInNotification()
-            }
-        }
-        .onChange(of: checkInNotificationsEnabled) { _, enabled in
-            if !enabled {
-                clearPendingCheckInNotifications()
-            } else if scenePhase != .active, isRunning, verificationEnabledForSession {
-                scheduleBackgroundCheckInNotification()
-            }
-        }
-        .onDisappear {
-            stopTicker()
-            // Keep metronome running across app/tab transitions.
-            // This allows continued playback when screen locks/backgrounds.
-            tuner.stopListening()
-            tuner.stopReferenceTone()
-            appShield.stopShielding()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                applyBackgroundElapsedCatchUp()
-                clearPendingCheckInNotifications()
-            } else if isRunning {
-                if backgroundEnteredAt == nil {
-                    backgroundEnteredAt = Date()
-                }
-                if verificationEnabledForSession {
-                    scheduleBackgroundCheckInNotification()
-                }
-            }
-        }
-        .onChange(of: metronomeBPM) { _, newBPM in
-            let clamped = min(max(newBPM, 40), 220)
-            if clamped != metronomeBPM {
-                metronomeBPM = clamped
-                return
-            }
-            metronome.setBPM(clamped)
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: metronomeBeatsPerBar,
-                subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-            )
-        }
-        .onChange(of: metronomeBeatsPerBar) { _, newBeats in
-            let clamped = MetronomeEngine.clampBeatsPerBar(newBeats)
-            if clamped != metronomeBeatsPerBar {
-                metronomeBeatsPerBar = clamped
-                return
-            }
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: clamped,
-                subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-            )
-        }
-        .onChange(of: metronomeSubdivisionRaw) { _, _ in
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: metronomeBeatsPerBar,
-                subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-            )
-        }
-        .onChange(of: metronomeSoundStyleRaw) { _, _ in
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: metronomeBeatsPerBar,
-                subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-            )
-        }
-        .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
-            guard token > 0 else { return }
-            withAnimation(.easeOut(duration: 0.08)) {
-                metronomePulseScale = 1.3
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                withAnimation(.easeInOut(duration: 0.14)) {
-                    metronomePulseScale = 1.0
-                }
-            }
-        }
-        .onChange(of: tunerReferenceHz) { _, newValue in
-            if tuner.isReferenceTonePlaying {
-                tuner.startReferenceTone(frequency: Double(newValue))
-            }
-        }
-        .onReceive(store.$sessions.dropFirst().map(\.count).removeDuplicates()) { _ in
-            social.refresh()
-        }
+        lifecycleScaffold
         .sheet(isPresented: $showSaveSheet) {
             saveSheet
         }
@@ -520,6 +267,208 @@ struct HomeView: View {
                 checkInOverlay
             }
         }
+    }
+
+    private var mainScaffold: some View {
+        VStack(spacing: 0) {
+            homeHeader
+
+            List {
+                switch selectedHomeArea {
+                case .today:
+                    sessionControlSection
+                    practiceTimeSection
+                    goalSection
+                    recentHistorySection
+                case .practice:
+                    templatesSection
+                    practiceToolsSection
+                    practiceLabSection
+                    practiceLabProSection
+                case .studio:
+                    teacherToolsSection
+                    linkedAssignmentsSection
+                    warmupOfWeekSection
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .animation(.snappy(duration: 0.28, extraBounce: 0.03), value: selectedHomeArea)
+        }
+        .background {
+            PBBackdropView(palette: palette)
+        }
+        .toolbarBackground(chrome, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var lifecycleScaffold: some View {
+        mainScaffold
+            .onAppear {
+                if !animateHeader {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
+                        animateHeader = true
+                    }
+                }
+                impact.prepare()
+                notify.prepare()
+                sanitizeMetronomeSettings()
+                metronome.setBPM(metronomeBPM)
+                metronome.applyUpdatedConfiguration(
+                    beatsPerBar: metronomeBeatsPerBar,
+                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                )
+
+                if isRunning {
+                    startTicker()
+                }
+
+                social.configure(modelContext: modelContext)
+                social.refresh()
+                appShield.refreshState()
+                checkInManager.restoreCounters(
+                    checkInCount: checkInCountSaved,
+                    missedCheckInCount: missedCheckInCountSaved,
+                    events: decodedCheckInEvents(from: checkInEventsJSON)
+                )
+                checkInManager.updateConfiguration(
+                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                )
+            }
+            .onChange(of: isRunning) { _, running in
+                if running {
+                    now = Date()
+                    startTicker()
+                } else {
+                    stopTicker()
+                }
+            }
+            .onChange(of: distractionBlockEnabled) { _, enabled in
+                if !enabled {
+                    appShield.stopShielding()
+                } else if isRunning {
+                    Task { await appShield.startShieldingIfPossible() }
+                }
+            }
+            .onChange(of: checkInsEnabled) { _, enabled in
+                if !enabled {
+                    checkInStatusMessage = nil
+                    unverifiedSeconds = 0
+                    checkInManager.reset()
+                    checkInEventsJSON = ""
+                    clearPendingCheckInNotifications()
+                } else if hasAnyTime {
+                    checkInManager.restoreCounters(
+                        checkInCount: checkInCountSaved,
+                        missedCheckInCount: missedCheckInCountSaved,
+                        events: decodedCheckInEvents(from: checkInEventsJSON)
+                    )
+                    checkInManager.updateConfiguration(
+                        promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                    )
+                    if scenePhase != .active {
+                        scheduleBackgroundCheckInNotification()
+                    }
+                }
+            }
+            .onChange(of: checkInIntervalPresetRaw) { _, _ in
+                checkInManager.updateConfiguration(
+                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                )
+                if scenePhase != .active, isRunning, verificationEnabledForSession {
+                    scheduleBackgroundCheckInNotification()
+                }
+            }
+            .onChange(of: checkInNotificationsEnabled) { _, enabled in
+                if !enabled {
+                    clearPendingCheckInNotifications()
+                } else if scenePhase != .active, isRunning, verificationEnabledForSession {
+                    scheduleBackgroundCheckInNotification()
+                }
+            }
+            .onDisappear {
+                stopTicker()
+                // Keep metronome running across app/tab transitions.
+                // This allows continued playback when screen locks/backgrounds.
+                tuner.stopListening()
+                tuner.stopReferenceTone()
+                appShield.stopShielding()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    applyBackgroundElapsedCatchUp()
+                    clearPendingCheckInNotifications()
+                } else if isRunning {
+                    if backgroundEnteredAt == nil {
+                        backgroundEnteredAt = Date()
+                    }
+                    if verificationEnabledForSession {
+                        scheduleBackgroundCheckInNotification()
+                    }
+                }
+            }
+            .onChange(of: metronomeBPM) { _, newBPM in
+                let clamped = min(max(newBPM, 40), 220)
+                if clamped != metronomeBPM {
+                    metronomeBPM = clamped
+                    return
+                }
+                metronome.setBPM(clamped)
+                metronome.applyUpdatedConfiguration(
+                    beatsPerBar: metronomeBeatsPerBar,
+                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                )
+            }
+            .onChange(of: metronomeBeatsPerBar) { _, newBeats in
+                let clamped = MetronomeEngine.clampBeatsPerBar(newBeats)
+                if clamped != metronomeBeatsPerBar {
+                    metronomeBeatsPerBar = clamped
+                    return
+                }
+                metronome.applyUpdatedConfiguration(
+                    beatsPerBar: clamped,
+                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                )
+            }
+            .onChange(of: metronomeSubdivisionRaw) { _, _ in
+                metronome.applyUpdatedConfiguration(
+                    beatsPerBar: metronomeBeatsPerBar,
+                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                )
+            }
+            .onChange(of: metronomeSoundStyleRaw) { _, _ in
+                metronome.applyUpdatedConfiguration(
+                    beatsPerBar: metronomeBeatsPerBar,
+                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                )
+            }
+            .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
+                guard token > 0 else { return }
+                withAnimation(.easeOut(duration: 0.08)) {
+                    metronomePulseScale = 1.3
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    withAnimation(.easeInOut(duration: 0.14)) {
+                        metronomePulseScale = 1.0
+                    }
+                }
+            }
+            .onChange(of: tunerReferenceHz) { _, newValue in
+                if tuner.isReferenceTonePlaying {
+                    tuner.startReferenceTone(frequency: Double(newValue))
+                }
+            }
+            .onReceive(store.$sessions.dropFirst().map(\.count).removeDuplicates()) { _ in
+                social.refresh()
+            }
     }
 
     // MARK: - Ticker control
@@ -891,6 +840,100 @@ struct HomeView: View {
             return .month
         case .all:
             return .week
+        }
+    }
+
+    private var homeHeader: some View {
+        VStack(spacing: 12) {
+            Text("Let’s Practice!")
+                .font(type.appTitle)
+                .tracking(type.heroTracking)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, Constants.titleTopPadding)
+                .padding(.bottom, 2)
+                .foregroundStyle(palette.textPrimary)
+
+            HStack(spacing: 8) {
+                levelChip
+                roleChip
+            }
+            .padding(.bottom, Constants.titleBottomPadding)
+
+            Picker("Home Area", selection: $selectedHomeArea) {
+                ForEach(HomeArea.allCases) { area in
+                    Text(LocalizedStringKey(area.rawValue)).tag(area)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .pbModernCard(palette: palette)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .offset(y: animateHeader ? 0 : 12)
+        .opacity(animateHeader ? 1 : 0)
+    }
+
+    private var levelChip: some View {
+        Button {
+            selectedTab = 1
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "figure.walk")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                Text(L10n.f("Lv %@", "\(journey.level)"))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textPrimary)
+                Text("•")
+                    .foregroundStyle(palette.textSecondary)
+                Text(L10n.f("%@ XP to next level", "\(journey.xpToNextLevel)"))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(palette.surfaceAlt)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var roleChip: some View {
+        if purchaseManager.availableRoleModes.count > 1 || purchaseManager.canSwitchRoleFreely {
+            Menu {
+                ForEach(purchaseManager.canSwitchRoleFreely ? PBAccountType.allCases : purchaseManager.availableRoleModes) { role in
+                    Button {
+                        purchaseManager.setAccountType(role)
+                    } label: {
+                        if role == purchaseManager.accountType {
+                            Label(LocalizedStringKey(role.title), systemImage: "checkmark")
+                        } else {
+                            Text(LocalizedStringKey(role.title))
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                    Text(LocalizedStringKey(purchaseManager.accountType.title))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textPrimary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(palette.surfaceAlt)
+                .clipShape(Capsule())
+            }
+        } else {
+            EmptyView()
         }
     }
 

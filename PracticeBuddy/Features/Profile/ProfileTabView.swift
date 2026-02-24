@@ -11,7 +11,6 @@ struct ProfileTabView: View {
 
     @StateObject private var buddiesVM = BuddiesViewModel()
 
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var myTotalMinutes: Int {
         store.totalAllMinutes
@@ -27,7 +26,9 @@ struct ProfileTabView: View {
                         .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(chrome.ignoresSafeArea())
+                .background {
+                    PBBackdropView(palette: palette)
+                }
             } else {
                 UserProfileView(buddiesVM: buddiesVM)
                     .overlay(alignment: .bottom) {
@@ -73,7 +74,6 @@ struct ProfileTabView: View {
             .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
         }
         .padding(PBLayout.padMD)
-        .background(palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 }

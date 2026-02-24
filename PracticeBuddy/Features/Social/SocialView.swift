@@ -10,6 +10,7 @@ struct SocialView: View {
 
     @StateObject private var viewModel = StudioChatViewModel()
     @FocusState private var isComposerFocused: Bool
+    @State private var animateHeader = false
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -59,6 +60,7 @@ struct SocialView: View {
                         .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, PBLayout.padLG)
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "bubble.left.and.bubble.right")
@@ -74,15 +76,25 @@ struct SocialView: View {
                         .padding(.horizontal, 30)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, PBLayout.padLG)
             }
         }
-        .background(chrome.ignoresSafeArea())
+        .background {
+            PBBackdropView(palette: palette)
+        }
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(chrome, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .onAppear {
+            if !animateHeader {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
+                    animateHeader = true
+                }
+            }
+        }
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             viewModel.start(uid: uid, role: purchaseManager.accountType)
@@ -106,9 +118,13 @@ struct SocialView: View {
                 .foregroundStyle(palette.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .padding(.horizontal, PBLayout.padSM)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .offset(y: animateHeader ? 0 : 12)
+        .opacity(animateHeader ? 1 : 0)
     }
 
     private func messageBubble(_ message: StudioChatMessage) -> some View {
@@ -166,7 +182,7 @@ struct SocialView: View {
                         isComposerFocused = false
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
                 .disabled(viewModel.draftMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal)
