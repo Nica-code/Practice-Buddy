@@ -40,6 +40,7 @@ final class PurchaseManager: ObservableObject {
     static let proTrialDurationDays = 7
     static let proKey = "pb.pro.isUnlocked"
     static let accountTypeKey = "pb.pro.accountType"
+    static let enabledRolesKey = "pb.pro.enabledRoles"
     static let accountTypeSetKey = "pb.pro.accountTypeSet"
     static let accountTypeChangeUsedKey = "pb.pro.accountTypeChangeUsed"
     static let entitlementTierKey = "pb.pro.entitlementTier"
@@ -60,16 +61,19 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var proTrialStartedAt: Date?
     @Published private(set) var proTrialEndsAt: Date?
     @Published private(set) var accountType: PBAccountType
+    @Published private(set) var enabledRoles: Set<PBAccountType>
     @Published private(set) var hasCompletedInitialRoleSelection: Bool
     @Published private(set) var accountTypeChangeUsed: Bool
     @Published private(set) var syncStatus: String?
     @Published private(set) var availableProducts: [Product] = []
 
-    private let db = Firestore.firestore()
+    private var db: Firestore { Firestore.firestore() }
     private var userListener: ListenerRegistration?
     private var linkedUID: String?
     private var updatesTask: Task<Void, Never>?
     private var foregroundCancellable: AnyCancellable?
+    private var lastSyncedUID: String?
+    private var lastSyncedStateFingerprint: String?
 
     init() {
         let defaults = UserDefaults.standard
@@ -82,6 +86,13 @@ final class PurchaseManager: ObservableObject {
         let storedTrialEnd = Self.readDateDefault(key: Self.trialEndsAtKey, defaults: defaults)
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
+        let storedRolesRaw = defaults.array(forKey: Self.enabledRolesKey) as? [String] ?? []
+        var storedRoles = Set(storedRolesRaw.compactMap(PBAccountType.init(rawValue:)))
+        if storedRoles.isEmpty {
+            storedRoles = [storedType]
+        } else if !storedRoles.contains(storedType) {
+            storedRoles.insert(storedType)
+        }
         let storedTypeSet = defaults.bool(forKey: Self.accountTypeSetKey)
         let storedTypeChangeUsed = defaults.bool(forKey: Self.accountTypeChangeUsedKey)
 
@@ -95,6 +106,7 @@ final class PurchaseManager: ObservableObject {
         isProTrialActive = false
         isPro = false
         accountType = storedType
+        enabledRoles = storedRoles
         hasCompletedInitialRoleSelection = storedTypeSet
         accountTypeChangeUsed = storedTypeChangeUsed
         if storedLifetimePro {
@@ -233,9 +245,19 @@ final class PurchaseManager: ObservableObject {
                     self.applyAccountType(remoteType)
                 }
 
+                if let rawRoles = data["enabledRoles"] as? [String] {
+                    let remoteRoles = Set(rawRoles.compactMap(PBAccountType.init(rawValue:)))
+                    if !remoteRoles.isEmpty, remoteRoles != self.enabledRoles {
+                        self.applyEnabledRoles(remoteRoles)
+                    }
+                } else if (data["accountType"] as? String) != nil {
+                    self.applyEnabledRoles([self.accountType])
+                }
+
                 let remoteTypeSet = (data["accountTypeSet"] as? Bool) ?? ((data["accountType"] as? String) != nil)
-                if remoteTypeSet != self.hasCompletedInitialRoleSelection {
-                    self.applyHasCompletedInitialRoleSelection(remoteTypeSet)
+                // Never downgrade local completion from true -> false based on remote lag/cache.
+                if remoteTypeSet, !self.hasCompletedInitialRoleSelection {
+                    self.applyHasCompletedInitialRoleSelection(true)
                 }
 
                 let remoteChangeUsed = (data["accountTypeChangeUsed"] as? Bool) ?? false
@@ -256,11 +278,27 @@ final class PurchaseManager: ObservableObject {
 
     func setAccountType(_ newType: PBAccountType) {
         guard newType != accountType else { return }
-
         if canSwitchRoleFreely {
+            if !enabledRoles.contains(newType) {
+                var next = enabledRoles
+                next.insert(newType)
+                applyEnabledRoles(next)
+            }
             applyAccountType(newType)
             applyHasCompletedInitialRoleSelection(true)
-            syncStatus = "Account type updated."
+            syncStatus = "Switched to \(newType.title) mode."
+            Task { await pushLocalStateToFirestore() }
+            return
+        }
+
+        guard enabledRoles.contains(newType) else {
+            syncStatus = "Enable \(newType.title) role first."
+            return
+        }
+
+        if enabledRoles.count > 1 {
+            applyAccountType(newType)
+            syncStatus = "Switched to \(newType.title) mode."
             Task { await pushLocalStateToFirestore() }
             return
         }
@@ -282,9 +320,40 @@ final class PurchaseManager: ObservableObject {
     }
 
     func completeInitialAccountSetup(as type: PBAccountType) {
+        applyEnabledRoles([type])
         applyAccountType(type)
         applyHasCompletedInitialRoleSelection(true)
         applyAccountTypeChangeUsed(false)
+        syncStatus = nil
+        Task { await pushLocalStateToFirestore() }
+    }
+
+    func hasRole(_ role: PBAccountType) -> Bool {
+        enabledRoles.contains(role)
+    }
+
+    var availableRoleModes: [PBAccountType] {
+        if canSwitchRoleFreely { return PBAccountType.allCases }
+        return PBAccountType.allCases.filter { enabledRoles.contains($0) }
+    }
+
+    func setRoleEnabled(_ role: PBAccountType, isEnabled: Bool) {
+        var next = enabledRoles
+        if isEnabled {
+            next.insert(role)
+        } else {
+            guard next.count > 1 else {
+                syncStatus = "At least one role must remain enabled."
+                return
+            }
+            next.remove(role)
+            if accountType == role, let fallback = next.first {
+                applyAccountType(fallback)
+            }
+        }
+
+        applyEnabledRoles(next)
+        applyHasCompletedInitialRoleSelection(true)
         syncStatus = nil
         Task { await pushLocalStateToFirestore() }
     }
@@ -352,6 +421,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func applyLifetimeProState(_ value: Bool) {
+        guard hasLifetimePro != value else { return }
         hasLifetimePro = value
         if value {
             ownedProductIDs.insert(Self.proProductID)
@@ -363,22 +433,26 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func applyEntitlementTier(_ value: PBEntitlementTier) {
+        guard entitlementTier != value else { return }
         entitlementTier = value
         UserDefaults.standard.set(value.rawValue, forKey: Self.entitlementTierKey)
         recalculateProAccess()
     }
 
     private func applyCanSwitchRoleFreely(_ value: Bool) {
+        guard canSwitchRoleFreely != value else { return }
         canSwitchRoleFreely = value
         UserDefaults.standard.set(value, forKey: Self.canSwitchRoleFreelyKey)
     }
 
     private func applyMasterAccount(_ value: Bool) {
+        guard isMasterAccount != value else { return }
         isMasterAccount = value
         UserDefaults.standard.set(value, forKey: Self.isMasterAccountKey)
     }
 
     private func applyTrialState(used: Bool, startedAt: Date?, endsAt: Date?) {
+        guard hasUsedProTrial != used || proTrialStartedAt != startedAt || proTrialEndsAt != endsAt else { return }
         hasUsedProTrial = used
         proTrialStartedAt = startedAt
         proTrialEndsAt = endsAt
@@ -390,12 +464,15 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func recalculateProAccess(now: Date = Date()) {
+        let newTrialActive: Bool
         if let end = proTrialEndsAt {
-            isProTrialActive = end > now
+            newTrialActive = end > now
         } else {
-            isProTrialActive = false
+            newTrialActive = false
         }
-        isPro = entitlementTier.isUnlocked || hasLifetimePro || isProTrialActive
+        let newPro = entitlementTier.isUnlocked || hasLifetimePro || newTrialActive
+        if isProTrialActive != newTrialActive { isProTrialActive = newTrialActive }
+        if isPro != newPro { isPro = newPro }
     }
 
     private func expiredTrialMessageIfNeeded(now: Date = Date()) -> String? {
@@ -405,22 +482,42 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func applyAccountType(_ value: PBAccountType) {
+        guard accountType != value else { return }
         accountType = value
         UserDefaults.standard.set(value.rawValue, forKey: Self.accountTypeKey)
     }
 
+    private func applyEnabledRoles(_ roles: Set<PBAccountType>) {
+        var safe = roles
+        if safe.isEmpty {
+            safe = [accountType]
+        }
+        if !safe.contains(accountType), let fallback = safe.first {
+            applyAccountType(fallback)
+        }
+        guard enabledRoles != safe else { return }
+        enabledRoles = safe
+        UserDefaults.standard.set(Array(safe.map(\.rawValue)), forKey: Self.enabledRolesKey)
+    }
+
     private func applyHasCompletedInitialRoleSelection(_ value: Bool) {
+        guard hasCompletedInitialRoleSelection != value else { return }
         hasCompletedInitialRoleSelection = value
         UserDefaults.standard.set(value, forKey: Self.accountTypeSetKey)
     }
 
     private func applyAccountTypeChangeUsed(_ value: Bool) {
+        guard accountTypeChangeUsed != value else { return }
         accountTypeChangeUsed = value
         UserDefaults.standard.set(value, forKey: Self.accountTypeChangeUsedKey)
     }
 
     private func pushLocalStateToFirestore() async {
         guard let uid = linkedUID else { return }
+        let fingerprint = localStateFingerprint()
+        if lastSyncedUID == uid, lastSyncedStateFingerprint == fingerprint {
+            return
+        }
         do {
             var payload: [String: Any] = [
                 "isPro": isPro,
@@ -430,6 +527,7 @@ final class PurchaseManager: ObservableObject {
                 "isMasterAccount": isMasterAccount,
                 "trialUsed": hasUsedProTrial,
                 "accountType": accountType.rawValue,
+                "enabledRoles": enabledRoles.map(\.rawValue),
                 "accountTypeSet": hasCompletedInitialRoleSelection,
                 "accountTypeChangeUsed": accountTypeChangeUsed,
                 "updatedAt": FieldValue.serverTimestamp()
@@ -444,12 +542,34 @@ final class PurchaseManager: ObservableObject {
                 payload["trialEndsAt"] = Timestamp(date: proTrialEndsAt)
             }
             try await db.collection("users").document(uid).setData(payload, merge: true)
+            lastSyncedUID = uid
+            lastSyncedStateFingerprint = fingerprint
             if syncStatus?.contains("trial ended") != true {
                 syncStatus = nil
             }
         } catch {
             syncStatus = "Pro sync failed: \(error.localizedDescription)"
         }
+    }
+
+    private func localStateFingerprint() -> String {
+        let roles = enabledRoles.map(\.rawValue).sorted().joined(separator: ",")
+        let trialStart = proTrialStartedAt?.timeIntervalSince1970 ?? 0
+        let trialEnd = proTrialEndsAt?.timeIntervalSince1970 ?? 0
+        return [
+            isPro ? "1" : "0",
+            hasLifetimePro ? "1" : "0",
+            entitlementTier.rawValue,
+            canSwitchRoleFreely ? "1" : "0",
+            isMasterAccount ? "1" : "0",
+            hasUsedProTrial ? "1" : "0",
+            "\(Int(trialStart))",
+            "\(Int(trialEnd))",
+            accountType.rawValue,
+            roles,
+            hasCompletedInitialRoleSelection ? "1" : "0",
+            accountTypeChangeUsed ? "1" : "0"
+        ].joined(separator: "|")
     }
 
     private func observeTransactionUpdates() -> Task<Void, Never> {
@@ -492,6 +612,7 @@ final class PurchaseManager: ObservableObject {
             applyCanSwitchRoleFreely(true)
             applyAccountTypeChangeUsed(false)
             applyHasCompletedInitialRoleSelection(true)
+            applyEnabledRoles([.student, .teacher])
             if accountType != .teacher {
                 applyAccountType(.teacher)
             }
@@ -505,6 +626,9 @@ final class PurchaseManager: ObservableObject {
         }
 
         applyCanSwitchRoleFreely(false)
+        if !enabledRoles.contains(accountType) || enabledRoles.isEmpty {
+            applyEnabledRoles([accountType])
+        }
     }
 
     private static func readDateDefault(key: String, defaults: UserDefaults) -> Date? {

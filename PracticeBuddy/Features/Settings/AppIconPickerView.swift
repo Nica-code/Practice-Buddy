@@ -24,7 +24,7 @@ struct AppIconPickerView: View {
                             HStack(spacing: 12) {
                                 iconThumbnail(icon)
 
-                                Text(icon.displayName)
+                                Text(LocalizedStringKey(icon.displayName))
                                     .font(type.body)
                                     .foregroundStyle(theme.textPrimary)
 
@@ -61,8 +61,8 @@ struct AppIconPickerView: View {
             set: { iconManager.lastError = $0 }
         )) { err in
             Alert(
-                title: Text(err.title),
-                message: Text(err.message),
+                title: Text(LocalizedStringKey(err.title)),
+                message: Text(LocalizedStringKey(err.message)),
                 dismissButton: .default(Text("OK"))
             )
         }
@@ -86,6 +86,6 @@ struct AppIconPickerView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(border, lineWidth: 1)
         )
-        .accessibilityLabel(Text("\(icon.displayName) icon preview"))
+        .accessibilityLabel(Text(LocalizedStringKey("\(icon.displayName) icon preview")))
     }
 }

@@ -13,6 +13,8 @@ final class LoopPracticeLogModel {
     var tempoEndBPM: Int
     var targetLoops: Int
     var tagsRaw: String
+    var tempoLadderEnabled: Bool
+    var ladderCleanLoopsRequired: Int
 
     init(
         id: UUID = UUID(),
@@ -24,7 +26,9 @@ final class LoopPracticeLogModel {
         tempoStartBPM: Int,
         tempoEndBPM: Int,
         targetLoops: Int,
-        tagsRaw: String
+        tagsRaw: String,
+        tempoLadderEnabled: Bool = false,
+        ladderCleanLoopsRequired: Int = 0
     ) {
         self.id = id
         self.date = date
@@ -36,6 +40,7 @@ final class LoopPracticeLogModel {
         self.tempoEndBPM = max(0, tempoEndBPM)
         self.targetLoops = max(0, targetLoops)
         self.tagsRaw = tagsRaw
+        self.tempoLadderEnabled = tempoLadderEnabled
+        self.ladderCleanLoopsRequired = max(0, ladderCleanLoopsRequired)
     }
 }
-

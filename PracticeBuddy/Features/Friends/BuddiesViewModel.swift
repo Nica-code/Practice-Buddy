@@ -7,6 +7,8 @@ struct StudioLeaderboardRow: Identifiable, Equatable {
     let name: String
     let minutes: Int
     let isMe: Bool
+    let avatarID: String
+    let publicLevel: Int
 }
 
 @MainActor
@@ -22,6 +24,11 @@ final class BuddiesViewModel: ObservableObject {
     private let repository: FirebaseBuddiesRepository
     private var listeners: [ListenerRegistration] = []
     private var configuredUID: String?
+    private var lastSyncedPracticeMinutes: Int?
+    private var lastSyncedPublicLevel: Int?
+    private var lastLeaderboardKey: String?
+    private var lastLeaderboardRefreshAt: Date?
+    private let leaderboardRefreshCooldown: TimeInterval = 15
 
     init(repository: FirebaseBuddiesRepository? = nil) {
         self.repository = repository ?? FirebaseBuddiesRepository()
@@ -62,6 +69,10 @@ final class BuddiesViewModel: ObservableObject {
         outgoingInvites = []
         buddies = []
         leaderboardRows = []
+        lastSyncedPracticeMinutes = nil
+        lastSyncedPublicLevel = nil
+        lastLeaderboardKey = nil
+        lastLeaderboardRefreshAt = nil
     }
 
     func sendInvite(friendCode: String) async -> String? {
@@ -86,6 +97,32 @@ final class BuddiesViewModel: ObservableObject {
         do {
             try await repository.updateDisplayName(uid: uid, rawDisplayName: rawName)
             statusMessage = "Name updated."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func updateProfile(avatarID: String, bio: String, instrument: String) async {
+        guard let uid = configuredUID else { return }
+        do {
+            try await repository.updateProfileDetails(
+                uid: uid,
+                avatarID: avatarID,
+                rawBio: bio,
+                rawInstrument: instrument
+            )
+            statusMessage = "Profile updated."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func syncPublicLevel(_ level: Int) async {
+        guard let uid = configuredUID else { return }
+        if lastSyncedPublicLevel == level { return }
+        do {
+            try await repository.updatePublicLevel(uid: uid, level: level)
+            lastSyncedPublicLevel = level
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -122,16 +159,26 @@ final class BuddiesViewModel: ObservableObject {
 
     func syncPracticeTotal(minutes: Int) async {
         guard let uid = configuredUID else { return }
+        let safeMinutes = max(0, minutes)
+        if lastSyncedPracticeMinutes == safeMinutes { return }
         do {
-            try await repository.updatePracticeTotalMinutes(uid: uid, minutes: minutes)
+            try await repository.updatePracticeTotalMinutes(uid: uid, minutes: safeMinutes)
+            lastSyncedPracticeMinutes = safeMinutes
         } catch {
             statusMessage = error.localizedDescription
         }
     }
 
-    func refreshLeaderboard(myTotalMinutes: Int) async {
+    func refreshLeaderboard(myTotalMinutes: Int, force: Bool = false) async {
         guard let profile = myProfile else { return }
         let buddyIDs = buddies.map(\.id)
+        let key = [profile.uid, "\(max(0, myTotalMinutes))", buddyIDs.sorted().joined(separator: ",")].joined(separator: "|")
+        if !force,
+           lastLeaderboardKey == key,
+           let lastLeaderboardRefreshAt,
+           Date().timeIntervalSince(lastLeaderboardRefreshAt) < leaderboardRefreshCooldown {
+            return
+        }
 
         do {
             let totals = try await repository.fetchPracticeMinutes(forUIDs: [profile.uid] + buddyIDs)
@@ -140,7 +187,9 @@ final class BuddiesViewModel: ObservableObject {
                     id: profile.uid,
                     name: "\(profile.displayName) (You)",
                     minutes: max(myTotalMinutes, totals[profile.uid] ?? 0),
-                    isMe: true
+                    isMe: true,
+                    avatarID: profile.avatarID,
+                    publicLevel: profile.publicLevel
                 )
             ]
 
@@ -149,7 +198,9 @@ final class BuddiesViewModel: ObservableObject {
                     id: buddy.id,
                     name: buddy.displayName,
                     minutes: totals[buddy.id] ?? 0,
-                    isMe: false
+                    isMe: false,
+                    avatarID: buddy.avatarID,
+                    publicLevel: buddy.publicLevel
                 )
             }
 
@@ -157,6 +208,8 @@ final class BuddiesViewModel: ObservableObject {
                 if $0.minutes == $1.minutes { return $0.name < $1.name }
                 return $0.minutes > $1.minutes
             }
+            lastLeaderboardKey = key
+            lastLeaderboardRefreshAt = Date()
         } catch {
             statusMessage = error.localizedDescription
         }

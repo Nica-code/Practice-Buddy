@@ -21,10 +21,14 @@ struct RunThroughModeView: View {
     @State private var elapsedSeconds: Int = 0
     @State private var showFinishSheet = false
     @State private var noteInput: String = ""
+    @State private var pieceNameInput: String = ""
     @State private var selfRating: Int = 3
     @State private var markLinkedAssignmentComplete: Bool = true
     @State private var linkedAssignmentNote: String = ""
     @State private var statusMessage: String?
+    @State private var markerLabel: String = "shift"
+    @State private var markers: [RunThroughMarker] = []
+    private let markerOptions: [String] = ["shift", "rhythm", "intonation", "bow", "memory", "other"]
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -37,7 +41,7 @@ struct RunThroughModeView: View {
                 Toggle("Use metronome click", isOn: $useMetronome)
                     .font(type.body)
                 if useMetronome {
-                    Stepper("Metronome: \(metronomeBPM) BPM", value: $metronomeBPM, in: 40...220)
+                    Stepper(L10n.f("Metronome: %@ BPM", "\(metronomeBPM)"), value: $metronomeBPM, in: 40...220)
                         .font(type.body)
                 }
             }
@@ -49,7 +53,7 @@ struct RunThroughModeView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
-                    Text(recorder.stateTitle)
+                    Text(LocalizedStringKey(recorder.stateTitle))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -64,6 +68,27 @@ struct RunThroughModeView: View {
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
+                }
+
+                if recorder.isRecording || recorder.isPaused {
+                    Picker("Marker", selection: $markerLabel) {
+                        ForEach(markerOptions, id: \.self) { option in
+                            Text(LocalizedStringKey(option.capitalized)).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Button("Add Marker") {
+                        markers.append(RunThroughMarker(second: elapsedSeconds, label: markerLabel))
+                    }
+                    .buttonStyle(.bordered)
+                    .font(type.button)
+
+                    if !markers.isEmpty {
+                        Text(L10n.f("Markers: %@", "\(markers.count)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
                 }
 
                 HStack(spacing: 10) {
@@ -87,7 +112,7 @@ struct RunThroughModeView: View {
 
             if let statusMessage {
                 Section {
-                    Text(statusMessage)
+                    Text(LocalizedStringKey(statusMessage))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -108,13 +133,27 @@ struct RunThroughModeView: View {
                             Text(DurationFormatter.string(from: elapsedSeconds))
                                 .monospacedDigit()
                         }
-                        Stepper("Self rating: \(selfRating)/5", value: $selfRating, in: 1...5)
+                        Stepper(L10n.f("Self rating: %@/5", "\(selfRating)"), value: $selfRating, in: 1...5)
+                        TextField("Piece / Passage (optional)", text: $pieceNameInput)
                         TextField("Notes (optional)", text: $noteInput, axis: .vertical)
                             .lineLimit(3...8)
 
+                        if !markers.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Mistake markers")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textPrimary)
+                                ForEach(markers) { marker in
+                                    Text(L10n.f("%@ • %@", DurationFormatter.string(from: marker.second), marker.label.capitalized))
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.textSecondary)
+                                }
+                            }
+                        }
+
                         if let linked = assignmentLinkManager.linkedAssignment {
                             Divider().padding(.vertical, 4)
-                            Text("Linked assignment: \(linked.title)")
+                            Text(L10n.f("Linked assignment: %@", linked.title))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
@@ -161,9 +200,11 @@ struct RunThroughModeView: View {
     private func startRecording() {
         metronomeBPM = min(max(metronomeBPM, 40), 220)
         noteInput = ""
+        pieceNameInput = ""
         selfRating = 3
         statusMessage = nil
         elapsedSeconds = 0
+        markers = []
         if useMetronome {
             metronome.setBPM(metronomeBPM)
             metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
@@ -223,7 +264,9 @@ struct RunThroughModeView: View {
             notes: noteInput.trimmingCharacters(in: .whitespacesAndNewlines),
             selfRating: selfRating,
             noPauseMode: noPauseMode,
-            usedMetronome: useMetronome
+            usedMetronome: useMetronome,
+            markerJSON: encodeMarkers(markers),
+            pieceName: pieceNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         modelContext.insert(model)
         try? modelContext.save()
@@ -231,7 +274,11 @@ struct RunThroughModeView: View {
         if assignmentLinkManager.linkedAssignment != nil {
             let trimmed = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
             let note = trimmed.isEmpty
-                ? "Run-through saved in History (\(DurationFormatter.string(from: elapsedSeconds)), rating \(selfRating)/5)."
+                ? L10n.f(
+                    "Run-through saved in History (%@, rating %@/5).",
+                    DurationFormatter.string(from: elapsedSeconds),
+                    "\(selfRating)"
+                )
                 : trimmed
             Task {
                 await assignmentLinkManager.submitLinkedPracticeResult(
@@ -244,6 +291,15 @@ struct RunThroughModeView: View {
         }
 
         statusMessage = "Run-through saved in History."
+    }
+
+    private func encodeMarkers(_ rows: [RunThroughMarker]) -> String {
+        guard !rows.isEmpty,
+              let data = try? JSONEncoder().encode(rows),
+              let raw = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return raw
     }
 }
 
@@ -343,7 +399,7 @@ final class RunThroughRecorder: ObservableObject {
                 self.statusMessage = "Recording could not start."
             }
         } catch {
-            statusMessage = "Recording failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("Recording failed: %@", error.localizedDescription)
         }
     }
 

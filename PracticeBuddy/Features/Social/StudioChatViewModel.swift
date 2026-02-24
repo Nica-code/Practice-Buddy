@@ -17,6 +17,8 @@ final class StudioChatViewModel: ObservableObject {
     private var currentUID: String?
     private var currentRole: PBAccountType = .student
     private var currentDisplayName: String = ""
+    private var currentAvatarID: String = "avatar_note"
+    private var currentLevel: Int = 1
 
     init(repository: FirebaseStudiosRepository? = nil) {
         self.repository = repository ?? FirebaseStudiosRepository()
@@ -42,6 +44,12 @@ final class StudioChatViewModel: ObservableObject {
             if let raw = data?["displayName"] as? String {
                 let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { self.currentDisplayName = trimmed }
+            }
+            if let avatar = data?["avatarID"] as? String, !avatar.isEmpty {
+                self.currentAvatarID = avatar
+            }
+            if let level = data?["publicLevel"] as? Int {
+                self.currentLevel = max(1, level)
             }
 
             if role == .student {
@@ -73,6 +81,8 @@ final class StudioChatViewModel: ObservableObject {
         isLoading = false
         currentUID = nil
         currentDisplayName = ""
+        currentAvatarID = "avatar_note"
+        currentLevel = 1
         currentRole = .student
     }
 
@@ -94,6 +104,8 @@ final class StudioChatViewModel: ObservableObject {
                 studioID: studioID,
                 senderUID: uid,
                 senderName: senderName,
+                senderAvatarID: currentAvatarID,
+                senderLevel: currentLevel,
                 rawText: text
             )
             draftMessage = ""

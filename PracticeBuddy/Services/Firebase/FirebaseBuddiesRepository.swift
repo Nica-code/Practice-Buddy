@@ -7,6 +7,10 @@ struct FirebaseUserProfile: Equatable {
     let displayName: String
     let friendCode: String
     let nameEditUsed: Bool
+    let avatarID: String
+    let bio: String
+    let instrument: String
+    let publicLevel: Int
 }
 
 struct BuddySummary: Identifiable, Equatable {
@@ -14,6 +18,8 @@ struct BuddySummary: Identifiable, Equatable {
     let displayName: String
     let friendCode: String
     let sinceAt: Date
+    let avatarID: String
+    let publicLevel: Int
 }
 
 enum BuddyInviteStatus: String {
@@ -100,12 +106,25 @@ final class FirebaseBuddiesRepository {
                 "displayName": defaultDisplayName,
                 "friendCode": code,
                 "nameEditUsed": false,
+                "avatarID": "avatar_note",
+                "bio": "",
+                "instrument": "",
+                "publicLevel": 1,
                 "totalPracticeMinutes": 0,
                 "createdAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
 
-            return FirebaseUserProfile(uid: uid, displayName: defaultDisplayName, friendCode: code, nameEditUsed: false)
+            return FirebaseUserProfile(
+                uid: uid,
+                displayName: defaultDisplayName,
+                friendCode: code,
+                nameEditUsed: false,
+                avatarID: "avatar_note",
+                bio: "",
+                instrument: "",
+                publicLevel: 1
+            )
         }
 
         throw FirebaseBuddiesError.invalidFriendCode
@@ -217,12 +236,16 @@ final class FirebaseBuddiesRepository {
             "buddyUid": targetUid,
             "displayName": targetProfile.displayName,
             "friendCode": targetProfile.friendCode,
+            "avatarID": targetProfile.avatarID,
+            "publicLevel": targetProfile.publicLevel,
             "sinceAt": now
         ], forDocument: myBuddyRef, merge: true)
         batch.setData([
             "buddyUid": myProfile.uid,
             "displayName": myProfile.displayName,
             "friendCode": myProfile.friendCode,
+            "avatarID": myProfile.avatarID,
+            "publicLevel": myProfile.publicLevel,
             "sinceAt": now
         ], forDocument: theirBuddyRef, merge: true)
 
@@ -246,6 +269,31 @@ final class FirebaseBuddiesRepository {
         try await db.collection(usersCollection).document(uid).setData([
             "displayName": cleaned,
             "nameEditUsed": true,
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
+    }
+
+    func updateProfileDetails(
+        uid: String,
+        avatarID: String,
+        rawBio: String,
+        rawInstrument: String
+    ) async throws {
+        let cleanBio = String(rawBio.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
+        let cleanInstrument = String(rawInstrument.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        let cleanAvatar = avatarID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "avatar_note" : avatarID
+
+        try await db.collection(usersCollection).document(uid).setData([
+            "avatarID": cleanAvatar,
+            "bio": cleanBio,
+            "instrument": cleanInstrument,
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
+    }
+
+    func updatePublicLevel(uid: String, level: Int) async throws {
+        try await db.collection(usersCollection).document(uid).setData([
+            "publicLevel": max(1, level),
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
     }
@@ -333,12 +381,16 @@ final class FirebaseBuddiesRepository {
             "buddyUid": invite.fromUid,
             "displayName": invite.fromDisplayName,
             "friendCode": invite.fromFriendCode,
+            "avatarID": "avatar_note",
+            "publicLevel": 1,
             "sinceAt": now
         ], forDocument: meBuddyRef, merge: true)
         batch.setData([
             "buddyUid": myUID,
             "displayName": invite.toDisplayName,
             "friendCode": invite.toFriendCode,
+            "avatarID": "avatar_note",
+            "publicLevel": 1,
             "sinceAt": now
         ], forDocument: themBuddyRef, merge: true)
 
@@ -365,7 +417,11 @@ final class FirebaseBuddiesRepository {
             uid: uid,
             displayName: displayName,
             friendCode: friendCode,
-            nameEditUsed: (data["nameEditUsed"] as? Bool) ?? false
+            nameEditUsed: (data["nameEditUsed"] as? Bool) ?? false,
+            avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+            bio: (data["bio"] as? String) ?? "",
+            instrument: (data["instrument"] as? String) ?? "",
+            publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
         )
     }
 
@@ -416,7 +472,9 @@ final class FirebaseBuddiesRepository {
                 id: buddyUID,
                 displayName: displayName,
                 friendCode: friendCode,
-                sinceAt: sinceAt
+                sinceAt: sinceAt,
+                avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+                publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
             )
         }
     }

@@ -301,7 +301,7 @@ final class StudioManagerViewModel: ObservableObject {
         case studio
         case individual
         var id: String { rawValue }
-        var title: String {
+        var titleKey: String {
             switch self {
             case .all: return "All"
             case .studio: return "Studio"

@@ -33,6 +33,8 @@ struct SmartLoopTimerView: View {
         let autoIncreaseEnabled: Bool
         let autoIncreaseEvery: Int
         let autoIncreaseBy: Int
+        let tempoLadderEnabled: Bool?
+        let tempoLadderCleanLoops: Int?
         let tags: [String]
     }
 
@@ -54,6 +56,8 @@ struct SmartLoopTimerView: View {
     @AppStorage("pb.loop.metroAutoEnabled") private var autoIncreaseEnabled: Bool = false
     @AppStorage("pb.loop.metroAutoEvery") private var autoIncreaseEvery: Int = 2
     @AppStorage("pb.loop.metroAutoBy") private var autoIncreaseBy: Int = 2
+    @AppStorage("pb.loop.tempoLadderEnabled") private var tempoLadderEnabled: Bool = false
+    @AppStorage("pb.loop.tempoLadderCleanLoops") private var tempoLadderCleanLoops: Int = 3
     @AppStorage("pb.loop.presets.json") private var presetsRaw: String = ""
 
     @State private var selectedTags: Set<String> = []
@@ -69,6 +73,7 @@ struct SmartLoopTimerView: View {
     @State private var saveToSessionHistory: Bool = true
     @State private var markLinkedAssignmentComplete: Bool = true
     @State private var linkedAssignmentNote: String = ""
+    @State private var cleanLoopsAtCurrentTempo: Int = 0
     @State private var timerCancellable: AnyCancellable?
     @StateObject private var metronome = MetronomeEngine()
 
@@ -88,15 +93,15 @@ struct SmartLoopTimerView: View {
     var body: some View {
         Form {
             Section("Loop Setup") {
-                Stepper("Loop duration: \(loopDuration) sec", value: $loopDuration, in: 10...600, step: 5)
+                Stepper(L10n.f("Loop duration: %@ sec", "\(loopDuration)"), value: $loopDuration, in: 10...600, step: 5)
                     .font(type.body)
-                Stepper("Rest: \(restDuration) sec", value: $restDuration, in: 0...180, step: 5)
+                Stepper(L10n.f("Rest: %@ sec", "\(restDuration)"), value: $restDuration, in: 0...180, step: 5)
                     .font(type.body)
 
                 Toggle("Run until stop", isOn: $untilStop)
                     .font(type.body)
                 if !untilStop {
-                    Stepper("Target loops: \(targetLoopValue)", value: $targetLoops, in: 1...200)
+                    Stepper(L10n.f("Target loops: %@", "\(targetLoopValue)"), value: $targetLoops, in: 1...200)
                         .font(type.body)
                 }
             }
@@ -107,17 +112,27 @@ struct SmartLoopTimerView: View {
                     .font(type.body)
 
                 if metronomeEnabled {
-                    Stepper("Start tempo: \(tempoStartBPM) BPM", value: $tempoStartBPM, in: 40...220)
+                    Stepper(L10n.f("Start tempo: %@ BPM", "\(tempoStartBPM)"), value: $tempoStartBPM, in: 40...220)
                         .font(type.body)
 
                     Toggle("Auto increase tempo", isOn: $autoIncreaseEnabled)
                         .font(type.body)
 
                     if autoIncreaseEnabled {
-                        Stepper("Every \(autoIncreaseEvery) loop(s)", value: $autoIncreaseEvery, in: 1...20)
+                        Stepper(L10n.f("Every %@ loop(s)", "\(autoIncreaseEvery)"), value: $autoIncreaseEvery, in: 1...20)
                             .font(type.body)
-                        Stepper("Increase by \(autoIncreaseBy) BPM", value: $autoIncreaseBy, in: 1...10)
+                        Stepper(L10n.f("Increase by %@ BPM", "\(autoIncreaseBy)"), value: $autoIncreaseBy, in: 1...10)
                             .font(type.body)
+                    }
+
+                    Toggle("Tempo Ladder (clean loops)", isOn: $tempoLadderEnabled)
+                        .font(type.body)
+                    if tempoLadderEnabled {
+                        Stepper(L10n.f("Clean loops to climb: %@", "\(tempoLadderCleanLoops)"), value: $tempoLadderCleanLoops, in: 1...10)
+                            .font(type.body)
+                        Text(L10n.f("Tap “Mark Loop Clean” during run-through. Tempo increases after %@ clean loops.", "\(tempoLadderCleanLoops)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
             }
@@ -153,7 +168,7 @@ struct SmartLoopTimerView: View {
                                     Text(preset.name)
                                         .font(type.body)
                                         .foregroundStyle(palette.textPrimary)
-                                    Text("\(preset.loopDuration)s loop • \(preset.restDuration)s rest • \(preset.targetLoops) loops")
+                                    Text(L10n.f("%@s loop • %@s rest • %@ loops", "\(preset.loopDuration)", "\(preset.restDuration)", "\(preset.targetLoops)"))
                                         .font(type.footnote)
                                         .foregroundStyle(palette.textSecondary)
                                 }
@@ -165,7 +180,7 @@ struct SmartLoopTimerView: View {
                     Text("Saving/loading loop presets is part of Practice Buddy Pro.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                    Button("Unlock Pro") { selectedTab = 3 }
+                    Button("Unlock Pro") { selectedTab = 4 }
                         .font(type.button)
                         .buttonStyle(.borderedProminent)
                 }
@@ -178,7 +193,7 @@ struct SmartLoopTimerView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
-                    Text(phaseTitle)
+                    Text(LocalizedStringKey(phaseTitle))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -223,15 +238,27 @@ struct SmartLoopTimerView: View {
                             .font(type.body)
                             .foregroundStyle(palette.textPrimary)
                         Spacer()
-                        Text("\(currentTempoBPM) BPM")
+                        Text(L10n.f("%@ BPM", "\(currentTempoBPM)"))
                             .font(type.number)
                             .foregroundStyle(palette.textSecondary)
                             .monospacedDigit()
                     }
+                    if tempoLadderEnabled {
+                        HStack {
+                            Text("Clean loops")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text(L10n.f("%@/%@", "\(cleanLoopsAtCurrentTempo)", "\(tempoLadderCleanLoops)"))
+                                .font(type.number)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
+                    }
                 }
 
                 HStack(spacing: 10) {
-                    Button(primaryActionTitle) {
+                    Button(String(localized: String.LocalizationValue(primaryActionTitle))) {
                         primaryAction()
                     }
                     .buttonStyle(.borderedProminent)
@@ -243,6 +270,14 @@ struct SmartLoopTimerView: View {
                     .buttonStyle(.bordered)
                     .font(type.button)
                     .disabled(phase == .idle)
+                }
+
+                if phase == .work && metronomeEnabled && tempoLadderEnabled {
+                    Button("Mark Loop Clean") {
+                        markCleanLoop()
+                    }
+                    .buttonStyle(.bordered)
+                    .font(type.button)
                 }
             }
             .listRowBackground(palette.surface)
@@ -258,7 +293,7 @@ struct SmartLoopTimerView: View {
 
                     if let linked = assignmentLinkManager.linkedAssignment {
                         Divider().padding(.vertical, 4)
-                        Text("Linked assignment: \(linked.title)")
+                        Text(L10n.f("Linked assignment: %@", linked.title))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                         Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
@@ -279,7 +314,7 @@ struct SmartLoopTimerView: View {
 
             if let statusMessage, !statusMessage.isEmpty {
                 Section {
-                    Text(statusMessage)
+                    Text(LocalizedStringKey(statusMessage))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -332,7 +367,7 @@ struct SmartLoopTimerView: View {
                 selectedTags.insert(tag.rawValue)
             }
         } label: {
-            Text(tag.title)
+            Text(LocalizedStringKey(tag.title))
                 .font(type.footnote)
                 .foregroundStyle(isSelected ? palette.accent : palette.textSecondary)
                 .padding(.horizontal, 10)
@@ -366,8 +401,16 @@ struct SmartLoopTimerView: View {
 
     private var summaryText: String {
         let tags = selectedTags.sorted().joined(separator: ", ")
-        let tempo = metronomeEnabled ? "\(tempoStartBPM)→\(currentTempoBPM) BPM" : "Metronome off"
-        return "Loops: \(loopsCompleted), Work: \(DurationFormatter.string(from: totalWorkSeconds)), Tempo: \(tempo), Tags: \(tags.isEmpty ? "none" : tags)"
+        let tempo = metronomeEnabled ? L10n.f("%@→%@ BPM", "\(tempoStartBPM)", "\(currentTempoBPM)") : String(localized: "Metronome off")
+        let ladder = tempoLadderEnabled ? L10n.f("Tempo ladder on (%@ clean loops)", "\(tempoLadderCleanLoops)") : String(localized: "Tempo ladder off")
+        return L10n.f(
+            "Loops: %@, Work: %@, Tempo: %@, %@, Tags: %@",
+            "\(loopsCompleted)",
+            DurationFormatter.string(from: totalWorkSeconds),
+            tempo,
+            ladder,
+            tags.isEmpty ? String(localized: "none") : tags
+        )
     }
 
     private func primaryAction() {
@@ -388,6 +431,7 @@ struct SmartLoopTimerView: View {
         tempoStartBPM = min(max(tempoStartBPM, 40), 220)
         autoIncreaseEvery = min(max(autoIncreaseEvery, 1), 20)
         autoIncreaseBy = min(max(autoIncreaseBy, 1), 10)
+        tempoLadderCleanLoops = min(max(tempoLadderCleanLoops, 1), 10)
     }
 
     private func startRun() {
@@ -397,6 +441,7 @@ struct SmartLoopTimerView: View {
         totalWorkSeconds = 0
         runFinishedAt = nil
         currentTempoBPM = tempoStartBPM
+        cleanLoopsAtCurrentTempo = 0
         startWorkPhase()
     }
 
@@ -477,7 +522,7 @@ struct SmartLoopTimerView: View {
             remainingSeconds -= 1
             if remainingSeconds <= 0 {
                 loopsCompleted += 1
-                if autoIncreaseEnabled && metronomeEnabled && loopsCompleted > 0 && loopsCompleted % autoIncreaseEvery == 0 {
+                if !tempoLadderEnabled && autoIncreaseEnabled && metronomeEnabled && loopsCompleted > 0 && loopsCompleted % autoIncreaseEvery == 0 {
                     currentTempoBPM = min(220, currentTempoBPM + autoIncreaseBy)
                 }
                 if !untilStop && loopsCompleted >= targetLoopValue {
@@ -508,7 +553,9 @@ struct SmartLoopTimerView: View {
             tempoStartBPM: metronomeEnabled ? tempoStartBPM : 0,
             tempoEndBPM: metronomeEnabled ? currentTempoBPM : 0,
             targetLoops: untilStop ? 0 : targetLoopValue,
-            tagsRaw: tags
+            tagsRaw: tags,
+            tempoLadderEnabled: tempoLadderEnabled,
+            ladderCleanLoopsRequired: tempoLadderEnabled ? tempoLadderCleanLoops : 0
         )
         modelContext.insert(log)
         try? modelContext.save()
@@ -548,6 +595,22 @@ struct SmartLoopTimerView: View {
         phase = .idle
     }
 
+    private func markCleanLoop() {
+        guard tempoLadderEnabled, metronomeEnabled, phase == .work else { return }
+        cleanLoopsAtCurrentTempo += 1
+        if cleanLoopsAtCurrentTempo >= tempoLadderCleanLoops {
+            cleanLoopsAtCurrentTempo = 0
+            currentTempoBPM = min(220, currentTempoBPM + max(1, autoIncreaseBy))
+            metronome.setBPM(currentTempoBPM)
+            metronome.applyUpdatedConfiguration(
+                beatsPerBar: 4,
+                subdivision: .none,
+                soundStyle: .click
+            )
+            statusMessage = L10n.f("Tempo ladder advanced to %@ BPM.", "\(currentTempoBPM)")
+        }
+    }
+
     private func savePreset() {
         guard purchaseManager.isPro else { return }
         let name = newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -565,6 +628,8 @@ struct SmartLoopTimerView: View {
             autoIncreaseEnabled: autoIncreaseEnabled,
             autoIncreaseEvery: autoIncreaseEvery,
             autoIncreaseBy: autoIncreaseBy,
+            tempoLadderEnabled: tempoLadderEnabled,
+            tempoLadderCleanLoops: tempoLadderCleanLoops,
             tags: selectedTags.sorted()
         )
         presets.insert(preset, at: 0)
@@ -588,6 +653,8 @@ struct SmartLoopTimerView: View {
         autoIncreaseEnabled = preset.autoIncreaseEnabled
         autoIncreaseEvery = preset.autoIncreaseEvery
         autoIncreaseBy = preset.autoIncreaseBy
+        tempoLadderEnabled = preset.tempoLadderEnabled ?? false
+        tempoLadderCleanLoops = preset.tempoLadderCleanLoops ?? 3
         selectedTags = Set(preset.tags)
         statusMessage = "Preset loaded."
     }

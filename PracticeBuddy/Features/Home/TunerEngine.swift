@@ -73,7 +73,7 @@ final class TunerEngine: ObservableObject {
             isReferenceTonePlaying = true
             statusMessage = "Playing A tone."
         } catch {
-            statusMessage = "Reference tone failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("Reference tone failed: %@", error.localizedDescription)
         }
     }
 
@@ -126,7 +126,7 @@ final class TunerEngine: ObservableObject {
             permissionState = .granted
             statusMessage = "Listening…"
         } catch {
-            statusMessage = "Tuner failed to start: \(error.localizedDescription)"
+            statusMessage = L10n.f("Tuner failed to start: %@", error.localizedDescription)
             isListening = false
         }
     }
@@ -151,7 +151,7 @@ final class TunerEngine: ObservableObject {
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .mixWithOthers, .allowBluetoothHFP])
             try session.setActive(true, options: [])
         } catch {
-            statusMessage = "Audio setup failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("Audio setup failed: %@", error.localizedDescription)
         }
     }
 

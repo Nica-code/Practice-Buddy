@@ -41,6 +41,9 @@ final class AssignmentLinkManager: ObservableObject {
     private var currentStudioID: String?
     private var completionByAssignmentID: [String: Bool] = [:]
     private var currentAccountType: PBAccountType = .student
+    private var isFlushingPendingQueue = false
+    private var lastFlushAttemptAt: Date?
+    private let flushCooldown: TimeInterval = 3
 
     init(repository: FirebaseStudiosRepository? = nil) {
         self.repository = repository ?? FirebaseStudiosRepository()
@@ -145,6 +148,15 @@ final class AssignmentLinkManager: ObservableObject {
 
     func flushPendingQueue() async {
         guard let uid = currentUID else { return }
+        if isFlushingPendingQueue { return }
+        if let lastFlushAttemptAt,
+           Date().timeIntervalSince(lastFlushAttemptAt) < flushCooldown {
+            return
+        }
+        isFlushingPendingQueue = true
+        lastFlushAttemptAt = Date()
+        defer { isFlushingPendingQueue = false }
+
         var queue = pendingQueue()
         guard !queue.isEmpty else { return }
 

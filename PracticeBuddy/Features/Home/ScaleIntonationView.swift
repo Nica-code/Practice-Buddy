@@ -182,13 +182,13 @@ struct ScaleIntonationView: View {
         Section("Scale Intonation Score") {
             Picker("Exercise", selection: $exerciseType) {
                 ForEach(ExerciseType.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
 
             Picker("Mode", selection: $scaleMode) {
                 ForEach(ScaleMode.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
             .pickerStyle(.segmented)
@@ -202,14 +202,14 @@ struct ScaleIntonationView: View {
 
             Picker("Range", selection: $octavePreset) {
                 ForEach(OctavePreset.allCases) { preset in
-                    Text(preset.title).tag(preset)
+                    Text(LocalizedStringKey(preset.title)).tag(preset)
                 }
             }
             .pickerStyle(.segmented)
 
             Toggle("Use tempo target", isOn: $useTempoTarget)
             if useTempoTarget {
-                Stepper("Tempo: \(tempoBPM) BPM", value: $tempoBPM, in: 40...180, step: 2)
+                Stepper(L10n.f("Tempo: %@ BPM", "\(tempoBPM)"), value: $tempoBPM, in: 40...180, step: 2)
             }
 
             Picker("Tuning", selection: $referenceHz) {
@@ -232,7 +232,7 @@ struct ScaleIntonationView: View {
             }
 
             if let statusMessage, !statusMessage.isEmpty {
-                Text(statusMessage)
+                Text(LocalizedStringKey(statusMessage))
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -273,10 +273,10 @@ struct ScaleIntonationView: View {
                 let index = min(max(currentNoteIndex, 0), activeTargets.count - 1)
                 let target = activeTargets[index]
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Target note \(index + 1)/\(activeTargets.count)")
+                    Text(L10n.f("Target note %@/%@", "\(index + 1)", "\(activeTargets.count)"))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                    Text("\(target.name) (degree \(target.degree))")
+                    Text(L10n.f("%@ (degree %@)", target.name, "\(target.degree)"))
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
                 }
@@ -310,7 +310,7 @@ struct ScaleIntonationView: View {
 
                 if !result.suggestions.isEmpty {
                     Text("Top fixes")
-                        .font(type.body.weight(.semibold))
+                        .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     ForEach(result.suggestions, id: \.self) { item in
                         Text("• \(item)")
@@ -322,11 +322,11 @@ struct ScaleIntonationView: View {
                 if purchaseManager.isPro {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Per-note breakdown")
-                            .font(type.body.weight(.semibold))
+                            .font(type.body)
                             .foregroundStyle(palette.textPrimary)
                         ForEach(result.noteScores.prefix(20)) { note in
                             HStack {
-                                Text("\(note.noteName) (d\(note.degree))")
+                                Text(L10n.f("%@ (d%@)", note.noteName, "\(note.degree)"))
                                     .font(type.footnote)
                                     .foregroundStyle(palette.textPrimary)
                                 Spacer()
@@ -434,7 +434,7 @@ struct ScaleIntonationView: View {
                 consistencyScore: 0,
                 meanOffset: 0,
                 noteScores: [],
-                suggestions: ["No notes were analyzed."]
+                suggestions: [String(localized: "No notes were analyzed.")]
             )
         }
 
@@ -529,11 +529,19 @@ struct ScaleIntonationView: View {
 
         var output: [String] = []
         for item in ranked {
-            let direction = item.meanOffset >= 0 ? "sharp" : "flat"
-            output.append("Degree \(item.degree) (\(item.noteName)) tends \(direction) \(String(format: "%+.1fc", item.meanOffset)).")
+            let direction = item.meanOffset >= 0 ? String(localized: "sharp") : String(localized: "flat")
+            output.append(
+                L10n.f(
+                    "Degree %@ (%@) tends %@ %@.",
+                    "\(item.degree)",
+                    item.noteName,
+                    direction,
+                    String(format: "%+.1fc", item.meanOffset)
+                )
+            )
         }
         if output.isEmpty {
-            output.append("Signal was limited. Try a quieter room and hold each note slightly longer.")
+            output.append(String(localized: "Signal was limited. Try a quieter room and hold each note slightly longer."))
         }
         return output
     }
@@ -568,7 +576,7 @@ struct ScaleIntonationView: View {
             try modelContext.save()
             statusMessage = "Scale intonation take saved in History."
         } catch {
-            statusMessage = "Could not save take: \(error.localizedDescription)"
+            statusMessage = L10n.f("Could not save take: %@", error.localizedDescription)
         }
     }
 
@@ -625,4 +633,3 @@ struct ScaleIntonationView: View {
         return sqrt(max(0, variance))
     }
 }
-

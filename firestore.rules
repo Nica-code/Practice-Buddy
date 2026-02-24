@@ -40,6 +40,26 @@ service cloud.firestore {
       allow read, create, update, delete: if isSelf(uid);
     }
 
+    match /duelChallenges/{challengeId} {
+      allow read: if isSignedIn() &&
+        (
+          resource.data.status == "open"
+          || request.auth.uid in resource.data.participants
+        );
+
+      allow create: if isSignedIn()
+        && request.resource.data.createdByUid == request.auth.uid
+        && (request.resource.data.status == "open" || request.resource.data.status == "invited");
+
+      allow update: if isSignedIn() &&
+        (
+          request.auth.uid in resource.data.participants
+          || (resource.data.status == "open" && request.auth.uid != resource.data.createdByUid)
+        );
+
+      allow delete: if false;
+    }
+
     match /invites/{inviteId} {
       allow read: if isSignedIn() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);

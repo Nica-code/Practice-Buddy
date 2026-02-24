@@ -19,6 +19,8 @@ struct StudioMemberSummary: Identifiable, Equatable {
     let displayName: String
     let role: StudioMemberRole
     let joinedAt: Date
+    let avatarID: String
+    let publicLevel: Int
 }
 
 struct StudioAssignment: Identifiable, Equatable {
@@ -77,6 +79,8 @@ struct StudioChatMessage: Identifiable, Equatable {
     let studioID: String
     let senderUID: String
     let senderName: String
+    let senderAvatarID: String
+    let senderLevel: Int
     let text: String
     let createdAt: Date
 }
@@ -108,7 +112,7 @@ enum FirebaseStudiosError: LocalizedError {
 }
 
 final class FirebaseStudiosRepository {
-    private let db = Firestore.firestore()
+    private var db: Firestore { Firestore.firestore() }
 
     func listenToOwnedStudio(
         ownerUID: String,
@@ -190,7 +194,7 @@ final class FirebaseStudiosRepository {
             throw FirebaseStudiosError.studioAlreadyExists
         }
 
-        let ownerDisplayName = try await fetchOwnerDisplayName(uid: ownerUID)
+        let ownerProfile = try await fetchUserPublicProfile(uid: ownerUID)
 
         var inviteCode = ""
         for _ in 0..<8 {
@@ -222,8 +226,10 @@ final class FirebaseStudiosRepository {
         ], forDocument: studioRef)
         batch.setData([
             "uid": ownerUID,
-            "displayName": ownerDisplayName,
+            "displayName": ownerProfile.displayName,
             "role": StudioMemberRole.teacher.rawValue,
+            "avatarID": ownerProfile.avatarID,
+            "publicLevel": ownerProfile.publicLevel,
             "joinedAt": now
         ], forDocument: memberRef)
         batch.setData([
@@ -551,6 +557,8 @@ final class FirebaseStudiosRepository {
         studioID: String,
         senderUID: String,
         senderName: String,
+        senderAvatarID: String,
+        senderLevel: Int,
         rawText: String
     ) async throws {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -563,6 +571,8 @@ final class FirebaseStudiosRepository {
             .setData([
                 "senderUid": senderUID,
                 "senderName": senderName,
+                "senderAvatarID": senderAvatarID,
+                "senderLevel": max(1, senderLevel),
                 "text": String(text.prefix(700)),
                 "createdAt": FieldValue.serverTimestamp()
             ])
@@ -590,7 +600,7 @@ final class FirebaseStudiosRepository {
             throw FirebaseStudiosError.invalidInviteCode
         }
 
-        let displayName = try await fetchOwnerDisplayName(uid: studentUID)
+        let studentProfile = try await fetchUserPublicProfile(uid: studentUID)
         let studioRef = studioDoc.reference
         let memberRef = studioRef.collection("members").document(studentUID)
         let now = FieldValue.serverTimestamp()
@@ -598,8 +608,10 @@ final class FirebaseStudiosRepository {
         let batch = db.batch()
         batch.setData([
             "uid": studentUID,
-            "displayName": displayName,
+            "displayName": studentProfile.displayName,
             "role": StudioMemberRole.student.rawValue,
+            "avatarID": studentProfile.avatarID,
+            "publicLevel": studentProfile.publicLevel,
             "joinedAt": now
         ], forDocument: memberRef, merge: true)
         batch.setData([
@@ -609,12 +621,14 @@ final class FirebaseStudiosRepository {
         try await batch.commit()
     }
 
-    private func fetchOwnerDisplayName(uid: String) async throws -> String {
+    private func fetchUserPublicProfile(uid: String) async throws -> (displayName: String, avatarID: String, publicLevel: Int) {
         let snap = try await db.collection("users").document(uid).getDocument()
         let fallback = "Teacher \(uid.prefix(4).uppercased())"
-        return (snap.data()?["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? (snap.data()?["displayName"] as? String ?? fallback)
-            : fallback
+        let rawName = (snap.data()?["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = (rawName?.isEmpty == false) ? rawName! : fallback
+        let avatarID = (snap.data()?["avatarID"] as? String) ?? "avatar_note"
+        let publicLevel = max(1, (snap.data()?["publicLevel"] as? Int) ?? 1)
+        return (displayName, avatarID, publicLevel)
     }
 
     private func parseStudio(_ doc: QueryDocumentSnapshot) -> StudioInfo? {
@@ -653,7 +667,9 @@ final class FirebaseStudiosRepository {
             id: doc.documentID,
             displayName: displayName,
             role: role,
-            joinedAt: joinedAt
+            joinedAt: joinedAt,
+            avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+            publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
         )
     }
 
@@ -768,6 +784,8 @@ final class FirebaseStudiosRepository {
             studioID: studioID,
             senderUID: senderUID,
             senderName: senderName,
+            senderAvatarID: (data["senderAvatarID"] as? String) ?? "avatar_note",
+            senderLevel: max(1, (data["senderLevel"] as? Int) ?? 1),
             text: text,
             createdAt: createdAt
         )

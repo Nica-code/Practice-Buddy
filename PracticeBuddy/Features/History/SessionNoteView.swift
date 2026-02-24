@@ -68,7 +68,7 @@ struct SessionNoteView: View {
     private func content(for session: PracticeSessionModel) -> some View {
         if let journal = session.journal {
             Form {
-                if !session.noteTitle.isEmpty || !session.noteFocus.isEmpty || !session.noteMoodRaw.isEmpty {
+                if !session.noteTitle.isEmpty || !session.noteFocus.isEmpty || !session.noteMoodRaw.isEmpty || session.hasVerificationData {
                     Section("Header") {
                         if !session.noteTitle.isEmpty {
                             Text(session.noteTitle)
@@ -76,14 +76,29 @@ struct SessionNoteView: View {
                                 .foregroundStyle(theme.textPrimary)
                         }
                         if !session.noteFocus.isEmpty {
-                            Text("Focus: \(session.noteFocus)")
+                            Text(L10n.f("Focus: %@", session.noteFocus))
                                 .font(type.body)
                                 .foregroundStyle(theme.textSecondary)
                         }
                         if let mood = PracticeNoteMood(rawValue: session.noteMoodRaw) {
-                            Text("Mood: \(mood.title)")
+                            Text(L10n.f("Mood: %@", String(localized: String.LocalizationValue(mood.title))))
                                 .font(type.body)
                                 .foregroundStyle(theme.textSecondary)
+                        }
+                        if session.hasVerificationData {
+                            Text(
+                                L10n.f(
+                                    "Verified: %@ / %@",
+                                    DurationFormatter.string(from: max(0, session.verifiedSeconds)),
+                                    DurationFormatter.string(from: max(0, session.durationSeconds))
+                                )
+                            )
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                            Text(L10n.f("Check-ins: %@ total • %@ missed", "\(session.checkInCount)", "\(session.missedCheckInCount)"))
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                                .monospacedDigit()
                         }
                     }
                     .listRowBackground(theme.surface)
@@ -98,7 +113,7 @@ struct SessionNoteView: View {
                                     .foregroundStyle(theme.textPrimary)
 
                                 if !piece.tempo.isEmpty {
-                                    Text("Tempo: \(piece.tempo)")
+                                    Text(L10n.f("Tempo: %@", piece.tempo))
                                         .font(type.footnote)
                                         .foregroundStyle(theme.textSecondary)
                                 }
@@ -143,7 +158,7 @@ struct SessionNoteView: View {
                 .listRowBackground(theme.surface)
 
                 Section {
-                    Text("\(draftNotes.count) characters")
+                    Text(L10n.f("%@ characters", "\(draftNotes.count)"))
                         .font(type.footnote)
                         .foregroundStyle(theme.textSecondary)
                 }

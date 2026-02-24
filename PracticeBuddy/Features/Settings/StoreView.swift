@@ -6,16 +6,13 @@ struct StoreView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("pb.tab.selection") private var selectedTab: Int = 3
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 4
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var proProduct: Product? {
         purchaseManager.availableProducts.first(where: { $0.id == PurchaseManager.proProductID })
     }
-    @State private var selectedAccountType: PBAccountType = .student
-    @State private var pendingAccountType: PBAccountType?
-    @State private var showAccountTypeConfirm = false
 
     var body: some View {
         List {
@@ -44,7 +41,7 @@ struct StoreView: View {
                         .foregroundStyle(palette.textSecondary)
                 } else if purchaseManager.isProTrialActive {
                     if let end = purchaseManager.proTrialEndsAt {
-                        Text("Trial active until \(end.formatted(date: .abbreviated, time: .shortened)).")
+                        Text(L10n.f("Trial active until %@.", end.formatted(date: .abbreviated, time: .shortened)))
                             .font(type.footnote)
                             .foregroundStyle(theme.accent)
                         Text(trialCountdownText(until: end))
@@ -67,7 +64,7 @@ struct StoreView: View {
                         Task { await purchaseManager.startFreeTrial() }
                     } label: {
                         Text("Start 7-Day Free Trial")
-                            .font(type.body.weight(.semibold))
+                            .font(type.body)
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 10)
@@ -81,30 +78,6 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Account Type") {
-                Picker(
-                    "Type",
-                    selection: Binding(
-                        get: { selectedAccountType },
-                        set: { selectedAccountType = $0 }
-                    )
-                ) {
-                    ForEach(PBAccountType.allCases) { type in
-                        Text(type.title).tag(type)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(
-                    !purchaseManager.canSwitchRoleFreely &&
-                    (purchaseManager.accountTypeChangeUsed || !purchaseManager.hasCompletedInitialRoleSelection)
-                )
-
-                Text(accountTypeHelpText)
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            .listRowBackground(palette.surface)
-
             Section("Included For Everyone (Pro Core)") {
                 featureRow("Advanced analytics and trends")
                 featureRow("Practice templates and session builder")
@@ -113,7 +86,7 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            if purchaseManager.accountType == .teacher {
+            if purchaseManager.hasRole(.teacher) {
                 Section("Teacher Tools") {
                     if purchaseManager.isPro {
                         Button {
@@ -132,7 +105,9 @@ struct StoreView: View {
                     featureRow("Teacher dashboard and feedback workflow")
                 }
                 .listRowBackground(palette.surface)
-            } else {
+            }
+
+            if purchaseManager.hasRole(.student) {
                 Section("Student Tools") {
                     if purchaseManager.isPro {
                         NavigationLink {
@@ -160,7 +135,7 @@ struct StoreView: View {
                     }
                 } label: {
                     Text(primaryCTA)
-                        .font(type.body.weight(.semibold))
+                        .font(type.body)
                         .foregroundStyle(purchaseManager.isPro ? palette.textSecondary : .white)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 10)
@@ -197,34 +172,6 @@ struct StoreView: View {
             await purchaseManager.loadProducts()
             await purchaseManager.refreshEntitlements()
         }
-        .onAppear {
-            selectedAccountType = purchaseManager.accountType
-        }
-        .onChange(of: purchaseManager.accountType) { _, newValue in
-            selectedAccountType = newValue
-        }
-        .onChange(of: selectedAccountType) { _, newValue in
-            guard newValue != purchaseManager.accountType else { return }
-            guard purchaseManager.hasCompletedInitialRoleSelection,
-                  !purchaseManager.accountTypeChangeUsed else {
-                selectedAccountType = purchaseManager.accountType
-                return
-            }
-            pendingAccountType = newValue
-            showAccountTypeConfirm = true
-            selectedAccountType = purchaseManager.accountType
-        }
-        .alert("Change Account Type?", isPresented: $showAccountTypeConfirm, presenting: pendingAccountType) { newType in
-            Button("Cancel", role: .cancel) {
-                pendingAccountType = nil
-            }
-            Button("Change to \(newType.title)") {
-                purchaseManager.setAccountType(newType)
-                pendingAccountType = nil
-            }
-        } message: { _ in
-            Text("You can only change account type once after setup. This action cannot be undone.")
-        }
     }
 
     @ViewBuilder
@@ -232,7 +179,7 @@ struct StoreView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(theme.accent)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(type.body)
                 .foregroundStyle(palette.textPrimary)
         }
@@ -240,42 +187,29 @@ struct StoreView: View {
 
     private var primaryCTA: String {
         if purchaseManager.isPro {
-            return "Pro Unlocked"
+            return String(localized: "Pro Unlocked")
         }
         if let proProduct {
-            return "Unlock Pro (\(proProduct.displayPrice), One-time)"
+            return L10n.f("Unlock Pro (%@, One-time)", proProduct.displayPrice)
         }
-        return "Unlock Pro (Unavailable)"
+        return String(localized: "Unlock Pro (Unavailable)")
     }
 
     private var primaryCTADisabled: Bool {
         purchaseManager.isPro || proProduct == nil
     }
 
-    private var accountTypeHelpText: String {
-        if purchaseManager.canSwitchRoleFreely {
-            return "Master account: you can switch freely between Student and Teacher."
-        }
-        if !purchaseManager.hasCompletedInitialRoleSelection {
-            return "Set during account setup after sign-in."
-        }
-        if purchaseManager.accountTypeChangeUsed {
-            return "Your one account type change has been used."
-        }
-        return "You can change account type once if needed."
-    }
-
     private var statusText: String {
         if purchaseManager.hasLifetimePro {
-            return "Status: Unlocked (Purchased)"
+            return String(localized: "Status: Unlocked (Purchased)")
         }
         if purchaseManager.isProTrialActive {
-            return "Status: Free Trial Active"
+            return String(localized: "Status: Free Trial Active")
         }
         if purchaseManager.hasUsedProTrial {
-            return "Status: Free (Trial Ended)"
+            return String(localized: "Status: Free (Trial Ended)")
         }
-        return "Status: Free"
+        return String(localized: "Status: Free")
     }
 
     private var statusColor: Color {

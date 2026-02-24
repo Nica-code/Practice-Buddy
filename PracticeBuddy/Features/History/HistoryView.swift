@@ -4,6 +4,15 @@ import os
 import AVFoundation
 
 struct HistoryView: View {
+    private enum HistoryMode: String, CaseIterable, Identifiable {
+        case overview = "Overview"
+        case sessions = "Sessions"
+        case skills = "Skills"
+        case runThroughs = "Run-throughs"
+
+        var id: String { rawValue }
+        var titleKey: String { rawValue }
+    }
 
     private enum HistoryScope: String, CaseIterable, Identifiable {
         case all
@@ -13,7 +22,7 @@ struct HistoryView: View {
 
         var id: String { rawValue }
 
-        var title: String {
+        var titleKey: String {
             switch self {
             case .all: return "All"
             case .today: return "Today"
@@ -25,6 +34,13 @@ struct HistoryView: View {
 
     private struct SelectedID: Identifiable, Hashable {
         let id: UUID
+    }
+
+    private struct HistorySkillCard: Identifiable {
+        let id: String
+        let title: String
+        let value: String
+        let meta: String
     }
 
     private enum ExportFormat {
@@ -55,7 +71,16 @@ struct HistoryView: View {
     @Query(sort: [SortDescriptor(\RunThroughModel.date, order: .reverse)]) private var runThroughs: [RunThroughModel]
 
     @State private var searchText: String = ""
+    @State private var mode: HistoryMode = .overview
     @State private var scope: HistoryScope = .all
+    @State private var sessionVisibleLimit: Int = 20
+    @State private var loopVisibleLimit: Int = 12
+    @State private var planVisibleLimit: Int = 12
+    @State private var rhythmVisibleLimit: Int = 12
+    @State private var intonationVisibleLimit: Int = 12
+    @State private var runThroughVisibleLimit: Int = 12
+    @State private var expandThisWeekSessions: Bool = true
+    @State private var expandEarlierSessions: Bool = false
 
     @State private var showExportOptions: Bool = false
     @State private var exportURL: URL? = nil
@@ -67,102 +92,138 @@ struct HistoryView: View {
     @State private var selectedSheetID: SelectedID? = nil
     @State private var runThroughPlayer: AVAudioPlayer?
     @State private var playingRunThroughID: UUID?
+    @State private var compareRunAID: UUID?
+    @State private var compareRunBID: UUID?
+    @State private var filteredSessionsCache: [PracticeSessionModel] = []
+    @State private var filteredLoopLogsCache: [LoopPracticeLogModel] = []
+    @State private var filteredPlanLogsCache: [PracticePlanLogModel] = []
+    @State private var filteredRhythmTakesCache: [RhythmAccuracyTakeModel] = []
+    @State private var filteredIntonationTakesCache: [ScaleIntonationTakeModel] = []
+    @State private var filteredRunThroughsCache: [RunThroughModel] = []
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    private var recomputeToken: String {
+        [
+            scope.rawValue,
+            searchText,
+            "\(store.sessions.count)",
+            "\(loopLogs.count)",
+            "\(planLogs.count)",
+            "\(rhythmTakes.count)",
+            "\(intonationTakes.count)",
+            "\(runThroughs.count)"
+        ].joined(separator: "|")
+    }
 
     var body: some View {
-        List {
-            scopePickerSection
-            analyticsSection
-            loopLogsSection
-            planLogsSection
-            rhythmLogsSection
-            intonationSection
-            runThroughSection
+        historyList
+            .scrollContentBackground(.hidden)
+            .background(chrome.ignoresSafeArea())
+            .toolbarBackground(chrome, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(colorScheme, for: .navigationBar)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if purchaseManager.isPro {
+                            showExportOptions = true
+                        } else {
+                            showProLockedAlert = true
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(palette.accent)
+                    }
+                    .accessibilityLabel("Export")
+                }
 
-            if filteredSessions.isEmpty {
-                emptyStateRow
-                    .listRowBackground(palette.surface)
-            } else {
-                Section {
-                    ForEach(filteredSessions) { session in
-                        sessionRow(session)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedSheetID = SelectedID(id: session.id)
-                            }
-                            .listRowBackground(palette.surface)
-                    }
-                    .onDelete { offsets in
-                        delete(offsets: offsets, from: filteredSessions)
-                    }
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
                 }
             }
-        }
-        .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
-        .toolbarBackground(chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if purchaseManager.isPro {
-                        showExportOptions = true
-                    } else {
-                        showProLockedAlert = true
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .foregroundStyle(palette.accent)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search notes"
+            )
+            .task(id: recomputeToken) {
+                recomputeFilteredCaches()
+            }
+            .onChange(of: scope) { _, _ in
+                sessionVisibleLimit = 20
+                loopVisibleLimit = 12
+                planVisibleLimit = 12
+                rhythmVisibleLimit = 12
+                intonationVisibleLimit = 12
+                runThroughVisibleLimit = 12
+                expandThisWeekSessions = true
+                expandEarlierSessions = false
+            }
+            .onChange(of: mode) { _, _ in
+                expandThisWeekSessions = true
+                expandEarlierSessions = false
+            }
+            .confirmationDialog("Export", isPresented: $showExportOptions, titleVisibility: .visible) {
+                Button("Export CSV") { export(format: .csv) }
+                Button("Export JSON") { export(format: .json) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Exports the currently shown (filtered) sessions.")
+            }
+            .alert("Export Failed", isPresented: $showExportError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(exportErrorMessage ?? "Unknown error.")
+            }
+            .alert("PracticeBuddy Pro", isPresented: $showProLockedAlert) {
+                Button("Not Now", role: .cancel) {}
+                Button("Open Pro") {
+                    selectedTab = 4
                 }
-                .accessibilityLabel("Export")
+            } message: {
+                Text("Export and advanced analytics are part of Pro.")
             }
+            .sheet(isPresented: $showShareSheet) {
+                if let exportURL {
+                    ActivityView(activityItems: [exportURL])
+                        .presentationDetents([.medium, .large])
+                } else {
+                    Text("Nothing to share.")
+                        .padding()
+                }
+            }
+            .sheet(item: $selectedSheetID) { wrapper in
+                SessionNoteView(sessionID: wrapper.id)
+            }
+    }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
+    private var historyList: AnyView {
+        AnyView(
+            List {
+                modeScopeSection
+
+                switch mode {
+                case .overview:
+                    overviewKPISection
+                    overviewRecentSessionsSection
+                    overviewRecentSkillsSection
+                    overviewRecentRunThroughsSection
+                case .sessions:
+                    analyticsSection
+                    sessionsBucketsSection
+                case .skills:
+                    loopLogsSection
+                    planLogsSection
+                    rhythmLogsSection
+                    intonationSection
+                case .runThroughs:
+                    runThroughSection
+                }
             }
-        }
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search notes"
         )
-        .confirmationDialog("Export", isPresented: $showExportOptions, titleVisibility: .visible) {
-            Button("Export CSV") { export(format: .csv) }
-            Button("Export JSON") { export(format: .json) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Exports the currently shown (filtered) sessions.")
-        }
-        .alert("Export Failed", isPresented: $showExportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(exportErrorMessage ?? "Unknown error.")
-        }
-        .alert("PracticeBuddy Pro", isPresented: $showProLockedAlert) {
-            Button("Not Now", role: .cancel) {}
-            Button("Open Pro") {
-                selectedTab = 3
-            }
-        } message: {
-            Text("Export and advanced analytics are part of Pro.")
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let exportURL {
-                ActivityView(activityItems: [exportURL])
-                    .presentationDetents([.medium, .large])
-            } else {
-                Text("Nothing to share.")
-                    .padding()
-            }
-        }
-        .sheet(item: $selectedSheetID) { wrapper in
-            SessionNoteView(sessionID: wrapper.id)
-        }
     }
 
     @ViewBuilder
@@ -220,7 +281,7 @@ struct HistoryView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
                     Button("Unlock Pro") {
-                        selectedTab = 3
+                        selectedTab = 4
                     }
                     .font(type.button)
                     .buttonStyle(.borderedProminent)
@@ -231,11 +292,18 @@ struct HistoryView: View {
         .listRowBackground(palette.surface)
     }
 
-    private var scopePickerSection: some View {
+    private var modeScopeSection: some View {
         Section {
+            Picker("History Mode", selection: $mode) {
+                ForEach(HistoryMode.allCases) { value in
+                    Text(LocalizedStringKey(value.titleKey)).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+
             Picker("Scope", selection: $scope) {
                 ForEach(HistoryScope.allCases) { s in
-                    Text(s.title).tag(s)
+                    Text(LocalizedStringKey(s.titleKey)).tag(s)
                 }
             }
             .pickerStyle(.segmented)
@@ -300,7 +368,7 @@ struct HistoryView: View {
                     .font(type.body)
                     .foregroundStyle(palette.textPrimary)
                 Spacer()
-                Text("\(visibleRunThroughs.count)")
+                Text("\(filteredRunThroughs.count)")
                     .font(type.number)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
@@ -309,33 +377,238 @@ struct HistoryView: View {
         .listRowBackground(palette.surface)
     }
 
+    private var overviewKPISection: some View {
+        Section("Overview") {
+            HStack {
+                statCard(title: "Total", value: DurationFormatter.string(from: analyticsTotalSeconds), subtitle: "in scope")
+                statCard(title: "Average", value: DurationFormatter.string(from: analyticsAverageSeconds), subtitle: "session")
+            }
+            HStack {
+                statCard(title: "Longest", value: DurationFormatter.string(from: analyticsLongestSeconds), subtitle: "session")
+                statCard(title: "Count", value: "\(filteredSessions.count)", subtitle: "sessions")
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var overviewRecentSessionsSection: some View {
+        Section {
+            HStack {
+                Text("Recent Sessions")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(palette.textPrimary)
+                Spacer()
+                Button("See all") { mode = .sessions }
+                    .font(type.footnote)
+            }
+
+            if filteredSessions.isEmpty {
+                Text("No sessions yet.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(filteredSessions.prefix(5)) { session in
+                            Button {
+                                selectedSheetID = SelectedID(id: session.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(session.date.formatted(date: .abbreviated, time: .shortened))
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.textSecondary)
+                                    Text(DurationFormatter.string(from: session.durationSeconds))
+                                        .font(type.body)
+                                        .foregroundStyle(palette.textPrimary)
+                                    let xp = max(0, (session.hasVerificationData ? session.verifiedSeconds : session.durationSeconds) / 60)
+                                    Text(L10n.f("+%@ XP", "\(xp)"))
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.accent)
+                                        .monospacedDigit()
+                                }
+                                .frame(width: 170, alignment: .leading)
+                                .padding(10)
+                                .background(palette.surfaceAlt)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var overviewRecentSkillsSection: some View {
+        Section {
+            HStack {
+                Text("Recent Skills")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(palette.textPrimary)
+                Spacer()
+                Button("See all") { mode = .skills }
+                    .font(type.footnote)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(recentSkillCards) { card in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(LocalizedStringKey(card.title))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Text(card.value)
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text(LocalizedStringKey(card.meta))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .lineLimit(2)
+                        }
+                        .frame(width: 190, alignment: .leading)
+                        .padding(10)
+                        .background(palette.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var overviewRecentRunThroughsSection: some View {
+        Section {
+            HStack {
+                Text("Recent Run-throughs")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(palette.textPrimary)
+                Spacer()
+                Button("See all") { mode = .runThroughs }
+                    .font(type.footnote)
+            }
+
+            if filteredRunThroughs.isEmpty {
+                Text("No run-through takes yet.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(filteredRunThroughs.prefix(5)) { take in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(take.date.formatted(date: .abbreviated, time: .shortened))
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                                Text(DurationFormatter.string(from: take.durationSeconds))
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text(L10n.f("Rating %@/5", "\(take.selfRating)"))
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                                    .monospacedDigit()
+                            }
+                            .frame(width: 170, alignment: .leading)
+                            .padding(10)
+                            .background(palette.surfaceAlt)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var sessionsBucketsSection: some View {
+        let buckets = sessionBuckets
+        return Section("Sessions") {
+            if visibleSessions.isEmpty {
+                emptyStateRow
+            } else {
+                if !buckets.today.isEmpty {
+                    Text("Today")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    ForEach(buckets.today) { session in
+                        sessionListRow(session)
+                    }
+                    .onDelete { offsets in
+                        delete(offsets: offsets, from: buckets.today)
+                    }
+                }
+
+                if !buckets.thisWeek.isEmpty {
+                    DisclosureGroup(isExpanded: $expandThisWeekSessions) {
+                        ForEach(buckets.thisWeek) { session in
+                            sessionListRow(session)
+                        }
+                        .onDelete { offsets in
+                            delete(offsets: offsets, from: buckets.thisWeek)
+                        }
+                    } label: {
+                        Text("This Week")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+
+                if !buckets.earlier.isEmpty {
+                    DisclosureGroup(isExpanded: $expandEarlierSessions) {
+                        ForEach(buckets.earlier) { session in
+                            sessionListRow(session)
+                        }
+                        .onDelete { offsets in
+                            delete(offsets: offsets, from: buckets.earlier)
+                        }
+                    } label: {
+                        Text("Earlier")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+
+                if filteredSessions.count > visibleSessions.count {
+                    Button("Load more sessions") {
+                        sessionVisibleLimit += 20
+                    }
+                    .font(type.footnote)
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
     private var loopLogsSection: some View {
         Section("Loop Sessions") {
-            if filteredLoopLogs.isEmpty {
+            if visibleLoopLogs.isEmpty {
                 Text("No loop logs in this scope yet.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(filteredLoopLogs.prefix(25)) { log in
+                ForEach(visibleLoopLogs) { log in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(log.date.formatted(date: .abbreviated, time: .shortened))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("\(log.loopsCompleted) loops")
+                            Text(L10n.f("%@ loops", "\(log.loopsCompleted)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
 
                         HStack {
-                            Text("Work: \(DurationFormatter.string(from: log.totalWorkSeconds))")
+                            Text(L10n.f("Work: %@", DurationFormatter.string(from: log.totalWorkSeconds)))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Spacer()
                             if log.tempoStartBPM > 0 || log.tempoEndBPM > 0 {
-                                Text("Tempo: \(log.tempoStartBPM)→\(log.tempoEndBPM)")
+                                Text(L10n.f("Tempo: %@→%@", "\(log.tempoStartBPM)", "\(log.tempoEndBPM)"))
                                     .font(type.footnote)
                                     .foregroundStyle(palette.textSecondary)
                                     .monospacedDigit()
@@ -352,7 +625,14 @@ struct HistoryView: View {
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    deleteLoopLogs(offsets: offsets, from: Array(filteredLoopLogs.prefix(25)))
+                    deleteLoopLogs(offsets: offsets, from: visibleLoopLogs)
+                }
+
+                if filteredLoopLogs.count > visibleLoopLogs.count {
+                    Button("Load more loop sessions") {
+                        loopVisibleLimit += 12
+                    }
+                    .font(type.footnote)
                 }
             }
         }
@@ -361,26 +641,26 @@ struct HistoryView: View {
 
     private var planLogsSection: some View {
         Section("Guided Practice") {
-            if filteredPlanLogs.isEmpty {
+            if visiblePlanLogs.isEmpty {
                 Text("No guided practice logs in this scope yet.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(filteredPlanLogs.prefix(25)) { log in
+                ForEach(visiblePlanLogs) { log in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(log.date.formatted(date: .abbreviated, time: .shortened))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("\(log.selfRating)/5")
+                            Text(L10n.f("%@/5", "\(log.selfRating)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
 
                         HStack {
-                            Text("Time: \(DurationFormatter.string(from: log.actualSeconds)) / \(log.targetMinutes)m target")
+                            Text(L10n.f("Time: %@ / %@m target", DurationFormatter.string(from: log.actualSeconds), "\(log.targetMinutes)"))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Spacer()
@@ -388,7 +668,7 @@ struct HistoryView: View {
 
                         let goals = parseCSV(log.goalsRaw)
                         if !goals.isEmpty {
-                            Text("Goals: \(goals.joined(separator: ", "))")
+                            Text(L10n.f("Goals: %@", goals.joined(separator: ", ")))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                         }
@@ -396,7 +676,14 @@ struct HistoryView: View {
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    deletePlanLogs(offsets: offsets, from: Array(filteredPlanLogs.prefix(25)))
+                    deletePlanLogs(offsets: offsets, from: visiblePlanLogs)
+                }
+
+                if filteredPlanLogs.count > visiblePlanLogs.count {
+                    Button("Load more guided plans") {
+                        planVisibleLimit += 12
+                    }
+                    .font(type.footnote)
                 }
             }
         }
@@ -405,26 +692,26 @@ struct HistoryView: View {
 
     private var rhythmLogsSection: some View {
         Section("Rhythm Accuracy") {
-            if filteredRhythmTakes.isEmpty {
+            if visibleRhythmTakes.isEmpty {
                 Text("No rhythm takes in this scope yet.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(filteredRhythmTakes.prefix(25)) { take in
+                ForEach(visibleRhythmTakes) { take in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(take.date.formatted(date: .abbreviated, time: .shortened))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("Score \(take.grooveScore)")
+                            Text(L10n.f("Score %@", "\(take.grooveScore)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
 
                         HStack {
-                            Text("BPM \(take.bpm) • \(take.beatsAnalyzed) beats")
+                            Text(L10n.f("BPM %@ • %@ beats", "\(take.bpm)", "\(take.beatsAnalyzed)"))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Spacer()
@@ -439,7 +726,7 @@ struct HistoryView: View {
                                 .split(separator: "|")
                                 .map { String($0) }
                             if let first = rows.first {
-                                Text("Window 1: \(first)")
+                                Text(L10n.f("Window 1: %@", first))
                                     .font(type.footnote)
                                     .foregroundStyle(palette.textSecondary)
                             }
@@ -448,7 +735,14 @@ struct HistoryView: View {
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    deleteRhythmTakes(offsets: offsets, from: Array(filteredRhythmTakes.prefix(25)))
+                    deleteRhythmTakes(offsets: offsets, from: visibleRhythmTakes)
+                }
+
+                if filteredRhythmTakes.count > visibleRhythmTakes.count {
+                    Button("Load more rhythm takes") {
+                        rhythmVisibleLimit += 12
+                    }
+                    .font(type.footnote)
                 }
             }
         }
@@ -457,26 +751,49 @@ struct HistoryView: View {
 
     private var runThroughSection: some View {
         Section("Run-throughs") {
-            if visibleRunThroughs.isEmpty {
+            if visibleRunThroughRows.isEmpty {
                 Text("No run-through takes in this scope yet.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(visibleRunThroughs) { take in
+                if purchaseManager.isPro, let compareText = runThroughCompareSummaryText {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("A/B Compare")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textPrimary)
+                        Text(compareText)
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        HStack {
+                            Text("A and B are selected below.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Spacer()
+                            Button("Clear") {
+                                compareRunAID = nil
+                                compareRunBID = nil
+                            }
+                            .buttonStyle(.bordered)
+                            .font(type.footnote)
+                        }
+                    }
+                }
+
+                ForEach(visibleRunThroughRows) { take in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(take.date.formatted(date: .abbreviated, time: .shortened))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("\(take.selfRating)/5")
+                            Text(L10n.f("%@/5", "\(take.selfRating)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
 
                         HStack {
-                            Text("Duration: \(DurationFormatter.string(from: take.durationSeconds))")
+                            Text(L10n.f("Duration: %@", DurationFormatter.string(from: take.durationSeconds)))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Spacer()
@@ -485,6 +802,18 @@ struct HistoryView: View {
                                     .font(type.footnote)
                                     .foregroundStyle(palette.textSecondary)
                             }
+                        }
+
+                        if !take.pieceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(L10n.f("Piece: %@", take.pieceName))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+
+                        if !take.markers.isEmpty {
+                            Text(L10n.f("Markers: %@ • %@", "\(take.markers.count)", take.markers.prefix(3).map(\.label).joined(separator: ", ")))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
                         }
 
                         if !take.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -500,18 +829,33 @@ struct HistoryView: View {
                             }
                             .buttonStyle(.bordered)
                             .font(type.footnote)
+
+                            if purchaseManager.isPro {
+                                Button(compareButtonTitle(for: take.id)) {
+                                    setCompareTarget(take.id)
+                                }
+                                .buttonStyle(.bordered)
+                                .font(type.footnote)
+                            }
                         }
                     }
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    deleteRunThroughs(offsets: offsets, from: visibleRunThroughs)
+                    deleteRunThroughs(offsets: offsets, from: visibleRunThroughRows)
                 }
 
-                if !purchaseManager.isPro, filteredRunThroughs.count > visibleRunThroughs.count {
+                if !purchaseManager.isPro, filteredRunThroughs.count > visibleRunThroughRows.count {
                     Text("Free keeps only latest 3 run-through entries. Unlock Pro for full history.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
+                }
+
+                if purchaseManager.isPro, filteredRunThroughs.count > visibleRunThroughRows.count {
+                    Button("Load more run-throughs") {
+                        runThroughVisibleLimit += 12
+                    }
+                    .font(type.footnote)
                 }
             }
         }
@@ -520,30 +864,37 @@ struct HistoryView: View {
 
     private var intonationSection: some View {
         Section("Scale Intonation") {
-            if filteredIntonationTakes.isEmpty {
+            if visibleIntonationTakes.isEmpty {
                 Text("No intonation takes in this scope yet.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(filteredIntonationTakes.prefix(25)) { take in
+                ForEach(visibleIntonationTakes) { take in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(take.date.formatted(date: .abbreviated, time: .shortened))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("Score \(take.overallScore)")
+                            Text(L10n.f("Score %@", "\(take.overallScore)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
 
                         HStack {
-                            Text("\(take.keyRaw) \(take.modeRaw.capitalized) • \(take.exerciseTypeRaw)")
+                            Text(
+                                L10n.f(
+                                    "%@ %@ • %@",
+                                    take.keyRaw,
+                                    String(localized: String.LocalizationValue(take.modeRaw.capitalized)),
+                                    String(localized: String.LocalizationValue(take.exerciseTypeRaw))
+                                )
+                            )
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                             Spacer()
-                            Text("A=\(take.referenceHz)")
+                            Text(L10n.f("A=%@", "\(take.referenceHz)"))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
@@ -562,14 +913,14 @@ struct HistoryView: View {
 
                         let suggestions = parseSuggestions(take.suggestionsRaw)
                         if let first = suggestions.first {
-                            Text("Fix: \(first)")
+                            Text(L10n.f("Fix: %@", first))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                                 .lineLimit(2)
                         }
 
                         if purchaseManager.isPro, let firstRow = parseIntonationRows(take.perNoteJSON).first {
-                            Text("Detail: \(firstRow)")
+                            Text(L10n.f("Detail: %@", firstRow))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                                 .lineLimit(1)
@@ -578,7 +929,14 @@ struct HistoryView: View {
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    deleteIntonationTakes(offsets: offsets, from: Array(filteredIntonationTakes.prefix(25)))
+                    deleteIntonationTakes(offsets: offsets, from: visibleIntonationTakes)
+                }
+
+                if filteredIntonationTakes.count > visibleIntonationTakes.count {
+                    Button("Load more intonation takes") {
+                        intonationVisibleLimit += 12
+                    }
+                    .font(type.footnote)
                 }
             }
         }
@@ -611,6 +969,14 @@ struct HistoryView: View {
         .padding(.vertical, 10)
     }
 
+    private func sessionListRow(_ session: PracticeSessionModel) -> some View {
+        sessionRow(session)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selectedSheetID = SelectedID(id: session.id)
+            }
+    }
+
     private func sessionRow(_ session: PracticeSessionModel) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -626,10 +992,31 @@ struct HistoryView: View {
                     .monospacedDigit()
             }
 
+            let xpForRow = max(0, (session.hasVerificationData ? session.verifiedSeconds : session.durationSeconds) / 60)
+            Text(L10n.f("+%@ XP", "\(xpForRow)"))
+                .font(type.footnote)
+                .foregroundStyle(palette.accent)
+                .monospacedDigit()
+
             if !session.noteTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(session.noteTitle)
                     .font(type.body)
                     .foregroundStyle(palette.textPrimary)
+            }
+
+            if session.hasVerificationData {
+                HStack(spacing: 8) {
+                    Text(L10n.f("Verified %@", DurationFormatter.string(from: max(0, session.verifiedSeconds))))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.accent)
+                    Text("•")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Text(L10n.f("Missed %@", "\(session.missedCheckInCount)"))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
             }
 
             let preview = notePreview(for: session)
@@ -643,102 +1030,248 @@ struct HistoryView: View {
         .padding(.vertical, 6)
     }
 
-    private var filteredSessions: [PracticeSessionModel] {
-        var base = sessionsFilteredByScope(scope)
-
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-
-        let lowered = needle.lowercased()
-        base = base.filter { session in
-            let haystack = [
-                session.notes,
-                session.noteTitle,
-                session.noteFocus,
-                session.noteMoodRaw,
-                session.noteStructuredJSON
-            ]
-            .joined(separator: "\n")
-            .lowercased()
-
-            return haystack.contains(lowered)
+    private func statCard(title: String, value: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LocalizedStringKey(title))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+            Text(value)
+                .font(type.number)
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
         }
-        return base
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(palette.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var filteredSessions: [PracticeSessionModel] {
+        filteredSessionsCache
+    }
+
+    private func sessionMatchesSearch(_ session: PracticeSessionModel, needle: String) -> Bool {
+        let baseHaystack = [
+            session.notes,
+            session.noteTitle,
+            session.noteFocus,
+            session.noteMoodRaw
+        ]
+        .joined(separator: "\n")
+        .lowercased()
+
+        if baseHaystack.contains(needle) {
+            return true
+        }
+
+        guard let journal = session.journal else { return false }
+        let journalHaystack = (
+            journal.reflection + "\n" +
+            journal.pieces.map { [$0.title, $0.tempo, $0.wentWell, $0.needsWork, $0.nextAction].joined(separator: " ") }
+                .joined(separator: "\n")
+        ).lowercased()
+        return journalHaystack.contains(needle)
     }
 
     private var filteredLoopLogs: [LoopPracticeLogModel] {
-        let base = logsFilteredByScope(scope)
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-        let lowered = needle.lowercased()
-        return base.filter { log in
-            log.tagsRaw.lowercased().contains(lowered)
-        }
+        filteredLoopLogsCache
     }
 
     private var filteredPlanLogs: [PracticePlanLogModel] {
-        let base = planLogsFilteredByScope(scope)
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-        let lowered = needle.lowercased()
-        return base.filter { log in
-            [
-                log.goalsRaw,
-                log.blocksRaw,
-                log.reflectionWins,
-                log.reflectionFix,
-                log.reflectionNext
-            ]
-            .joined(separator: "\n")
-            .lowercased()
-            .contains(lowered)
-        }
+        filteredPlanLogsCache
     }
 
     private var filteredRhythmTakes: [RhythmAccuracyTakeModel] {
-        let base = rhythmTakesFilteredByScope(scope)
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-        let lowered = needle.lowercased()
-        return base.filter { take in
-            "\(take.bpm) \(take.grooveScore) \(take.averageOffsetMs) \(take.detailJSON)".lowercased().contains(lowered)
-        }
+        filteredRhythmTakesCache
     }
 
     private var filteredIntonationTakes: [ScaleIntonationTakeModel] {
-        let base = intonationTakesFilteredByScope(scope)
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-        let lowered = needle.lowercased()
-        return base.filter { take in
-            [
-                take.exerciseTypeRaw,
-                take.keyRaw,
-                take.modeRaw,
-                take.suggestionsRaw,
-                take.perNoteJSON
-            ]
-            .joined(separator: " ")
-            .lowercased()
-            .contains(lowered)
-        }
+        filteredIntonationTakesCache
     }
 
     private var filteredRunThroughs: [RunThroughModel] {
-        let base = runThroughsFilteredByScope(scope)
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return base }
-        let lowered = needle.lowercased()
-        return base.filter { take in
-            "\(take.notes) \(take.durationSeconds) \(take.selfRating)".lowercased().contains(lowered)
-        }
+        filteredRunThroughsCache
     }
 
-    private var visibleRunThroughs: [RunThroughModel] {
+    private func recomputeFilteredCaches() {
+        let needle = searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        var sessionsRows = sessionsFilteredByScope(scope)
+        if !needle.isEmpty {
+            sessionsRows = sessionsRows.filter { sessionMatchesSearch($0, needle: needle) }
+        }
+        filteredSessionsCache = sessionsRows
+
+        var loopRows = logsFilteredByScope(scope)
+        if !needle.isEmpty {
+            loopRows = loopRows.filter { $0.tagsRaw.lowercased().contains(needle) }
+        }
+        filteredLoopLogsCache = loopRows
+
+        var planRows = planLogsFilteredByScope(scope)
+        if !needle.isEmpty {
+            planRows = planRows.filter { log in
+                [
+                    log.goalsRaw,
+                    log.blocksRaw,
+                    log.reflectionWins,
+                    log.reflectionFix,
+                    log.reflectionNext
+                ]
+                .joined(separator: "\n")
+                .lowercased()
+                .contains(needle)
+            }
+        }
+        filteredPlanLogsCache = planRows
+
+        var rhythmRows = rhythmTakesFilteredByScope(scope)
+        if !needle.isEmpty {
+            rhythmRows = rhythmRows.filter {
+                "\($0.bpm) \($0.grooveScore) \($0.averageOffsetMs) \($0.detailJSON)"
+                    .lowercased()
+                    .contains(needle)
+            }
+        }
+        filteredRhythmTakesCache = rhythmRows
+
+        var intonationRows = intonationTakesFilteredByScope(scope)
+        if !needle.isEmpty {
+            intonationRows = intonationRows.filter { take in
+                [
+                    take.exerciseTypeRaw,
+                    take.keyRaw,
+                    take.modeRaw,
+                    take.suggestionsRaw,
+                    take.perNoteJSON
+                ]
+                .joined(separator: " ")
+                .lowercased()
+                .contains(needle)
+            }
+        }
+        filteredIntonationTakesCache = intonationRows
+
+        var runRows = runThroughsFilteredByScope(scope)
+        if !needle.isEmpty {
+            runRows = runRows.filter {
+                "\($0.notes) \($0.durationSeconds) \($0.selfRating)"
+                    .lowercased()
+                    .contains(needle)
+            }
+        }
+        filteredRunThroughsCache = runRows
+    }
+
+    private var visibleLoopLogs: [LoopPracticeLogModel] {
+        Array(filteredLoopLogs.prefix(max(1, loopVisibleLimit)))
+    }
+
+    private var visiblePlanLogs: [PracticePlanLogModel] {
+        Array(filteredPlanLogs.prefix(max(1, planVisibleLimit)))
+    }
+
+    private var visibleRhythmTakes: [RhythmAccuracyTakeModel] {
+        Array(filteredRhythmTakes.prefix(max(1, rhythmVisibleLimit)))
+    }
+
+    private var visibleIntonationTakes: [ScaleIntonationTakeModel] {
+        Array(filteredIntonationTakes.prefix(max(1, intonationVisibleLimit)))
+    }
+
+    private var visibleRunThroughRows: [RunThroughModel] {
         if purchaseManager.isPro {
-            return Array(filteredRunThroughs.prefix(25))
+            return Array(filteredRunThroughs.prefix(max(1, runThroughVisibleLimit)))
         }
         return Array(filteredRunThroughs.prefix(3))
+    }
+
+    private var visibleSessions: [PracticeSessionModel] {
+        Array(filteredSessions.prefix(max(1, sessionVisibleLimit)))
+    }
+
+    private var sessionBuckets: (today: [PracticeSessionModel], thisWeek: [PracticeSessionModel], earlier: [PracticeSessionModel]) {
+        var today: [PracticeSessionModel] = []
+        var thisWeek: [PracticeSessionModel] = []
+        var earlier: [PracticeSessionModel] = []
+        let cal = Calendar.current
+        let now = Date()
+        let dayInterval = cal.dateInterval(of: .day, for: now)
+        let weekInterval = cal.dateInterval(of: .weekOfYear, for: now)
+
+        for session in visibleSessions {
+            if let dayInterval, session.date >= dayInterval.start && session.date < dayInterval.end {
+                today.append(session)
+            } else if let weekInterval, session.date >= weekInterval.start && session.date < weekInterval.end {
+                thisWeek.append(session)
+            } else {
+                earlier.append(session)
+            }
+        }
+        return (today, thisWeek, earlier)
+    }
+
+    private var recentSkillCards: [HistorySkillCard] {
+        var cards: [HistorySkillCard] = []
+
+        if let rhythm = filteredRhythmTakes.first {
+            cards.append(
+                HistorySkillCard(
+                    id: "rhythm",
+                    title: "Rhythm",
+                    value: "Score \(rhythm.grooveScore)",
+                    meta: "\(rhythm.bpm) BPM • \(rhythm.beatsAnalyzed) beats"
+                )
+            )
+        }
+        if let intonation = filteredIntonationTakes.first {
+            cards.append(
+                HistorySkillCard(
+                    id: "intonation",
+                    title: "Intonation",
+                    value: "Score \(intonation.overallScore)",
+                    meta: "\(intonation.keyRaw) \(intonation.modeRaw.capitalized)"
+                )
+            )
+        }
+        if let loop = filteredLoopLogs.first {
+            cards.append(
+                HistorySkillCard(
+                    id: "loop",
+                    title: "Loop",
+                    value: "\(loop.loopsCompleted) loops",
+                    meta: "Tempo \(loop.tempoStartBPM)→\(loop.tempoEndBPM)"
+                )
+            )
+        }
+        if let plan = filteredPlanLogs.first {
+            cards.append(
+                HistorySkillCard(
+                    id: "plan",
+                    title: "Guided Plan",
+                    value: "\(DurationFormatter.string(from: plan.actualSeconds))",
+                    meta: "Rating \(plan.selfRating)/5"
+                )
+            )
+        }
+
+        if cards.isEmpty {
+            cards.append(
+                HistorySkillCard(
+                    id: "none",
+                    title: "No skill logs",
+                    value: "Start a Practice Lab take",
+                    meta: "Your latest scores will appear here."
+                )
+            )
+        }
+        return cards
     }
 
     private var loopTempoTrendText: String? {
@@ -746,6 +1279,50 @@ struct HistoryView: View {
         guard logs.count >= 2 else { return nil }
         guard let newest = logs.first, let oldest = logs.last else { return nil }
         return "\(oldest.tempoStartBPM) → \(newest.tempoEndBPM) BPM"
+    }
+
+    private var runThroughCompareSummaryText: String? {
+        guard let aID = compareRunAID, let bID = compareRunBID,
+              let a = runThroughs.first(where: { $0.id == aID }),
+              let b = runThroughs.first(where: { $0.id == bID }) else {
+            return nil
+        }
+
+        let durationDelta = b.durationSeconds - a.durationSeconds
+        let ratingDelta = b.selfRating - a.selfRating
+        let markerDelta = b.markers.count - a.markers.count
+
+        let durationText = String(format: "%+d sec", durationDelta)
+        let ratingText = String(format: "%+d", ratingDelta)
+        let markerText = String(format: "%+d", markerDelta)
+        return "Duration \(durationText) • Rating \(ratingText) • Markers \(markerText)"
+    }
+
+    private func compareButtonTitle(for id: UUID) -> String {
+        if compareRunAID == id { return "A ✓" }
+        if compareRunBID == id { return "B ✓" }
+        return "Set A/B"
+    }
+
+    private func setCompareTarget(_ id: UUID) {
+        if compareRunAID == nil {
+            compareRunAID = id
+            return
+        }
+        if compareRunAID == id {
+            compareRunAID = nil
+            return
+        }
+        if compareRunBID == nil {
+            compareRunBID = id
+            return
+        }
+        if compareRunBID == id {
+            compareRunBID = nil
+            return
+        }
+        compareRunAID = compareRunBID
+        compareRunBID = id
     }
 
     private func notePreview(for session: PracticeSessionModel) -> String {
@@ -968,6 +1545,8 @@ struct HistoryView: View {
     private func deleteRunThroughs(offsets: IndexSet, from visible: [RunThroughModel]) {
         let toDelete = offsets.map { visible[$0] }
         for item in toDelete {
+            if compareRunAID == item.id { compareRunAID = nil }
+            if compareRunBID == item.id { compareRunBID = nil }
             if playingRunThroughID == item.id {
                 runThroughPlayer?.stop()
                 runThroughPlayer = nil

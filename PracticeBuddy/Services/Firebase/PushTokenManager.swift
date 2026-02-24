@@ -7,8 +7,10 @@ import CryptoKit
 final class PushTokenManager {
     static let shared = PushTokenManager()
 
-    private let db = Firestore.firestore()
+    private var db: Firestore { Firestore.firestore() }
     private var pendingToken: String?
+    private var lastPersistedTokenByUID: [String: String] = [:]
+    private var lastNotificationPrefsByUID: [String: (assignments: Bool, buddies: Bool)] = [:]
 
     private init() {}
 
@@ -25,18 +27,27 @@ final class PushTokenManager {
 
     func updateNotificationPreferences(assignmentsEnabled: Bool, buddiesEnabled: Bool) async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        if let cached = lastNotificationPrefsByUID[uid],
+           cached.assignments == assignmentsEnabled,
+           cached.buddies == buddiesEnabled {
+            return
+        }
         do {
             try await db.collection("users").document(uid).setData([
                 "notificationAssignments": assignmentsEnabled,
                 "notificationBuddies": buddiesEnabled,
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
+            lastNotificationPrefsByUID[uid] = (assignmentsEnabled, buddiesEnabled)
         } catch {
             // no-op for now; UI doesn't need a blocking error here
         }
     }
 
     private func persistToken(_ token: String, for uid: String) async {
+        if lastPersistedTokenByUID[uid] == token {
+            return
+        }
         let tokenID = Self.tokenDocumentID(for: token)
         do {
             try await db.collection("users")
@@ -48,6 +59,7 @@ final class PushTokenManager {
                     "platform": "ios",
                     "updatedAt": FieldValue.serverTimestamp()
                 ], merge: true)
+            lastPersistedTokenByUID[uid] = token
         } catch {
             // no-op for now
         }

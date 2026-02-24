@@ -9,34 +9,39 @@ import FirebaseFirestore
 import UIKit
 
 @MainActor
-final class FirebaseBootstrap: ObservableObject {
+final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     @Published private(set) var isReady = false
     @Published private(set) var currentUserID: String?
     @Published private(set) var isAnonymousUser: Bool = true
     @Published private(set) var statusMessage: String?
 
-    private var didStart = false
+    private var isStarting = false
     private var currentNonce: String?
+    private var activeAppleAuthController: ASAuthorizationController?
 
     func start() async {
-        guard !didStart else { return }
-        didStart = true
+        guard !isReady, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
 
-        configureFirebaseIfNeeded()
+        guard await waitForFirebaseConfiguration() else { return }
         await ensureAnonymousAuth()
     }
 
-    private func configureFirebaseIfNeeded() {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-            PBLog.firebase.info("Firebase configured.")
-        } else {
-            PBLog.firebase.info("Firebase already configured.")
+    private func waitForFirebaseConfiguration() async -> Bool {
+        for _ in 0..<30 {
+            if FirebaseApp.app() != nil {
+                _ = Firestore.firestore()
+                isReady = true
+                statusMessage = "Firebase initialized."
+                PBLog.firebase.info("Firebase already configured.")
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
-
-        _ = Firestore.firestore()
-        isReady = true
-        statusMessage = "Firebase initialized."
+        statusMessage = "Firebase is not configured yet."
+        PBLog.firebase.error("Firebase app missing after startup wait window.")
+        return false
     }
 
     private func ensureAnonymousAuth() async {
@@ -86,12 +91,13 @@ final class FirebaseBootstrap: ObservableObject {
         currentNonce = nonce
         request.requestedScopes = [.fullName, .email]
         request.nonce = sha256(nonce)
+        statusMessage = "Starting Apple sign-in…"
     }
 
     func handleAppleSignInCompletion(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .failure(let error):
-            statusMessage = "Apple sign-in failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("Apple sign-in failed: %@", error.localizedDescription)
             PBLog.firebase.error("Apple sign-in failed: \(error.localizedDescription)")
 
         case .success(let authorization):
@@ -123,13 +129,48 @@ final class FirebaseBootstrap: ObservableObject {
         }
     }
 
+    func startAppleSignInFlowFallback() {
+        let provider = ASAuthorizationAppleIDProvider()
+        let request = provider.createRequest()
+        prepareAppleSignInRequest(request)
+
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        activeAppleAuthController = controller
+        controller.performRequests()
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        handleAppleSignInCompletion(.success(authorization))
+        activeAppleAuthController = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        handleAppleSignInCompletion(.failure(error))
+        activeAppleAuthController = nil
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }),
+           let keyWindow = activeScene.windows.first(where: { $0.isKeyWindow }) {
+            return keyWindow
+        }
+        if let anyWindow = scenes.flatMap(\.windows).first {
+            return anyWindow
+        }
+        preconditionFailure("No UIWindow available for Apple sign-in presentation anchor.")
+    }
+
+
     func signInWithGoogle() {
         Task {
             do {
                 let credential = try await googleCredential()
                 await signInWithCredential(credential, providerName: "Google")
             } catch {
-                let msg = "Google sign-in failed: \(error.localizedDescription)"
+                let msg = L10n.f("Google sign-in failed: %@", error.localizedDescription)
                 statusMessage = msg
                 PBLog.firebase.error("\(msg)")
             }
@@ -148,7 +189,7 @@ final class FirebaseBootstrap: ObservableObject {
             }
 
             refreshAuthState(user: result.user)
-            statusMessage = "Signed in with \(providerName)."
+            statusMessage = L10n.f("Signed in with %@.", providerName)
         } catch {
             let ns = error as NSError
             if ns.domain == AuthErrorDomain,
@@ -156,15 +197,15 @@ final class FirebaseBootstrap: ObservableObject {
                 do {
                     let result = try await signIn(with: credential)
                     refreshAuthState(user: result.user)
-                    statusMessage = "Signed in with \(providerName)."
+                    statusMessage = L10n.f("Signed in with %@.", providerName)
                     return
                 } catch {
-                    statusMessage = "\(providerName) sign-in failed: \(error.localizedDescription)"
+                    statusMessage = L10n.f("%@ sign-in failed: %@", providerName, error.localizedDescription)
                     return
                 }
             }
 
-            statusMessage = "\(providerName) sign-in failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("%@ sign-in failed: %@", providerName, error.localizedDescription)
             PBLog.firebase.error("\(providerName) sign-in failed: \(error.localizedDescription)")
         }
     }

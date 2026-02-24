@@ -6,6 +6,11 @@ final class PracticeSessionModel {
     @Attribute(.unique) var id: UUID
     var date: Date
     var durationSeconds: Int
+    var verifiedSeconds: Int
+    var unverifiedSeconds: Int
+    var checkInCount: Int
+    var missedCheckInCount: Int
+    var checkInLogJSON: String
     var notes: String
     var noteTitle: String
     var noteFocus: String
@@ -16,6 +21,10 @@ final class PracticeSessionModel {
 
     var durationMinutes: Int {
         max(0, durationSeconds / 60)
+    }
+
+    var verifiedMinutes: Int {
+        max(0, verifiedSeconds / 60)
     }
 
     var formattedDate: String {
@@ -30,6 +39,11 @@ final class PracticeSessionModel {
         id: UUID = UUID(),
         date: Date,
         durationSeconds: Int,
+        verifiedSeconds: Int = 0,
+        unverifiedSeconds: Int = 0,
+        checkInCount: Int = 0,
+        missedCheckInCount: Int = 0,
+        checkInLogJSON: String = "",
         notes: String = "",
         noteTitle: String = "",
         noteFocus: String = "",
@@ -39,6 +53,11 @@ final class PracticeSessionModel {
         self.id = id
         self.date = date
         self.durationSeconds = durationSeconds
+        self.verifiedSeconds = verifiedSeconds
+        self.unverifiedSeconds = unverifiedSeconds
+        self.checkInCount = checkInCount
+        self.missedCheckInCount = missedCheckInCount
+        self.checkInLogJSON = checkInLogJSON
         self.notes = notes
         self.noteTitle = noteTitle
         self.noteFocus = noteFocus

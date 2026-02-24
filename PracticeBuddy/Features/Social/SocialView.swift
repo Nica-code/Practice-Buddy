@@ -115,18 +115,24 @@ struct SocialView: View {
         let isMine = message.senderUID == firebase.currentUserID
         return HStack {
             if isMine { Spacer(minLength: 40) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(message.senderName)
-                    .font(type.footnote.weight(.semibold))
-                    .foregroundStyle(isMine ? palette.textPrimary : palette.textSecondary)
+            HStack(alignment: .top, spacing: 8) {
+                PBAvatarView(avatarID: message.senderAvatarID, displayName: message.senderName, size: 30)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(message.senderName)
+                            .font(type.footnote)
+                            .foregroundStyle(isMine ? palette.textPrimary : palette.textSecondary)
+                        PBLevelBadgeView(level: message.senderLevel)
+                    }
 
-                Text(message.text)
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
+                    Text(message.text)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
 
-                Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
             }
             .padding(10)
             .background(isMine ? palette.accent.opacity(0.22) : palette.surface)
@@ -138,7 +144,7 @@ struct SocialView: View {
     private var composer: some View {
         VStack(spacing: 6) {
             if let status = viewModel.statusMessage, !status.isEmpty {
-                Text(status)
+                Text(LocalizedStringKey(status))
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

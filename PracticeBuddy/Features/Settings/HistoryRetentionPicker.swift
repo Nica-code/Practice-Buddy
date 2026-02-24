@@ -33,7 +33,7 @@ struct HistoryRetentionPickerView: View {
                         selection = opt.value
                     } label: {
                         HStack {
-                            Text(opt.title)
+                            Text(LocalizedStringKey(opt.title))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
 

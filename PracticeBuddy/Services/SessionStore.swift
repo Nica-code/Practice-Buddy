@@ -19,6 +19,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var sessions: [PracticeSessionModel] = [] {
         didSet { rebuildCaches() }
     }
+    @Published private(set) var totalAllMinutes: Int = 0
 
     // User-presentable errors (used by ContentView alert)
     @Published var lastAppError: PBAppError? = nil
@@ -125,6 +126,11 @@ final class SessionStore: ObservableObject {
     func addSession(
         date: Date,
         durationSeconds: Int,
+        verifiedSeconds: Int? = nil,
+        unverifiedSeconds: Int = 0,
+        checkInCount: Int = 0,
+        missedCheckInCount: Int = 0,
+        checkInLogJSON: String = "",
         notes: String,
         noteTitle: String = "",
         noteFocus: String = "",
@@ -136,6 +142,11 @@ final class SessionStore: ObservableObject {
         let s = PracticeSessionModel(
             date: date,
             durationSeconds: durationSeconds,
+            verifiedSeconds: max(0, verifiedSeconds ?? durationSeconds),
+            unverifiedSeconds: max(0, unverifiedSeconds),
+            checkInCount: max(0, checkInCount),
+            missedCheckInCount: max(0, missedCheckInCount),
+            checkInLogJSON: checkInLogJSON,
             notes: notes,
             noteTitle: noteTitle,
             noteFocus: noteFocus,
@@ -146,6 +157,8 @@ final class SessionStore: ObservableObject {
 
         do {
             try modelContext.save()
+            sessions.insert(s, at: 0)
+            pruneToRetentionIfNeeded()
         } catch {
             PBLog.sessionStore.error("SwiftData save failed (addSession): \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
@@ -153,23 +166,17 @@ final class SessionStore: ObservableObject {
                 message: "Your session couldn't be saved. Please try again."
             )
         }
-
-        reload()
-        pruneToRetentionIfNeeded()
     }
 
     func updateNotes(for sessionID: UUID, notes: String) {
         guard let modelContext else { return }
 
         do {
-            let descriptor = FetchDescriptor<PracticeSessionModel>(
-                predicate: #Predicate { $0.id == sessionID }
-            )
-            if let match = try modelContext.fetch(descriptor).first {
-                match.notes = notes
-                try modelContext.save()
-                reload()
-            }
+            guard let match = sessions.first(where: { $0.id == sessionID }) else { return }
+            if match.notes == notes { return }
+            match.notes = notes
+            try modelContext.save()
+            objectWillChange.send()
         } catch {
             PBLog.sessionStore.error("SwiftData update failed (updateNotes): \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
@@ -184,9 +191,11 @@ final class SessionStore: ObservableObject {
 
         let toDelete = offsets.map { sessions[$0] }
         for s in toDelete { modelContext.delete(s) }
+        var didSave = false
 
         do {
             try modelContext.save()
+            didSave = true
         } catch {
             PBLog.sessionStore.error("SwiftData save failed (deleteSessions): \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
@@ -194,23 +203,21 @@ final class SessionStore: ObservableObject {
                 message: "Some sessions couldn't be deleted. Please try again."
             )
         }
-
-        reload()
+        if didSave {
+            sessions.remove(atOffsets: offsets)
+        }
     }
 
     func deleteSessions(withIDs ids: [UUID]) {
         guard let modelContext else { return }
+        let idSet = Set(ids)
+        let toDelete = sessions.filter { idSet.contains($0.id) }
+        var didSave = false
 
         do {
-            for id in ids {
-                let descriptor = FetchDescriptor<PracticeSessionModel>(
-                    predicate: #Predicate { $0.id == id }
-                )
-                if let match = try modelContext.fetch(descriptor).first {
-                    modelContext.delete(match)
-                }
-            }
+            for match in toDelete { modelContext.delete(match) }
             try modelContext.save()
+            didSave = true
         } catch {
             PBLog.sessionStore.error("SwiftData delete by IDs failed: \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
@@ -218,8 +225,9 @@ final class SessionStore: ObservableObject {
                 message: "Some sessions couldn't be deleted. Please try again."
             )
         }
-
-        reload()
+        if didSave {
+            sessions.removeAll { idSet.contains($0.id) }
+        }
     }
 
     // MARK: - Retention
@@ -236,9 +244,11 @@ final class SessionStore: ObservableObject {
 
         let extras = sessions.dropFirst(retention)
         for s in extras { modelContext.delete(s) }
+        var didSave = false
 
         do {
             try modelContext.save()
+            didSave = true
         } catch {
             PBLog.sessionStore.error("SwiftData save failed (prune): \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
@@ -246,8 +256,9 @@ final class SessionStore: ObservableObject {
                 message: "Old sessions couldn't be cleaned up. Please try again."
             )
         }
-
-        reload()
+        if didSave {
+            sessions = Array(sessions.prefix(retention))
+        }
     }
 
     // MARK: - Cache rebuild
@@ -269,5 +280,6 @@ final class SessionStore: ObservableObject {
         }
 
         secondsByDay = dayTotals
+        totalAllMinutes = max(0, sessions.reduce(0) { $0 + max(0, $1.durationSeconds) } / 60)
     }
 }

@@ -77,7 +77,7 @@ struct WarmUpGeneratorView: View {
 
                 Picker("Instrument", selection: $instrument) {
                     ForEach(Instrument.allCases) { i in
-                        Text(i.title).tag(i)
+                        Text(LocalizedStringKey(i.title)).tag(i)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -95,7 +95,7 @@ struct WarmUpGeneratorView: View {
                         }
                     } label: {
                         HStack {
-                            Text(focus.title)
+                            Text(LocalizedStringKey(focus.title))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
@@ -114,12 +114,12 @@ struct WarmUpGeneratorView: View {
             }
             .listRowBackground(palette.surface)
 
-            if let warmup = warmupOfWeekManager.warmup, purchaseManager.accountType == .student {
+            if let warmup = warmupOfWeekManager.warmup, purchaseManager.hasRole(.student) {
                 Section("Warm-up of the Week") {
                     Text(warmup.title)
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
-                    Text("\(warmup.totalMinutes) min • \(warmup.instrument) • \(warmup.focus)")
+                    Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Button("Load Warm-up of the Week") {
@@ -139,7 +139,7 @@ struct WarmUpGeneratorView: View {
 
                     ForEach(Array(generatedSteps.enumerated()), id: \.offset) { idx, step in
                         HStack {
-                            Text("\(idx + 1). \(step.title)")
+                            Text(L10n.f("%@. %@", "\(idx + 1)", String(localized: String.LocalizationValue(step.title))))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
@@ -160,10 +160,9 @@ struct WarmUpGeneratorView: View {
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text(step.title)
-                                .font(type.number)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
+                            Text(LocalizedStringKey(step.title))
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
                         }
                         HStack {
                             Text("Remaining")
@@ -205,7 +204,7 @@ struct WarmUpGeneratorView: View {
 
                     if let linked = assignmentLinkManager.linkedAssignment {
                         Divider().padding(.vertical, 4)
-                        Text("Linked assignment: \(linked.title)")
+                        Text(L10n.f("Linked assignment: %@", linked.title))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                         Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
@@ -227,7 +226,7 @@ struct WarmUpGeneratorView: View {
 
             if let msg = statusMessage ?? warmupOfWeekManager.statusMessage, !msg.isEmpty {
                 Section {
-                    Text(msg)
+                    Text(LocalizedStringKey(msg))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -278,7 +277,7 @@ struct WarmUpGeneratorView: View {
             steps.append(last)
         }
 
-        generatedTitle = "\(minutes)m \(instrument.title) Warm-up"
+        generatedTitle = L10n.f("%@m %@ Warm-up", "\(minutes)", String(localized: String.LocalizationValue(instrument.title)))
         generatedSteps = steps
         stepIndex = 0
         stepRemainingSeconds = steps.first?.seconds ?? 0

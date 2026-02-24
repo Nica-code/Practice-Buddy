@@ -139,14 +139,14 @@ struct SmartPracticePlanGeneratorView: View {
         Section("Smart Practice Plan Generator") {
             Picker("Available time", selection: $selectedTime) {
                 ForEach(TimePreset.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
             .pickerStyle(.segmented)
 
             Picker("Goal", selection: $selectedGoal) {
                 ForEach(GoalType.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
             .pickerStyle(.segmented)
@@ -163,7 +163,7 @@ struct SmartPracticePlanGeneratorView: View {
             .buttonStyle(.borderedProminent)
 
             if let statusMessage, !statusMessage.isEmpty {
-                Text(statusMessage)
+                Text(LocalizedStringKey(statusMessage))
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -183,7 +183,7 @@ struct SmartPracticePlanGeneratorView: View {
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Spacer()
-                    Text(generatedPlan.weaknesses.map(\.title).joined(separator: ", "))
+                    Text(generatedPlan.weaknesses.map { String(localized: String.LocalizationValue($0.title)) }.joined(separator: ", "))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -193,7 +193,7 @@ struct SmartPracticePlanGeneratorView: View {
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Spacer()
-                    Text("\(generatedPlan.suggestedTempoStart) → \(generatedPlan.suggestedTempoEnd) BPM")
+                    Text(L10n.f("%@ → %@ BPM", "\(generatedPlan.suggestedTempoStart)", "\(generatedPlan.suggestedTempoEnd)"))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -204,7 +204,7 @@ struct SmartPracticePlanGeneratorView: View {
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Spacer()
-                    Text("\(generatedPlan.loopCount) loops")
+                    Text(L10n.f("%@ loops", "\(generatedPlan.loopCount)"))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -213,16 +213,16 @@ struct SmartPracticePlanGeneratorView: View {
                 ForEach(generatedPlan.blocks) { block in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(block.title)
-                                .font(type.body.weight(.semibold))
+                            Text(LocalizedStringKey(block.title))
+                                .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             Spacer()
-                            Text("\(block.minutes) min")
+                            Text(L10n.f("%@ min", "\(block.minutes)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
-                        Text(block.details)
+                        Text(LocalizedStringKey(block.details))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                     }
@@ -243,14 +243,14 @@ struct SmartPracticePlanGeneratorView: View {
         Section("After Session Feedback") {
             Picker("How did this feel?", selection: $difficultyFeedback) {
                 ForEach(DifficultyFeedback.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
             .pickerStyle(.segmented)
 
             Picker("Main issue today", selection: $mainIssueFeedback) {
                 ForEach(MainIssueFeedback.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(LocalizedStringKey(item.title)).tag(item)
                 }
             }
             .pickerStyle(.menu)
@@ -429,4 +429,3 @@ struct SmartPracticePlanGeneratorView: View {
         ]
     }
 }
-

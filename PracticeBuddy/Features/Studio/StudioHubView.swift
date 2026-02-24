@@ -2,25 +2,26 @@ import SwiftUI
 
 struct StudioHubView: View {
     private enum StudioSection: String, CaseIterable, Identifiable {
-        case buddies
+        case friends
         case chat
 
         var id: String { rawValue }
-        var title: String {
+        var titleKey: String {
             switch self {
-            case .buddies: return "Buddies"
+            case .friends: return "Friends"
             case .chat: return "Chat"
             }
         }
     }
 
     @Environment(\.pbTheme) private var theme
+    @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("pb.studio.hub.section") private var sectionRawValue: String = StudioSection.buddies.rawValue
+    @AppStorage("pb.studio.hub.section") private var sectionRawValue: String = StudioSection.friends.rawValue
 
     private var sectionBinding: Binding<StudioSection> {
         Binding(
-            get: { StudioSection(rawValue: sectionRawValue) ?? .buddies },
+            get: { StudioSection(rawValue: sectionRawValue) ?? .friends },
             set: { sectionRawValue = $0.rawValue }
         )
     }
@@ -29,9 +30,27 @@ struct StudioHubView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Studio", selection: sectionBinding) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Social")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(theme.textPrimary)
+                Text(
+                    StudioSection(rawValue: sectionRawValue) == .chat
+                    ? "Studio conversations in one place."
+                    : "Manage friends and studio connections."
+                )
+                .font(type.footnote)
+                .foregroundStyle(theme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+            .background(chrome)
+
+            Picker("Social", selection: sectionBinding) {
                 ForEach(StudioSection.allCases) { section in
-                    Text(section.title).tag(section)
+                    Text(LocalizedStringKey(section.titleKey)).tag(section)
                 }
             }
             .pickerStyle(.segmented)
@@ -40,8 +59,8 @@ struct StudioHubView: View {
             .padding(.bottom, 8)
             .background(chrome)
 
-            switch StudioSection(rawValue: sectionRawValue) ?? .buddies {
-            case .buddies:
+            switch StudioSection(rawValue: sectionRawValue) ?? .friends {
+            case .friends:
                 FriendsView()
             case .chat:
                 SocialView()
@@ -52,4 +71,3 @@ struct StudioHubView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-

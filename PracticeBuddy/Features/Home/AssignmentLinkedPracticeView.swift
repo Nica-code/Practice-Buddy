@@ -13,7 +13,7 @@ struct AssignmentLinkedPracticeView: View {
     var body: some View {
         Form {
             Section("Linked Assignment") {
-                if purchaseManager.accountType != .student {
+                if !purchaseManager.hasRole(.student) {
                     Text("Assignment-linked practice is available on student accounts.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
@@ -25,7 +25,7 @@ struct AssignmentLinkedPracticeView: View {
                         Text(linked.details)
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
-                        Text("Due: \(linked.dueAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text(L10n.f("Due: %@", linked.dueAt.formatted(date: .abbreviated, time: .omitted)))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                     }
@@ -92,4 +92,3 @@ struct AssignmentLinkedPracticeView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-

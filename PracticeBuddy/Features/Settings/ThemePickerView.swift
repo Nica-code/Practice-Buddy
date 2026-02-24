@@ -61,7 +61,7 @@ struct ThemePickerView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
-                        Text(theme.name)
+                        Text(LocalizedStringKey(theme.name))
                             .font(type.sectionTitle)
                             .foregroundStyle(currentTheme.textPrimary)
 
@@ -117,7 +117,7 @@ struct ThemePickerView: View {
         .padding(.vertical, 10)
         .background(currentTheme.surfaceAlt)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityLabel("\(theme.name) swatches")
+        .accessibilityLabel(Text(LocalizedStringKey("\(theme.name) swatches")))
     }
 
     private func livePreviewCard(theme: PBTheme) -> some View {
@@ -139,7 +139,7 @@ struct ThemePickerView: View {
 
                 HStack {
                     Text("Today")
-                        .font(type.body.weight(.semibold))
+                        .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
                     Text("42 min")
@@ -187,8 +187,8 @@ private struct ThemePreviewSheet: View {
             ScrollView {
                 VStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(themeModel.name)
-                            .font(type.sectionTitle.weight(.bold))
+                        Text(LocalizedStringKey(themeModel.name))
+                            .font(type.sectionTitle)
                             .foregroundStyle(palette.textPrimary)
 
                         Text("Preview")

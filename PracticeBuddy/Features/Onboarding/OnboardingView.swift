@@ -99,7 +99,7 @@ struct OnboardingView: View {
         .padding()
     }
 
-    private func header(_ title: String, systemImage: String) -> some View {
+    private func header(_ title: LocalizedStringKey, systemImage: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.title3)
@@ -109,12 +109,12 @@ struct OnboardingView: View {
         .padding(.bottom, 6)
     }
 
-    private func bullet(_ markdown: String) -> some View {
+    private func bullet(_ markdown: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("•")
                 .font(.headline)
                 .padding(.top, 1)
-            Text(.init(markdown))
+            Text(markdown)
         }
     }
 }

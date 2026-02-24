@@ -13,6 +13,8 @@ struct SettingsView: View {
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
     @AppStorage("pb.notifications.assignments") private var notifyAssignments: Bool = true
     @AppStorage("pb.notifications.buddies") private var notifyBuddies: Bool = true
+    @AppStorage("pb.practice.checkins.enabled") private var practiceCheckInsEnabled: Bool = true
+    @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
 
     @State private var pendingRetentionTask: Task<Void, Never>?
 
@@ -25,6 +27,12 @@ struct SettingsView: View {
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    private var appLanguageBinding: Binding<AppLanguage> {
+        Binding(
+            get: { AppLanguage(rawValue: appLanguageRaw) ?? .system },
+            set: { appLanguageRaw = $0.rawValue }
+        )
+    }
 
     private var historyRetentionDisplay: String {
         historyRetention == 0 ? "Unlimited" : "\(historyRetention)"
@@ -39,7 +47,7 @@ struct SettingsView: View {
             Section("Goals") {
                 Picker("Goal period", selection: goalScopeBinding) {
                     ForEach(GoalScope.allCases) { scope in
-                        Text(scope.title).tag(scope)
+                        Text(LocalizedStringKey(scope.title)).tag(scope)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -49,12 +57,23 @@ struct SettingsView: View {
                         Text("Goal")
                             .font(type.body)
                         Spacer()
-                        Text(goalMinutes == 0
-                             ? "Off"
-                             : "\(goalMinutes) min / \((GoalScope(rawValue: goalScopeRaw) ?? .today).title.lowercased())")
-                        .font(type.body)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
+                        if goalMinutes == 0 {
+                            Text("Off")
+                                .font(type.body)
+                                .foregroundStyle(palette.textSecondary)
+                        } else {
+                            let scope = GoalScope(rawValue: goalScopeRaw) ?? .today
+                            Text(
+                                L10n.f(
+                                    "%@ min / %@",
+                                    "\(goalMinutes)",
+                                    String(localized: String.LocalizationValue(scope.title))
+                                )
+                            )
+                                .font(type.body)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
                     }
                 }
 
@@ -75,6 +94,12 @@ struct SettingsView: View {
 
                 NavigationLink { PBLazyView(AppIconPickerView()) } label: {
                     settingsLabel("App Icon", systemImage: "app.badge")
+                }
+
+                Picker("Language", selection: appLanguageBinding) {
+                    ForEach(AppLanguage.allCases) { lang in
+                        Text(LocalizedStringKey(lang.titleKey)).tag(lang)
+                    }
                 }
             }
             .listRowBackground(palette.surface)
@@ -105,6 +130,18 @@ struct SettingsView: View {
             }
             .listRowBackground(palette.surface)
 
+            Section("Practice Verification") {
+                Toggle("Practice Check-ins (Gentle Mode)", isOn: $practiceCheckInsEnabled)
+                    .font(type.body)
+
+                Text(practiceCheckInsEnabled
+                     ? "During active sessions, random check-ins verify presence. Missed check-ins pause the timer."
+                     : "Practice check-ins are off. All active timer minutes count as verified.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            .listRowBackground(palette.surface)
+
             Section("History") {
                 NavigationLink {
                     PBLazyView(HistoryRetentionPickerView(selection: $historyRetention))
@@ -116,7 +153,7 @@ struct SettingsView: View {
 
                         Spacer()
 
-                        Text(historyRetentionDisplay)
+                        Text(LocalizedStringKey(historyRetentionDisplay))
                             .font(type.body)
                             .foregroundStyle(historyRetentionDisplayStyle)
                             .monospacedDigit()
@@ -169,7 +206,7 @@ struct SettingsView: View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .foregroundStyle(palette.accent)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(type.body)
                 .foregroundStyle(palette.textPrimary)
         }

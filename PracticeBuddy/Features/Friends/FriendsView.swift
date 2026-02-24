@@ -5,6 +5,7 @@ import AuthenticationServices
 
 struct FriendsView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var journey: JourneyProgressManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -36,12 +37,18 @@ struct FriendsView: View {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
             await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
+            await buddiesVM.syncPublicLevel(journey.level)
             await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes)
         }
         .task(id: myTotalMinutes) {
             guard firebase.currentUserID != nil else { return }
             await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
+            await buddiesVM.syncPublicLevel(journey.level)
             await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes)
+        }
+        .task(id: journey.level) {
+            guard firebase.currentUserID != nil else { return }
+            await buddiesVM.syncPublicLevel(journey.level)
         }
         .onChange(of: buddiesVM.buddies) { _, latest in
             let valid = Set(latest.map { $0.id })
@@ -63,7 +70,7 @@ struct FriendsView: View {
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
 
     private var myTotalMinutes: Int {
-        max(0, store.sessions.reduce(0) { $0 + max(0, $1.durationSeconds) } / 60)
+        store.totalAllMinutes
     }
 
     private var selectedStudioBuddyIDs: Set<String> {
@@ -100,6 +107,28 @@ struct FriendsView: View {
                 .foregroundStyle(theme.textPrimary)
 
             if let profile = buddiesVM.myProfile {
+                NavigationLink {
+                    PBLazyView(UserProfileView(buddiesVM: buddiesVM))
+                } label: {
+                    HStack(spacing: 10) {
+                        PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 36)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("My Profile")
+                                .font(type.body)
+                                .foregroundStyle(theme.textPrimary)
+                            Text("Avatar, bio, instrument, level")
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                        }
+                        Spacer()
+                        PBLevelBadgeView(level: profile.publicLevel)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+                .background(theme.surfaceAlt)
+                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
                 if firebase.isAnonymousUser {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Guest account")
@@ -125,7 +154,7 @@ struct FriendsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Text("Your code: \(profile.friendCode)")
+                    Text(L10n.f("Your code: %@", profile.friendCode))
                         .font(type.body)
                         .foregroundStyle(theme.textPrimary)
                         .monospacedDigit()
@@ -175,12 +204,12 @@ struct FriendsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Studio Buddies")
+                    Text("Studio Friends")
                         .font(type.body)
                         .foregroundStyle(theme.textPrimary)
 
                     if studioBuddies.isEmpty {
-                        Text("No buddies in Your Studio yet.")
+                        Text("No friends in Your Studio yet.")
                             .font(type.footnote)
                             .foregroundStyle(theme.textSecondary)
                             .padding(10)
@@ -190,14 +219,18 @@ struct FriendsView: View {
                     } else {
                         ForEach(studioBuddies) { buddy in
                             HStack {
+                                PBAvatarView(avatarID: buddy.avatarID, displayName: buddy.displayName, size: 30)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(buddy.displayName)
                                         .font(type.body)
                                         .foregroundStyle(theme.textPrimary)
-                                    Text(buddy.friendCode)
-                                        .font(type.footnote)
-                                        .foregroundStyle(theme.textSecondary)
-                                        .monospacedDigit()
+                                    HStack(spacing: 6) {
+                                        Text(buddy.friendCode)
+                                            .font(type.footnote)
+                                            .foregroundStyle(theme.textSecondary)
+                                            .monospacedDigit()
+                                        PBLevelBadgeView(level: buddy.publicLevel)
+                                    }
                                 }
                                 Spacer()
                                 Button("Remove") {
@@ -212,13 +245,13 @@ struct FriendsView: View {
                     }
                 }
             } else {
-                Text(firebase.statusMessage ?? "Preparing account…")
+                Text(LocalizedStringKey(firebase.statusMessage ?? "Preparing account…"))
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
             }
 
             if let msg = buddiesVM.statusMessage, !msg.isEmpty {
-                Text(msg)
+                Text(LocalizedStringKey(msg))
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
             }
@@ -231,7 +264,7 @@ struct FriendsView: View {
 
     private var buddiesCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Buddies")
+            Text("Friends")
                 .font(type.sectionTitle)
                 .foregroundStyle(theme.textPrimary)
 
@@ -253,7 +286,7 @@ struct FriendsView: View {
                             ids.insert(newBuddyID)
                             setSelectedStudioBuddyIDs(ids)
                         }
-                        await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes)
+                        await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true)
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -273,7 +306,7 @@ struct FriendsView: View {
                     .foregroundStyle(theme.textPrimary)
                 Spacer()
                 Button {
-                    Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes) }
+                    Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true) }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .foregroundStyle(theme.textSecondary)
@@ -298,13 +331,17 @@ struct FriendsView: View {
                             .frame(width: 34, alignment: .leading)
                             .monospacedDigit()
 
+                        PBAvatarView(avatarID: row.avatarID, displayName: row.name, size: 26)
+
                         Text(row.name)
                             .font(type.body)
                             .foregroundStyle(theme.textPrimary)
 
                         Spacer()
 
-                        Text("\(row.minutes) min")
+                        PBLevelBadgeView(level: row.publicLevel)
+
+                        Text(L10n.f("%@ min", "\(row.minutes)"))
                             .font(type.number)
                             .foregroundStyle(theme.accent)
                             .monospacedDigit()

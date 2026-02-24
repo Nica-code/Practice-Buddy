@@ -218,6 +218,27 @@ Current Product Areas
 - No high-risk refactors were applied in this pass to preserve current UI/functionality stability.
 
 9) Studio + Invite Flow (Teacher/Student)
+
+Localization Workflow Guardrails (New)
+- Added script: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy/scripts/localization_audit.js`
+- Purpose:
+  - scans SwiftUI/localized string usage in code
+  - compares against locale files
+  - reports missing keys per locale
+  - fails with non-zero exit when missing keys exist
+- Command (strict):
+  - `node /Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy/scripts/localization_audit.js`
+- Command (warning-only, does not fail):
+  - `node /Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy/scripts/localization_audit.js --allow-missing`
+- Optional locale subset:
+  - `node /Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy/scripts/localization_audit.js --locales=ro,ko`
+
+Recommended workflow before TestFlight upload
+1. Implement feature text/labels in English first.
+2. Run localization audit script.
+3. Fill missing keys in `ro.lproj` and `ko.lproj`.
+4. Re-run script until strict pass is clean.
+5. Run app build.
 - Home IA updated for teachers:
   - `Teacher Tools` section moved to Home (between Session Templates and Practice Tools)
   - Settings -> Pro -> Teacher Tools now redirects back to Home for studio workflow
@@ -273,6 +294,263 @@ Current Product Areas
 - Home includes a Journey chip (level + XP to next) for always-visible motivation.
 - End-session save alert now shows earned XP for that session.
 
+12) Recent UX + Appearance Updates
+- Onboarding:
+  - Google sign-in is now marked as `Coming Soon` and disabled in account setup UI.
+- Appearance mode policy:
+  - removed Auto/Light/Dark mode toggle from Settings -> Appearance.
+  - app now runs in light mode only (`preferredColorScheme(.light)`), while theme palettes remain fully active.
+- About section:
+  - removed personal name block and replaced with `Contact Information`.
+- Theme naming refresh (music-oriented):
+  - `Classic` -> `Sonata`
+  - `Mint` -> `Legato`
+  - `Pink Neon` -> `Cantabile`
+  - theme list is ordered alphabetically by display name:
+    - Cantabile, Concert Hall, Legato, Luthier, Sonata
+
+13) Journey Rewards MVP (Inside Journey Tab)
+- Added a new in-tab Journey section switcher:
+  - `Overview` (existing level + quests)
+  - `Rewards` (new token/reward catalog view)
+- Added quest reward claim flow:
+  - completed daily/weekly quests can be claimed once per period
+  - daily claims reset by day
+  - weekly claims reset by ISO week
+- Added token economy state in `JourneyProgressManager`:
+  - persistent token balance
+  - persistent claimed quest reward keys
+  - persistent owned reward IDs
+- Added Rewards catalog MVP:
+  - claimable reward items with token costs
+  - owned state tracking
+  - claim actions deduct tokens and mark item as owned
+- Rewards remain inside Journey (no extra top-level tab), aligned with the 5-tab navigation strategy.
+
+14) Verified Practice (Presence Check-ins) V1
+- Implemented a new accountability layer for Home session timer:
+  - random in-app check-ins during active practice
+  - check-in overlay with one-tap confirm (`I’m Here`) and optional focus tag chips
+  - missed check-in auto-pauses session (Gentle mode behavior)
+- Implemented foreground requirement:
+  - if app leaves foreground while practice timer is running, session auto-pauses
+- Added persisted verification data to `PracticeSessionModel`:
+  - `verifiedSeconds`
+  - `unverifiedSeconds`
+  - `checkInCount`
+  - `missedCheckInCount`
+  - `checkInLogJSON`
+- Home session save flow now stores verification metrics and check-in log JSON.
+- History now shows verification summary for regular sessions:
+  - verified duration
+  - missed check-in count
+  - Session Journal header also displays verification totals when available.
+- Settings added `Practice Verification` control:
+  - `Practice Check-ins (Gentle Mode)` toggle.
+- Journey XP logic updated to use verified minutes for sessions that have verification data.
+  - Legacy sessions without verification data still use total duration for XP compatibility.
+- Export service updated:
+  - CSV/JSON now include verification + check-in counters.
+
+Current V1 behavior notes:
+- Check-ins are in-app/foreground only (no background random prompt enforcement).
+- Strict mode (end session on missed check-in) is not implemented yet.
+
+15) Multi-Role Account Access (Student + Teacher on one account)
+- Added multi-role support in `PurchaseManager`:
+  - new persisted/synced `enabledRoles` set
+  - existing `accountType` continues as current active mode
+  - backward-compatible migration from legacy single `accountType`
+- Role behavior:
+  - users can enable both Student and Teacher toolsets on the same account
+  - active mode can switch between enabled roles without creating a second account
+  - at least one role must always remain enabled
+- Master account policy:
+  - master accounts now auto-enable both roles
+  - default active mode remains Teacher for master accounts
+- Store screen updated:
+  - role toggles (`Student tools`, `Teacher tools`)
+  - current mode picker when both roles are enabled
+- Home gating updated to role membership (`hasRole`) for:
+  - Teacher Tools section
+  - Student Pro section
+  - assignment-linked and warm-up student surfaces
+- Studio Manager updated:
+  - supports a local mode switch (Student/Teacher) when both roles are enabled
+  - allows dual-role users to access both studio experiences from one account.
+
+16) Pro Student Phase Pack (A.1 / A.2 / B.3 / B.4 / C.5)
+- Phase A.1 Run-through Pro Upgrade
+  - run-through now supports inline mistake markers during recording (`shift`, `rhythm`, `intonation`, `bow`, `memory`, `other`)
+  - finish sheet now includes optional piece/passage name
+  - markers + piece name are persisted in SwiftData (`RunThroughModel.markerJSON`, `RunThroughModel.pieceName`)
+  - History run-through rows now surface piece name + marker summary
+  - History includes Pro A/B compare workflow for two run-through takes (duration/rating/marker deltas)
+- Phase A.2 Session Summary
+  - saved session notes now append an automatic Pro summary block with:
+    - total/verified/unverified time
+    - check-ins/missed check-ins
+    - earned XP
+    - active tools used
+- Phase B.3 Tempo Ladder
+  - Smart Loop Timer now includes Pro tempo-ladder mode:
+    - clean-loop threshold configuration
+    - manual `Mark Loop Clean` flow during work phase
+    - tempo increments only after required clean loops
+  - loop logs persist ladder settings (`tempoLadderEnabled`, `ladderCleanLoopsRequired`)
+- Phase B.4 Skill Trends
+  - Journey Overview now includes trends for:
+    - rhythm groove score
+    - intonation score
+    - loop tempo trend
+  - History session rows now show earned XP per saved session
+- Phase C.5 Piece Dashboard
+  - Journey Overview now includes a Piece Dashboard section (student workspace MVP)
+  - dashboard derives per-piece stats from existing run-through/session data (no migration required):
+    - total practice minutes
+    - run-through count
+    - best self-rating
+    - last practiced date
+    - inferred latest tempo when available
+  - currently keyed by run-through `pieceName` and session `noteTitle` labels
+
+17) Romanian Localization Deep Pass (Screen-by-Screen)
+- Completed a broad Romanian localization sweep across Home, History, Buddies/Studio, Journey, Settings, Store, onboarding/account flows, and Practice Lab tools.
+- Added/updated localization for dynamic strings previously left in English:
+  - XP/level counters (`Lv`, `XP to next`, token counts)
+  - assignment/date/status rows (`Due`, `Linked assignment`, `Older assignments`)
+  - check-in/verification text (`Verified`, `Unverified`, check-in summaries)
+  - loop/rhythm/run-through/intonation formatted summaries
+  - Store trial/purchase dynamic labels and status lines
+  - runtime status/error messages from Firebase auth, tuner, recorder, rhythm engine, and Game Center submission paths
+- Added shared formatting helper:
+  - `PracticeBuddy/SharedUI/L10n.swift`
+  - used to localize formatted text keys safely (`L10n.f(...)`) instead of hardcoded English interpolation.
+- Ensured dynamic status/error strings use localized format keys where needed (especially interpolation-based messages), so Romanian now applies to runtime feedback as well.
+- Build validation:
+  - iOS Simulator build succeeds after localization pass (`BUILD SUCCEEDED`).
+
+18) Korean Localization Deep Pass (Screen-by-Screen)
+- Performed a full Korean localization audit against current UI keys (static + dynamic + status/error).
+- Expanded `ko.lproj/Localizable.strings` from a small baseline to broad app coverage across:
+  - Home / Practice / Practice Lab
+  - History / Session Journal
+  - Buddies / Studio Manager / Studio Chat
+  - Journey (levels, quests, rewards)
+  - Settings / Store / onboarding/account flows
+  - runtime status messages (auth, recorder, tuner, rhythm, leaderboard, studio/assignment flows)
+- Localized formatted runtime strings used by `L10n.f(...)` keys so dynamic lines render in Korean (XP, levels, due dates, check-ins, counts, tempo summaries, etc.).
+- Remaining audit “misses” are non-translatable artifacts/constants only (numeric literals/symbols and parser artifacts such as interpolation-only strings), not user-facing untranslated phrases.
+- Build validation:
+  - iOS Simulator build succeeds after Korean pass (`BUILD SUCCEEDED`).
+
+19) Navigation Restructure (5-tab model) + Home-History integration
+- Top-level tab model was restructured to:
+  - Home
+  - Play (formerly Journey/Progress destination)
+  - Social (Studio hub)
+  - Profile (new dedicated tab)
+  - Settings
+- Legacy tab index migration added so existing users are remapped safely on first launch after update.
+- History is no longer a top-level tab:
+  - Home now includes a `Recent History` section in `Today`
+  - a `View Full History` navigation path opens full History screen from Home
+- Social tab naming cleanup:
+  - tab label changed from Buddies/Studio to `Social`
+  - in hub, `Buddies` section renamed to `Friends`
+  - Friends screen labels updated (`Studio Friends`, friend empty-state copy)
+- Tab-jump remaps were updated for the new indices (Open Pro, Unlock Pro, level chip jumps).
+
+20) UX Polish Pass (Play / Social / Profile)
+- Added root context headers to reduce cognitive load and improve section clarity:
+  - Play: title + dynamic subtitle by segment
+  - Social: title + dynamic subtitle by Friends/Chat
+  - Profile: concise explanatory line at top
+- Reduced vertical scrolling density in Play and Profile:
+  - Play:
+    - merged header + segment picker
+    - merged daily/weekly quest sections into a single `Quests` section with subheaders
+    - compact section spacing applied
+  - Profile:
+    - merged Details + Avatar + Save into one `Personalize` section
+    - compact section spacing applied
+- Behavior and data model were intentionally unchanged during this pass.
+
+21) Practice Timer / Check-in / Metronome Improvements (Student feedback pass)
+- Practice timer background behavior changed:
+  - removed auto-pause when app leaves foreground/phone locks
+  - session timer continues while screen is off
+- Accountability preserved:
+  - when check-ins are enabled, background elapsed time is counted as `unverified` on return
+  - this avoids inflating verified minutes while app is not foregrounded
+- Check-in frequency made configurable:
+  - new in-session `Check-in interval` selector:
+    - 10–20 min
+    - 20–35 min
+    - 30–50 min (default)
+  - old hardcoded 3–7 min behavior removed
+- Lock-screen check-in alerts added:
+  - new toggle `Lock-screen check-in alerts`
+  - app schedules local notification prompts while backgrounded during active checked-in sessions
+  - note: iOS does not support forced full-screen in-app check-in modal while app is backgrounded; user must open app from notification to confirm
+- Metronome subdivision wording updated:
+  - label changed from `Quarter` to `1/4`
+- Validation after this pass:
+  - localization audit passes for `ko` and `ro` with zero missing keys
+  - simulator build succeeds (`BUILD SUCCEEDED`)
+
+22) Async Duels + League Ladder (Play MVP, Phase 1)
+- Added a new async competition layer in Play (`Duels & League`) with Firebase-backed state.
+- Implemented `DuelLeagueManager`:
+  - open duel queue/create flow (`Queue Async Scale Duel`)
+  - async open-challenge match flow (join first available open challenge)
+  - active duel score submission (0-100)
+  - transaction-safe completion when both players submit
+  - rating updates + league tier updates persisted to `users/{uid}`:
+    - `duelRating`
+    - `duelLeague` (`bronze` / `silver` / `gold`)
+    - `duelWins`, `duelLosses`, `duelDraws`
+- Play UI now shows:
+  - league tier + rating + W/L/D
+  - queue/cancel open duel actions
+  - active duel cards with derived-score preview + submit action
+  - recent duel result rows with rating delta
+- Firestore rules extended for:
+  - `duelChallenges/{challengeId}` read/create/update permissions for async duel lifecycle
+- Phase 2A implemented:
+  - friend-targeted duel invitations
+  - studio-targeted duel invitations
+  - incoming invite accept/decline
+  - outgoing invite cancel
+  - open queue option remains available
+- Phase 2B implemented:
+  - self-reported duel slider score removed from active duel submit flow
+  - duel submit now uses app-derived metrics from latest Intonation + Rhythm takes:
+    - intonation score
+    - rhythm score
+    - consistency score
+    - note/beat counts
+  - local-only adjudication path is active in iOS:
+    - stores per-player attempt payload in Firestore
+    - finalizes duel when both attempts are present
+    - computes winner + rating deltas client-side via transaction
+    - updates duel W/L/D + league tier on `users/{uid}`
+- Phase 2C implemented:
+  - weekly season model (`YYYY-Www`) with season points/matches/wins/rating-delta fields on users
+  - Play now includes a `Season Ladder` view with scopes:
+    - Global
+    - Friends
+    - Studio
+  - ladder rows show rank + player + season points
+- Matchmaking quality pass implemented:
+  - open queue now prefers same league tier and closest rating before widening selection
+  - open queue fallback behavior preserved
+
+MVP scope notes:
+- This is asynchronous challenge competition (not live realtime head-to-head).
+- Scoring is app-derived from analysis metrics; manual self-report slider is removed.
+- Matchmaking supports open queue + friend/studio invitations.
+
 Included Local Font Files
 - PlayfairDisplay-Regular.ttf
 - Lora-Regular.ttf
@@ -316,8 +594,13 @@ Where We Are Now
 - Firebase auth + buddies + tuner + journal UX + font palette overhaul are all implemented and compiling.
 - Pro model, StoreKit foundation, and first gated features are now implemented and compiling; ready for iterative expansion.
 - History now supports deletion across all Practice Lab log types shown in History (Loop Sessions, Guided Practice, Rhythm Accuracy, Run-throughs).
+- Pro Student roadmap phases requested for this sprint (A.1/A.2/B.3/B.4/C.5) are implemented in-app and compile successfully.
 
 What Is Next
-- Add optional delete confirmation UI for History rows to reduce accidental removals.
-- Expand Pro analytics visualizations for Loop/Rhythm trends in History.
+- Expand A/B compare into waveform/timing drift visuals.
+- Add richer Skill Trends charts (weekly and monthly) behind Pro.
 - Finish live server push (FCM/Functions) path once Blaze is enabled, then remove local notification fallback.
+- Duel/League Phase 2:
+  - friend/studio-targeted matchmaking options
+  - anti-cheat server adjudication + audio-derived scoring
+  - league season resets + leaderboard/history views

@@ -41,7 +41,7 @@ struct FontPickerView: View {
                 .font(previewTitle)
                 .foregroundStyle(theme.textPrimary)
 
-            Text("Selected: \(previewChoice.name)")
+            Text(L10n.f("Selected: %@", String(localized: String.LocalizationValue(previewChoice.name))))
                 .font(type.footnote)
                 .foregroundStyle(theme.textSecondary)
 
@@ -92,8 +92,8 @@ struct FontPickerView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
-                        Text(choice.name)
-                            .font(type.body.weight(.semibold))
+                        Text(LocalizedStringKey(choice.name))
+                            .font(type.body)
                             .foregroundStyle(theme.textPrimary)
 
                         if isSelected {
@@ -102,7 +102,7 @@ struct FontPickerView: View {
                         }
                     }
 
-                    Text(choice.subtitle)
+                    Text(LocalizedStringKey(choice.subtitle))
                         .font(type.footnote)
                         .foregroundStyle(theme.textSecondary)
                         .opacity(0.85)

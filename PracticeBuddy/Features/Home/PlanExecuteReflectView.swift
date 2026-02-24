@@ -105,7 +105,7 @@ struct PlanExecuteReflectView: View {
 
             if let statusMessage, !statusMessage.isEmpty {
                 Section {
-                    Text(statusMessage)
+                    Text(LocalizedStringKey(statusMessage))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -177,7 +177,7 @@ struct PlanExecuteReflectView: View {
     private var planSection: some View {
         Group {
             Section("Plan") {
-                Stepper("Target time: \(targetMinutes) min", value: $targetMinutes, in: 10...180, step: 5)
+                Stepper(L10n.f("Target time: %@ min", "\(targetMinutes)"), value: $targetMinutes, in: 10...180, step: 5)
                     .font(type.body)
 
                 Text("Choose 2-4 goals")
@@ -201,7 +201,7 @@ struct PlanExecuteReflectView: View {
                     .foregroundStyle(palette.textSecondary)
 
                 ForEach(Block.allCases) { block in
-                    Toggle(block.title, isOn: Binding(
+                    Toggle(LocalizedStringKey(block.title), isOn: Binding(
                         get: { selectedBlocks.contains(block.rawValue) },
                         set: { enabled in
                             if enabled {
@@ -243,7 +243,13 @@ struct PlanExecuteReflectView: View {
                                     Text(template.title)
                                         .font(type.body)
                                         .foregroundStyle(palette.textPrimary)
-                                    Text("\(template.targetMinutes) min • \(template.goals.joined(separator: ", "))")
+                                    Text(
+                                        L10n.f(
+                                            "%@ min • %@",
+                                            "\(template.targetMinutes)",
+                                            template.goals.map { String(localized: String.LocalizationValue($0.capitalized)) }.joined(separator: ", ")
+                                        )
+                                    )
                                         .font(type.footnote)
                                         .foregroundStyle(palette.textSecondary)
                                 }
@@ -274,7 +280,7 @@ struct PlanExecuteReflectView: View {
                     .font(type.body)
                     .foregroundStyle(palette.textPrimary)
                 Spacer()
-                Text(currentBlock?.title ?? "Done")
+                Text(LocalizedStringKey(currentBlock?.title ?? "Done"))
                     .font(type.number)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
@@ -369,7 +375,7 @@ struct PlanExecuteReflectView: View {
                     .lineLimit(2...5)
                     .font(type.body)
 
-                Stepper("Self rating: \(selfRating)/5", value: $selfRating, in: 1...5)
+                Stepper(L10n.f("Self rating: %@/5", "\(selfRating)"), value: $selfRating, in: 1...5)
                     .font(type.body)
             }
             .listRowBackground(palette.surface)
@@ -380,7 +386,7 @@ struct PlanExecuteReflectView: View {
 
                 if let linked = assignmentLinkManager.linkedAssignment {
                     Divider().padding(.vertical, 4)
-                    Text("Linked assignment: \(linked.title)")
+                    Text(L10n.f("Linked assignment: %@", linked.title))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
@@ -599,7 +605,7 @@ struct PlanExecuteReflectView: View {
     @ViewBuilder
     private func chip(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(type.footnote)
                 .foregroundStyle(isSelected ? palette.accent : palette.textSecondary)
                 .padding(.horizontal, 10)
@@ -626,7 +632,7 @@ private struct PracticeToolsQuickPanelView: View {
     var body: some View {
         Form {
             Section("Metronome") {
-                Stepper("Tempo: \(bpm) BPM", value: $bpm, in: 40...220)
+                Stepper(L10n.f("Tempo: %@ BPM", "\(bpm)"), value: $bpm, in: 40...220)
                     .font(type.body)
                 HStack(spacing: 10) {
                     Button("Start") {

@@ -50,7 +50,7 @@ enum SessionExportService {
     // MARK: CSV
 
     private static func makeCSV(sessions: [PracticeSessionModel]) -> String {
-        var lines: [String] = ["date_iso,duration_seconds,notes"]
+        var lines: [String] = ["date_iso,duration_seconds,verified_seconds,unverified_seconds,checkin_count,missed_checkin_count,notes"]
 
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -58,8 +58,12 @@ enum SessionExportService {
         for s in sessions {
             let date = iso.string(from: s.date)
             let duration = max(0, s.durationSeconds)
+            let verified = max(0, s.verifiedSeconds)
+            let unverified = max(0, s.unverifiedSeconds)
+            let checkIns = max(0, s.checkInCount)
+            let missed = max(0, s.missedCheckInCount)
             let notes = csvEscape(s.notes)
-            lines.append("\(date),\(duration),\(notes)")
+            lines.append("\(date),\(duration),\(verified),\(unverified),\(checkIns),\(missed),\(notes)")
         }
 
         return lines.joined(separator: "\n")
@@ -85,6 +89,10 @@ enum SessionExportService {
                 "id": s.id.uuidString,
                 "date": iso.string(from: s.date),
                 "durationSeconds": max(0, s.durationSeconds),
+                "verifiedSeconds": max(0, s.verifiedSeconds),
+                "unverifiedSeconds": max(0, s.unverifiedSeconds),
+                "checkInCount": max(0, s.checkInCount),
+                "missedCheckInCount": max(0, s.missedCheckInCount),
                 "notes": s.notes
             ]
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Combine
 
 struct ContentView: View {
     private struct InviteJoinAlert: Identifiable {
@@ -20,10 +21,12 @@ struct ContentView: View {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var store = SessionStore()
     @StateObject private var journeyManager = JourneyProgressManager()
+    @StateObject private var duelLeagueManager = DuelLeagueManager()
     @StateObject private var assignmentLinkManager = AssignmentLinkManager()
     @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
 
     @State private var didInit = false
+    @State private var sessionsCancellable: AnyCancellable?
     @State private var inviteJoinAlert: InviteJoinAlert?
     private let studiosRepository = FirebaseStudiosRepository()
 
@@ -32,7 +35,11 @@ struct ContentView: View {
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
         Group {
-            if needsAccountSetup {
+            if !firebase.isReady {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.background.ignoresSafeArea())
+            } else if needsAccountSetup {
                 AccountSetupView()
             } else {
                 TabView(selection: $selectedTab) {
@@ -45,28 +52,28 @@ struct ContentView: View {
                     .tag(0)
 
                     NavigationStack {
-                        PBLazyView(HistoryView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("History", systemImage: "clock") }
-                    .tag(1)
-
-                    NavigationStack {
                         PBLazyView(JourneyView())
                             .navigationTitle("")
                             .navigationBarTitleDisplayMode(.inline)
                     }
-                    .tabItem { Label("Journey", systemImage: "figure.walk") }
-                    .tag(4)
+                    .tabItem { Label("Play", systemImage: "gamecontroller") }
+                    .tag(1)
 
                     NavigationStack {
                         PBLazyView(StudioHubView())
                             .navigationTitle("")
                             .navigationBarTitleDisplayMode(.inline)
                     }
-                    .tabItem { Label("Studio", systemImage: "person.2") }
+                    .tabItem { Label("Social", systemImage: "person.2") }
                     .tag(2)
+
+                    NavigationStack {
+                        PBLazyView(ProfileTabView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                    .tag(3)
 
                     NavigationStack {
                         PBLazyView(SettingsView())
@@ -74,21 +81,24 @@ struct ContentView: View {
                             .navigationBarTitleDisplayMode(.inline)
                     }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
-                    .tag(3)
+                    .tag(4)
                 }
             }
         }
         .onAppear {
-            if selectedTab == 5 { selectedTab = 4 } // migrate old Journey tab index
-            if !(0...4).contains(selectedTab) { selectedTab = 0 }
+            migrateTabSelectionIfNeeded()
 
             guard !didInit else { return }
             didInit = true
 
             store.configure(context: modelContext)
-            journeyManager.handleSessionSnapshot(store.sessions)
+            sessionsCancellable = store.$sessions
+                .sink { sessions in
+                    journeyManager.handleSessionSnapshot(sessions)
+                }
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
+            syncUserPipelines()
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
@@ -96,33 +106,46 @@ struct ContentView: View {
         .onChange(of: themeManager.theme.id) { _, _ in
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
         }
-        .onAppear {
-            purchaseManager.linkToUser(uid: firebase.currentUserID)
-            resumeRealtimeManagers()
-        }
         .onChange(of: firebase.currentUserID) { _, newUID in
-            purchaseManager.linkToUser(uid: newUID)
-            if scenePhase == .active {
-                resumeRealtimeManagers()
-            }
+            _ = newUID
+            syncUserPipelines()
+        }
+        .onChange(of: firebase.isAnonymousUser) { _, _ in
+            syncUserPipelines()
         }
         .onChange(of: purchaseManager.accountType) { _, newType in
-            guard scenePhase == .active else { return }
-            assignmentLinkManager.start(uid: firebase.currentUserID, accountType: newType)
-            warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: newType, isPro: purchaseManager.isPro)
+            guard scenePhase == .active, canRunRealtimePipelines else { return }
+            assignmentLinkManager.start(
+                uid: firebase.currentUserID,
+                accountType: purchaseManager.hasRole(.student) ? .student : newType
+            )
+            warmupOfWeekManager.start(
+                uid: firebase.currentUserID,
+                accountType: purchaseManager.hasRole(.student) ? .student : newType,
+                isPro: purchaseManager.isPro
+            )
             Task { await assignmentLinkManager.flushPendingQueue() }
         }
         .onChange(of: purchaseManager.isPro) { _, isPro in
-            guard scenePhase == .active else { return }
-            warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType, isPro: isPro)
+            guard scenePhase == .active, canRunRealtimePipelines else { return }
+            warmupOfWeekManager.start(
+                uid: firebase.currentUserID,
+                accountType: purchaseManager.hasRole(.student) ? .student : purchaseManager.accountType,
+                isPro: isPro
+            )
             Task { await assignmentLinkManager.flushPendingQueue() }
+        }
+        .onChange(of: purchaseManager.enabledRoles) { _, _ in
+            guard scenePhase == .active else { return }
+            syncUserPipelines()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                resumeRealtimeManagers()
+                syncUserPipelines()
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
+                duelLeagueManager.pauseRealtime()
             }
         }
         .onOpenURL { url in
@@ -131,41 +154,67 @@ struct ContentView: View {
         .environmentObject(store)
         .environmentObject(journeyManager)
         .environmentObject(themeManager)
+        .environmentObject(duelLeagueManager)
         .environmentObject(assignmentLinkManager)
         .environmentObject(warmupOfWeekManager)
-        .onReceive(store.$sessions) { sessions in
-            journeyManager.handleSessionSnapshot(sessions)
-        }
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
         .pbGlobalFontDesign(fontChoice)
         .tint(themeManager.theme.accent)
         .alert(item: $store.lastAppError) { err in
             Alert(
-                title: Text(err.title),
-                message: Text(err.message),
+                title: Text(LocalizedStringKey(err.title)),
+                message: Text(LocalizedStringKey(err.message)),
                 dismissButton: .default(Text("OK"))
             )
         }
         .alert(item: $inviteJoinAlert) { state in
             Alert(
-                title: Text(state.title),
-                message: Text(state.message),
+                title: Text(LocalizedStringKey(state.title)),
+                message: Text(LocalizedStringKey(state.message)),
                 dismissButton: .default(Text("OK"))
             )
         }
     }
 
     private var needsAccountSetup: Bool {
-        guard firebase.currentUserID != nil else { return true }
-        if firebase.isAnonymousUser { return true }
-        return !purchaseManager.hasCompletedInitialRoleSelection
+        guard let uid = firebase.currentUserID, !uid.isEmpty else { return true }
+        return firebase.isAnonymousUser
     }
 
+    private var canRunRealtimePipelines: Bool {
+        guard scenePhase == .active else { return false }
+        guard let uid = firebase.currentUserID, !uid.isEmpty else { return false }
+        guard !firebase.isAnonymousUser else { return false }
+        guard !needsAccountSetup else { return false }
+        return true
+    }
+
+    private var theme: PBTheme { themeManager.theme }
+
     private func resumeRealtimeManagers() {
-        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType)
-        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: purchaseManager.accountType, isPro: purchaseManager.isPro)
+        let roleForStudentPipelines: PBAccountType = purchaseManager.hasRole(.student) ? .student : purchaseManager.accountType
+        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: roleForStudentPipelines)
+        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: roleForStudentPipelines, isPro: purchaseManager.isPro)
         Task { await assignmentLinkManager.flushPendingQueue() }
+    }
+
+    private func syncUserPipelines() {
+        let linkUID: String? = {
+            guard let uid = firebase.currentUserID, !uid.isEmpty, !firebase.isAnonymousUser else { return nil }
+            return uid
+        }()
+        purchaseManager.linkToUser(uid: linkUID)
+
+        guard canRunRealtimePipelines else {
+            assignmentLinkManager.pauseRealtime()
+            warmupOfWeekManager.pauseRealtime()
+            duelLeagueManager.pauseRealtime()
+            return
+        }
+
+        resumeRealtimeManagers()
+        duelLeagueManager.start(uid: firebase.currentUserID)
     }
 
     private func handleIncomingURL(_ url: URL) {
@@ -226,5 +275,26 @@ struct ContentView: View {
             return code.uppercased()
         }
         return nil
+    }
+
+    private func migrateTabSelectionIfNeeded() {
+        let key = "pb.tab.selection.v2.migrated"
+        let migrated = UserDefaults.standard.bool(forKey: key)
+        guard !migrated else {
+            if !(0...4).contains(selectedTab) { selectedTab = 0 }
+            return
+        }
+
+        let legacyValue = selectedTab
+        switch legacyValue {
+        case 0: selectedTab = 0
+        case 1: selectedTab = 0
+        case 2: selectedTab = 2
+        case 3: selectedTab = 4
+        case 4, 5: selectedTab = 1
+        default: selectedTab = 0
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
     }
 }

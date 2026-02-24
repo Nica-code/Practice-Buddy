@@ -2,11 +2,41 @@ import SwiftUI
 import UIKit
 
 struct StudioManagerView: View {
+    private enum AssignmentQuickFilter: String, CaseIterable, Identifiable {
+        case active = "Active"
+        case dueSoon = "Due Soon"
+        case overdue = "Overdue"
+        case completed = "Completed"
+        case all = "All"
+
+        var id: String { rawValue }
+        var titleKey: String { rawValue }
+    }
+
+    private enum TeacherPanel: String, CaseIterable, Identifiable {
+        case overview = "Overview"
+        case assignments = "Assignments"
+        case warmups = "Warm-ups"
+        case roster = "Roster"
+
+        var id: String { rawValue }
+        var titleKey: String { rawValue }
+    }
+
+    private enum StudentPanel: String, CaseIterable, Identifiable {
+        case overview = "Overview"
+        case assignments = "Assignments"
+        case roster = "Roster"
+
+        var id: String { rawValue }
+        var titleKey: String { rawValue }
+    }
+
     private enum AssignmentAudience: String, CaseIterable, Identifiable {
         case studio
         case individual
         var id: String { rawValue }
-        var title: String {
+        var titleKey: String {
             switch self {
             case .studio: return "Whole Studio"
             case .individual: return "Individual"
@@ -18,7 +48,7 @@ struct StudioManagerView: View {
         case studio
         case individual
         var id: String { rawValue }
-        var title: String {
+        var titleKey: String {
             switch self {
             case .studio: return "Whole Studio"
             case .individual: return "Individual"
@@ -57,17 +87,20 @@ struct StudioManagerView: View {
     @State private var editDueAt: Date = Date()
     @State private var editAudience: AssignmentAudience = .studio
     @State private var editSelectedStudentUID: String = ""
+    @State private var studioRoleMode: PBAccountType = .teacher
+    @State private var teacherPanel: TeacherPanel = .overview
+    @State private var studentPanel: StudentPanel = .overview
+    @State private var showAssignmentComposer: Bool = false
+    @State private var showWarmupComposer: Bool = false
+    @State private var teacherAssignmentQuickFilter: AssignmentQuickFilter = .active
+    @State private var studentAssignmentQuickFilter: AssignmentQuickFilter = .active
+    @State private var showOlderTeacherAssignments: Bool = false
+    @State private var showOlderStudentAssignments: Bool = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if !purchaseManager.isPro {
-                    lockedCard
-                } else if purchaseManager.accountType == .teacher {
-                    teacherContentCard
-                } else {
-                    studentContentCard
-                }
+                mainContent
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -82,21 +115,30 @@ struct StudioManagerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
-            viewModel.start(for: uid, role: purchaseManager.accountType)
+            let initial = defaultStudioRoleMode()
+            studioRoleMode = initial
+            viewModel.start(for: uid, role: initial)
         }
-        .onChange(of: purchaseManager.accountType) { _, newRole in
+        .onChange(of: purchaseManager.accountType) { _, _ in
+            guard purchaseManager.availableRoleModes.contains(studioRoleMode) else {
+                studioRoleMode = defaultStudioRoleMode()
+                return
+            }
+        }
+        .onChange(of: studioRoleMode) { _, newRole in
             guard let uid = firebase.currentUserID else { return }
+            if newRole == .teacher {
+                teacherPanel = .overview
+            } else {
+                studentPanel = .overview
+            }
             viewModel.start(for: uid, role: newRole)
         }
         .onChange(of: viewModel.studentMembers.map(\.id)) { _, ids in
-            guard assignmentAudience == .individual else { return }
-            if !ids.contains(selectedStudentUID) {
+            if assignmentAudience == .individual, !ids.contains(selectedStudentUID) {
                 selectedStudentUID = ids.first ?? ""
             }
-        }
-        .onChange(of: viewModel.studentMembers.map(\.id)) { _, ids in
-            guard warmupAudience == .individual else { return }
-            if !ids.contains(warmupStudentUID) {
+            if warmupAudience == .individual, !ids.contains(warmupStudentUID) {
                 warmupStudentUID = ids.first ?? ""
             }
         }
@@ -117,11 +159,45 @@ struct StudioManagerView: View {
                 }
             }
         } message: { assignment in
-            Text("Delete \"\(assignment.title)\"?")
+            Text(L10n.f("Delete assignment \"%@\"?", assignment.title))
         }
     }
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if !purchaseManager.isPro {
+            lockedCard
+        } else {
+            roleModePicker
+            if studioRoleMode == .teacher {
+                teacherContentCard
+            } else {
+                studentContentCard
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var roleModePicker: some View {
+        if purchaseManager.availableRoleModes.count > 1 {
+            Picker("Studio Mode", selection: $studioRoleMode) {
+                ForEach(purchaseManager.availableRoleModes) { role in
+                    Text(LocalizedStringKey(role.title)).tag(role)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private func defaultStudioRoleMode() -> PBAccountType {
+        if purchaseManager.availableRoleModes.contains(purchaseManager.accountType) {
+            return purchaseManager.accountType
+        }
+        return purchaseManager.availableRoleModes.first ?? .student
+    }
 
     private var lockedCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -151,9 +227,8 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textSecondary)
             } else if let studio = viewModel.studio {
                 studioHeader(studio)
-                memberList
-                teacherAssignmentsSection
-                teacherWarmupPublisherSection
+                teacherPanelPicker
+                teacherPanelContent
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Create your studio to start inviting students.")
@@ -174,7 +249,7 @@ struct StudioManagerView: View {
             }
 
             if let msg = viewModel.statusMessage, !msg.isEmpty {
-                Text(msg)
+                Text(LocalizedStringKey(msg))
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
             }
@@ -197,8 +272,8 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textSecondary)
             } else if let studio = viewModel.studio {
                 studioHeader(studio)
-                memberList
-                studentAssignmentsSection
+                studentPanelPicker
+                studentPanelContent
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Join your teacher's studio using an invite code.")
@@ -223,7 +298,7 @@ struct StudioManagerView: View {
             }
 
             if let msg = viewModel.statusMessage, !msg.isEmpty {
-                Text(msg)
+                Text(LocalizedStringKey(msg))
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
             }
@@ -234,12 +309,122 @@ struct StudioManagerView: View {
         .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
     }
 
+    private var teacherPanelPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(TeacherPanel.allCases) { panel in
+                    Button {
+                        teacherPanel = panel
+                    } label: {
+                        Text(LocalizedStringKey(panel.titleKey))
+                            .font(type.footnote)
+                            .foregroundStyle(
+                                teacherPanel == panel ? Color.black : theme.textPrimary
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(teacherPanel == panel ? theme.accent : theme.surfaceAlt)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var teacherPanelContent: some View {
+        switch teacherPanel {
+        case .overview:
+            studioOverviewCards
+        case .assignments:
+            teacherAssignmentsSection
+        case .warmups:
+            teacherWarmupPublisherSection
+        case .roster:
+            memberList
+        }
+    }
+
+    private var studentPanelPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(StudentPanel.allCases) { panel in
+                    Button {
+                        studentPanel = panel
+                    } label: {
+                        Text(LocalizedStringKey(panel.titleKey))
+                            .font(type.footnote)
+                            .foregroundStyle(
+                                studentPanel == panel ? Color.black : theme.textPrimary
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(studentPanel == panel ? theme.accent : theme.surfaceAlt)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var studentPanelContent: some View {
+        switch studentPanel {
+        case .overview:
+            studioOverviewCards
+        case .assignments:
+            studentAssignmentsSection
+        case .roster:
+            memberList
+        }
+    }
+
+    private var studioOverviewCards: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Overview")
+                .font(type.body)
+                .foregroundStyle(theme.textPrimary)
+            HStack(spacing: 8) {
+                overviewCard(title: "Members", value: "\(viewModel.members.count)")
+                overviewCard(title: "Assignments", value: "\(viewModel.visibleAssignmentsForCurrentRole.count)")
+            }
+            HStack(spacing: 8) {
+                overviewCard(
+                    title: "Completed",
+                    value: "\(viewModel.myAssignmentCompletion.values.filter({ $0 }).count)"
+                )
+                overviewCard(
+                    title: "Pending",
+                    value: "\(max(0, viewModel.visibleAssignmentsForCurrentRole.count - viewModel.myAssignmentCompletion.values.filter({ $0 }).count))"
+                )
+            }
+        }
+    }
+
+    private func overviewCard(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(type.footnote)
+                .foregroundStyle(theme.textSecondary)
+            Text(value)
+                .font(type.number)
+                .foregroundStyle(theme.textPrimary)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(theme.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+    }
+
     @ViewBuilder
     private func studioHeader(_ studio: StudioInfo) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(studio.name)
-                    .font(type.body.weight(.semibold))
+                    .font(type.body)
                     .foregroundStyle(theme.textPrimary)
                 Text("Invite link ready")
                     .font(type.footnote)
@@ -311,13 +496,17 @@ struct StudioManagerView: View {
             } else {
                 ForEach(viewModel.members) { member in
                     HStack {
+                        PBAvatarView(avatarID: member.avatarID, displayName: member.displayName, size: 30)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(member.displayName)
                                 .font(type.body)
                                 .foregroundStyle(theme.textPrimary)
-                            Text(member.role.rawValue.capitalized)
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
+                            HStack(spacing: 6) {
+                                Text(LocalizedStringKey(member.role.rawValue.capitalized))
+                                    .font(type.footnote)
+                                    .foregroundStyle(theme.textSecondary)
+                                PBLevelBadgeView(level: member.publicLevel)
+                            }
                         }
                         Spacer()
                     }
@@ -329,6 +518,7 @@ struct StudioManagerView: View {
         }
     }
 
+
     private var teacherAssignmentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Weekly Assignments")
@@ -337,76 +527,94 @@ struct StudioManagerView: View {
 
             Picker("Filter", selection: $teacherAssignmentFilter) {
                 ForEach(StudioManagerViewModel.AssignmentFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
+                    Text(LocalizedStringKey(filter.titleKey)).tag(filter)
                 }
             }
             .pickerStyle(.segmented)
 
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Assignment title", text: $assignmentTitleInput)
-                    .font(type.body)
-                    .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+            assignmentQuickFilterChips(
+                selection: $teacherAssignmentQuickFilter,
+                countFor: teacherQuickFilterCount(for:)
+            )
 
-                TextField("Details (optional)", text: $assignmentDetailsInput, axis: .vertical)
-                    .font(type.body)
-                    .lineLimit(2...4)
-                    .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+            DisclosureGroup(isExpanded: $showAssignmentComposer) {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Assignment title", text: $assignmentTitleInput)
+                        .font(type.body)
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
 
-                DatePicker("Due", selection: $assignmentDueAt, displayedComponents: .date)
-                    .datePickerStyle(.compact)
+                    TextField("Details (optional)", text: $assignmentDetailsInput, axis: .vertical)
+                        .font(type.body)
+                        .lineLimit(2...4)
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                    DatePicker("Due", selection: $assignmentDueAt, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .font(type.body)
+                        .foregroundStyle(theme.textPrimary)
+
+                    Picker("Assign To", selection: $assignmentAudience) {
+                        ForEach(AssignmentAudience.allCases) { mode in
+                            Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if assignmentAudience == .individual {
+                        if viewModel.studentMembers.isEmpty {
+                            Text("No students in roster yet.")
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                        } else {
+                            studentSelectionList(selectedID: $selectedStudentUID)
+                        }
+                    }
+
+                    Button("Create Assignment") {
+                        let title = assignmentTitleInput
+                        let details = assignmentDetailsInput
+                        let due = assignmentDueAt
+                        Task {
+                            switch assignmentAudience {
+                            case .studio:
+                                await viewModel.createStudioWideAssignment(title: title, details: details, dueAt: due)
+                            case .individual:
+                                guard let student = viewModel.studentMembers.first(where: { $0.id == selectedStudentUID }) else {
+                                    viewModel.statusMessage = "Select a student."
+                                    return
+                                }
+                                await viewModel.createIndividualAssignment(
+                                    title: title,
+                                    details: details,
+                                    dueAt: due,
+                                    studentUID: student.id,
+                                    studentName: student.displayName
+                                )
+                            }
+                            assignmentTitleInput = ""
+                            assignmentDetailsInput = ""
+                            showAssignmentComposer = false
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.top, 8)
+            } label: {
+                Label(showAssignmentComposer ? "Hide Assignment Composer" : "New Assignment", systemImage: "plus.circle")
                     .font(type.body)
                     .foregroundStyle(theme.textPrimary)
-
-                Picker("Assign To", selection: $assignmentAudience) {
-                    ForEach(AssignmentAudience.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if assignmentAudience == .individual {
-                    if viewModel.studentMembers.isEmpty {
-                        Text("No students in roster yet.")
-                            .font(type.footnote)
-                            .foregroundStyle(theme.textSecondary)
-                    } else {
-                        studentSelectionList(selectedID: $selectedStudentUID)
-                    }
-                }
-
-                Button("Create Assignment") {
-                    let title = assignmentTitleInput
-                    let details = assignmentDetailsInput
-                    let due = assignmentDueAt
-                    Task {
-                        switch assignmentAudience {
-                        case .studio:
-                            await viewModel.createStudioWideAssignment(title: title, details: details, dueAt: due)
-                        case .individual:
-                            guard let student = viewModel.studentMembers.first(where: { $0.id == selectedStudentUID }) else {
-                                viewModel.statusMessage = "Select a student."
-                                return
-                            }
-                            await viewModel.createIndividualAssignment(
-                                title: title,
-                                details: details,
-                                dueAt: due,
-                                studentUID: student.id,
-                                studentName: student.displayName
-                            )
-                        }
-                        assignmentTitleInput = ""
-                        assignmentDetailsInput = ""
-                    }
-                }
-                .buttonStyle(.borderedProminent)
             }
+            .padding(10)
+            .background(theme.surfaceAlt)
+            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
 
-            let filtered = viewModel.filteredAssignments(teacherAssignmentFilter)
+            let filtered = filteredTeacherAssignments
+            let recent = Array(filtered.prefix(8))
+            let older = Array(filtered.dropFirst(8))
             if filtered.isEmpty {
                 Text("No assignments yet.")
                     .font(type.footnote)
@@ -416,47 +624,22 @@ struct StudioManagerView: View {
                     .background(theme.surfaceAlt)
                     .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
             } else {
-                ForEach(filtered) { assignment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(assignment.title)
-                            .font(type.body.weight(.semibold))
-                            .foregroundStyle(theme.textPrimary)
-                        if assignment.target == .individual {
-                            Text("Individual: \(assignment.targetStudentName ?? "Student")")
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
-                        } else {
-                            Text("Whole Studio")
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
-                        }
-                        if !assignment.details.isEmpty {
-                            Text(assignment.details)
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
-                        }
-                        HStack {
-                            Text("Due \(assignment.dueAt.formatted(date: .abbreviated, time: .omitted))")
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
-                            Spacer()
-                            Text(viewModel.completionFractionText(for: assignment))
-                                .font(type.footnote)
-                                .foregroundStyle(theme.textSecondary)
-                                .monospacedDigit()
-                        }
-                        HStack(spacing: 8) {
-                            Button("Edit") {
-                                beginEditing(assignment)
+                ForEach(recent) { assignment in
+                    teacherAssignmentRow(assignment)
+                }
+
+                if !older.isEmpty {
+                    DisclosureGroup(isExpanded: $showOlderTeacherAssignments) {
+                        VStack(spacing: 8) {
+                            ForEach(older) { assignment in
+                                teacherAssignmentRow(assignment)
                             }
-                            .buttonStyle(.bordered)
-                            Button("Delete", role: .destructive) {
-                                assignmentPendingDelete = assignment
-                                showDeleteConfirm = true
-                            }
-                            .buttonStyle(.bordered)
-                            Spacer()
                         }
+                        .padding(.top, 8)
+                    } label: {
+                        Text(L10n.f("Older assignments (%@)", "\(older.count)"))
+                            .font(type.footnote)
+                            .foregroundStyle(theme.textSecondary)
                     }
                     .padding(10)
                     .background(theme.surfaceAlt)
@@ -472,100 +655,113 @@ struct StudioManagerView: View {
                 .font(type.body)
                 .foregroundStyle(theme.textPrimary)
 
-            TextField("Warm-up title", text: $warmupTitleInput)
-                .font(type.body)
-                .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
-
-            TextField("Instrument (e.g. Strings)", text: $warmupInstrumentInput)
-                .font(type.body)
-                .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
-
-            TextField("Focus (e.g. Intonation, shifts)", text: $warmupFocusInput)
-                .font(type.body)
-                .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
-
-            Stepper(value: $warmupMinutesInput, in: 5...60, step: 5) {
-                HStack {
-                    Text("Total time")
+            DisclosureGroup(isExpanded: $showWarmupComposer) {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Warm-up title", text: $warmupTitleInput)
                         .font(type.body)
-                        .foregroundStyle(theme.textPrimary)
-                    Spacer()
-                    Text("\(warmupMinutesInput) min")
-                        .font(type.number)
-                        .foregroundStyle(theme.textSecondary)
-                        .monospacedDigit()
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                    TextField("Instrument (e.g. Strings)", text: $warmupInstrumentInput)
+                        .font(type.body)
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                    TextField("Focus (e.g. Intonation, shifts)", text: $warmupFocusInput)
+                        .font(type.body)
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                    Stepper(value: $warmupMinutesInput, in: 5...60, step: 5) {
+                        HStack {
+                            Text("Total time")
+                                .font(type.body)
+                                .foregroundStyle(theme.textPrimary)
+                            Spacer()
+                            Text(L10n.f("%@ min", "\(warmupMinutesInput)"))
+                                .font(type.number)
+                                .foregroundStyle(theme.textSecondary)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    Picker("Assign To", selection: $warmupAudience) {
+                        ForEach(WarmupAudience.allCases) { mode in
+                            Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if warmupAudience == .individual {
+                        if viewModel.studentMembers.isEmpty {
+                            Text("No students in roster yet.")
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                        } else {
+                            studentSelectionList(selectedID: $warmupStudentUID)
+                        }
+                    }
+
+                    TextField("Steps (one step per line)", text: $warmupStepsInput, axis: .vertical)
+                        .font(type.body)
+                        .lineLimit(4...8)
+                        .padding(10)
+                        .background(theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                    Button("Publish Warm-up") {
+                        let title = warmupTitleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let instrument = warmupInstrumentInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let focus = warmupFocusInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let steps = warmupStepsInput
+                            .split(whereSeparator: \.isNewline)
+                            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+
+                        guard !title.isEmpty else {
+                            viewModel.statusMessage = "Enter a warm-up title."
+                            return
+                        }
+                        guard !steps.isEmpty else {
+                            viewModel.statusMessage = "Add at least one warm-up step."
+                            return
+                        }
+
+                        Task {
+                            let target: StudioWarmupOfWeek.Target = (warmupAudience == .studio) ? .studio : .individual
+                            let student = viewModel.studentMembers.first(where: { $0.id == warmupStudentUID })
+                            await viewModel.publishStudioWarmup(
+                                title: title,
+                                instrument: instrument.isEmpty ? "Strings" : instrument,
+                                focus: focus,
+                                totalMinutes: warmupMinutesInput,
+                                steps: steps,
+                                target: target,
+                                targetStudentUID: target == .individual ? student?.id : nil,
+                                targetStudentName: target == .individual ? student?.displayName : nil
+                            )
+
+                            warmupTitleInput = ""
+                            warmupFocusInput = ""
+                            warmupStepsInput = ""
+                            warmupMinutesInput = 10
+                            showWarmupComposer = false
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
+                .padding(.top, 8)
+            } label: {
+                Label(showWarmupComposer ? "Hide Warm-up Composer" : "New Warm-up", systemImage: "plus.circle")
+                    .font(type.body)
+                    .foregroundStyle(theme.textPrimary)
             }
-
-            Picker("Assign To", selection: $warmupAudience) {
-                ForEach(WarmupAudience.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            if warmupAudience == .individual {
-                if viewModel.studentMembers.isEmpty {
-                    Text("No students in roster yet.")
-                        .font(type.footnote)
-                        .foregroundStyle(theme.textSecondary)
-                } else {
-                    studentSelectionList(selectedID: $warmupStudentUID)
-                }
-            }
-
-            TextField("Steps (one step per line)", text: $warmupStepsInput, axis: .vertical)
-                .font(type.body)
-                .lineLimit(4...8)
-                .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
-
-            Button("Publish Warm-up") {
-                let title = warmupTitleInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                let instrument = warmupInstrumentInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                let focus = warmupFocusInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                let steps = warmupStepsInput
-                    .split(whereSeparator: \.isNewline)
-                    .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-
-                guard !title.isEmpty else {
-                    viewModel.statusMessage = "Enter a warm-up title."
-                    return
-                }
-                guard !steps.isEmpty else {
-                    viewModel.statusMessage = "Add at least one warm-up step."
-                    return
-                }
-
-                Task {
-                    let target: StudioWarmupOfWeek.Target = (warmupAudience == .studio) ? .studio : .individual
-                    let student = viewModel.studentMembers.first(where: { $0.id == warmupStudentUID })
-                    await viewModel.publishStudioWarmup(
-                        title: title,
-                        instrument: instrument.isEmpty ? "Strings" : instrument,
-                        focus: focus,
-                        totalMinutes: warmupMinutesInput,
-                        steps: steps,
-                        target: target,
-                        targetStudentUID: target == .individual ? student?.id : nil,
-                        targetStudentName: target == .individual ? student?.displayName : nil
-                    )
-
-                    warmupTitleInput = ""
-                    warmupFocusInput = ""
-                    warmupStepsInput = ""
-                    warmupMinutesInput = 10
-                }
-            }
-            .buttonStyle(.borderedProminent)
+            .padding(10)
+            .background(theme.surfaceAlt)
+            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
         }
     }
 
@@ -575,7 +771,16 @@ struct StudioManagerView: View {
                 .font(type.body)
                 .foregroundStyle(theme.textPrimary)
 
-            if viewModel.visibleAssignmentsForCurrentRole.isEmpty {
+            assignmentQuickFilterChips(
+                selection: $studentAssignmentQuickFilter,
+                countFor: studentQuickFilterCount(for:)
+            )
+
+            let filtered = filteredStudentAssignments
+            let recent = Array(filtered.prefix(8))
+            let older = Array(filtered.dropFirst(8))
+
+            if filtered.isEmpty {
                 Text("No assignments yet.")
                     .font(type.footnote)
                     .foregroundStyle(theme.textSecondary)
@@ -584,7 +789,7 @@ struct StudioManagerView: View {
                     .background(theme.surfaceAlt)
                     .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
             } else {
-                ForEach(viewModel.visibleAssignmentsForCurrentRole) { assignment in
+                ForEach(recent) { assignment in
                     let isCompleted = viewModel.myAssignmentCompletion[assignment.id] ?? false
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -602,7 +807,7 @@ struct StudioManagerView: View {
                             .buttonStyle(.plain)
 
                             Text(assignment.title)
-                                .font(type.body.weight(.semibold))
+                                .font(type.body)
                                 .foregroundStyle(theme.textPrimary)
                             Spacer()
                         }
@@ -620,10 +825,70 @@ struct StudioManagerView: View {
                                 .font(type.footnote)
                                 .foregroundStyle(theme.textSecondary)
                         }
-                        Text("Due \(assignment.dueAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text(L10n.f("Due %@", assignment.dueAt.formatted(date: .abbreviated, time: .omitted)))
                             .font(type.footnote)
                             .foregroundStyle(theme.textSecondary)
                         dueBadge(for: assignment, isCompleted: isCompleted)
+                    }
+                    .padding(10)
+                    .background(theme.surfaceAlt)
+                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                }
+
+                if !older.isEmpty {
+                    DisclosureGroup(isExpanded: $showOlderStudentAssignments) {
+                        VStack(spacing: 8) {
+                            ForEach(older) { assignment in
+                                let isCompleted = viewModel.myAssignmentCompletion[assignment.id] ?? false
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Button {
+                                            Task {
+                                                await viewModel.setMyAssignmentCompletion(
+                                                    assignmentID: assignment.id,
+                                                    completed: !isCompleted
+                                                )
+                                            }
+                                        } label: {
+                                            Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                                                .foregroundStyle(isCompleted ? theme.accent : theme.textSecondary)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        Text(assignment.title)
+                                            .font(type.body)
+                                            .foregroundStyle(theme.textPrimary)
+                                        Spacer()
+                                    }
+                                    if !assignment.details.isEmpty {
+                                        Text(assignment.details)
+                                            .font(type.footnote)
+                                            .foregroundStyle(theme.textSecondary)
+                                    }
+                                    if assignment.target == .studio {
+                                        Text("Whole Studio")
+                                            .font(type.footnote)
+                                            .foregroundStyle(theme.textSecondary)
+                                    } else {
+                                        Text("Assigned to you")
+                                            .font(type.footnote)
+                                            .foregroundStyle(theme.textSecondary)
+                                    }
+                                    Text(L10n.f("Due %@", assignment.dueAt.formatted(date: .abbreviated, time: .omitted)))
+                                        .font(type.footnote)
+                                        .foregroundStyle(theme.textSecondary)
+                                    dueBadge(for: assignment, isCompleted: isCompleted)
+                                }
+                                .padding(10)
+                                .background(theme.surfaceAlt)
+                                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Text(L10n.f("Older assignments (%@)", "\(older.count)"))
+                            .font(type.footnote)
+                            .foregroundStyle(theme.textSecondary)
                     }
                     .padding(10)
                     .background(theme.surfaceAlt)
@@ -682,6 +947,177 @@ struct StudioManagerView: View {
         }
     }
 
+    private var filteredTeacherAssignments: [StudioAssignment] {
+        teacherAssignmentsBase
+            .filter { assignment in
+                matchesQuickFilter(
+                    assignment,
+                    completed: teacherAssignmentCompleted(assignment),
+                    filter: teacherAssignmentQuickFilter
+                )
+            }
+    }
+
+    private var teacherAssignmentsBase: [StudioAssignment] {
+        viewModel.filteredAssignments(teacherAssignmentFilter)
+    }
+
+    private func teacherQuickFilterCount(for filter: AssignmentQuickFilter) -> Int {
+        teacherAssignmentsBase.filter {
+            matchesQuickFilter($0, completed: teacherAssignmentCompleted($0), filter: filter)
+        }.count
+    }
+
+    private var filteredStudentAssignments: [StudioAssignment] {
+        studentAssignmentsBase
+            .filter { assignment in
+                matchesQuickFilter(
+                    assignment,
+                    completed: viewModel.myAssignmentCompletion[assignment.id] ?? false,
+                    filter: studentAssignmentQuickFilter
+                )
+            }
+    }
+
+    private var studentAssignmentsBase: [StudioAssignment] {
+        viewModel.visibleAssignmentsForCurrentRole
+    }
+
+    private func studentQuickFilterCount(for filter: AssignmentQuickFilter) -> Int {
+        studentAssignmentsBase.filter {
+            matchesQuickFilter($0, completed: viewModel.myAssignmentCompletion[$0.id] ?? false, filter: filter)
+        }.count
+    }
+
+    private func teacherAssignmentCompleted(_ assignment: StudioAssignment) -> Bool {
+        let completed = viewModel.assignmentCompletedCounts[assignment.id] ?? 0
+        if assignment.target == .individual {
+            return completed >= 1
+        }
+        let denominator = max(1, viewModel.studentMembers.count)
+        return completed >= denominator
+    }
+
+    private func matchesQuickFilter(
+        _ assignment: StudioAssignment,
+        completed: Bool,
+        filter: AssignmentQuickFilter
+    ) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .completed:
+            return completed
+        case .overdue:
+            return !completed && assignmentDueState(for: assignment) == .overdue
+        case .dueSoon:
+            return !completed && assignmentDueState(for: assignment) == .dueSoon
+        case .active:
+            return !completed && assignmentDueState(for: assignment) == .active
+        }
+    }
+
+    private enum AssignmentDueState {
+        case active
+        case dueSoon
+        case overdue
+    }
+
+    private func assignmentDueState(for assignment: StudioAssignment) -> AssignmentDueState {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let due = cal.startOfDay(for: assignment.dueAt)
+        if due < today { return .overdue }
+        let soonCutoff = cal.date(byAdding: .day, value: 2, to: today) ?? today
+        if due <= soonCutoff { return .dueSoon }
+        return .active
+    }
+
+    @ViewBuilder
+    private func assignmentQuickFilterChips(
+        selection: Binding<AssignmentQuickFilter>,
+        countFor: @escaping (AssignmentQuickFilter) -> Int
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(AssignmentQuickFilter.allCases) { filter in
+                    let selected = selection.wrappedValue == filter
+                    let count = countFor(filter)
+                    Button {
+                        selection.wrappedValue = filter
+                        if selection.wrappedValue != .all {
+                            showOlderTeacherAssignments = false
+                            showOlderStudentAssignments = false
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(LocalizedStringKey(filter.titleKey))
+                                .font(type.footnote)
+                            Text("\(count)")
+                                .font(type.footnote)
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(selected ? Color.white : theme.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(selected ? theme.accent : theme.surfaceAlt)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func teacherAssignmentRow(_ assignment: StudioAssignment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(assignment.title)
+                .font(type.body)
+                .foregroundStyle(theme.textPrimary)
+            if assignment.target == .individual {
+                Text(L10n.f("Individual: %@", assignment.targetStudentName ?? String(localized: "Student")))
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+            } else {
+                Text("Whole Studio")
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+            }
+            if !assignment.details.isEmpty {
+                Text(assignment.details)
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+            }
+            HStack {
+                Text(L10n.f("Due %@", assignment.dueAt.formatted(date: .abbreviated, time: .omitted)))
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+                Spacer()
+                Text(viewModel.completionFractionText(for: assignment))
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 8) {
+                Button("Edit") {
+                    beginEditing(assignment)
+                }
+                .buttonStyle(.bordered)
+                Button("Delete", role: .destructive) {
+                    assignmentPendingDelete = assignment
+                    showDeleteConfirm = true
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+        }
+        .padding(10)
+        .background(theme.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+    }
+
     private func beginEditing(_ assignment: StudioAssignment) {
         editingAssignment = assignment
         editTitleInput = assignment.title
@@ -704,7 +1140,7 @@ struct StudioManagerView: View {
                 Section("Target") {
                     Picker("Assign To", selection: $editAudience) {
                         ForEach(AssignmentAudience.allCases) { mode in
-                            Text(mode.title).tag(mode)
+                            Text(LocalizedStringKey(mode.titleKey)).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)

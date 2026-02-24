@@ -210,9 +210,9 @@ final class GameCenterManager: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 if let error {
-                    self.statusMessage = "Leaderboard submit failed: \(error.localizedDescription)"
+                    self.statusMessage = L10n.f("Leaderboard submit failed: %@", error.localizedDescription)
                 } else {
-                    self.statusMessage = "Submitted \(clamped) min to leaderboard."
+                    self.statusMessage = L10n.f("Submitted %@ min to leaderboard.", "\(clamped)")
                 }
             }
         }

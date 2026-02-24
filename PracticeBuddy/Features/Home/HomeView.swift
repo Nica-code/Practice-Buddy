@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import AVFoundation
 import UIKit
+import UserNotifications
 #if canImport(FamilyControls) && canImport(ManagedSettings)
 import FamilyControls
 import ManagedSettings
@@ -17,6 +18,7 @@ struct HomeView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
 
     // Timer persisted state
@@ -24,6 +26,14 @@ struct HomeView: View {
     @AppStorage("pb.practice.startEpoch") private var startEpoch: Double = 0
     @AppStorage("pb.practice.isRunning") private var isRunning: Bool = false
     @AppStorage("pb.practice.distractionBlockEnabled") private var distractionBlockEnabled: Bool = false
+    @AppStorage("pb.practice.checkins.enabled") private var checkInsEnabled: Bool = true
+    @AppStorage("pb.practice.checkins.intervalPreset") private var checkInIntervalPresetRaw: String = CheckInIntervalPreset.relaxed.rawValue
+    @AppStorage("pb.practice.checkins.notifications") private var checkInNotificationsEnabled: Bool = true
+    @AppStorage("pb.practice.verifiedSeconds") private var verifiedSeconds: Int = 0
+    @AppStorage("pb.practice.unverifiedSeconds") private var unverifiedSeconds: Int = 0
+    @AppStorage("pb.practice.checkinCount") private var checkInCountSaved: Int = 0
+    @AppStorage("pb.practice.missedCheckInCount") private var missedCheckInCountSaved: Int = 0
+    @AppStorage("pb.practice.checkinEventsJSON") private var checkInEventsJSON: String = ""
 
     // Goal settings
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes: Int = 30
@@ -44,12 +54,56 @@ struct HomeView: View {
     @StateObject private var tuner = TunerEngine()
     @StateObject private var social = LocalSocialProvider()
     @StateObject private var appShield = PracticeAppShieldManager()
+    @StateObject private var checkInManager = PracticeCheckInManager()
     @State private var metronomePulseScale: CGFloat = 1.0
+    @State private var selectedCheckInFocusTag: String = ""
+    @State private var checkInStatusMessage: String?
+    @State private var backgroundEnteredAt: Date?
 
     private enum Constants {
         static let tickSeconds: TimeInterval = 1
         static let titleTopPadding: CGFloat = 18
         static let titleBottomPadding: CGFloat = 8
+        static let checkInFocusTags: [String] = ["Intonation", "Rhythm", "Bow", "Shifts", "Vibrato", "Run-through"]
+    }
+
+    private enum HomeArea: String, CaseIterable, Identifiable {
+        case today = "Today"
+        case practice = "Practice"
+        case studio = "Studio"
+
+        var id: String { rawValue }
+    }
+
+    private enum CheckInIntervalPreset: String, CaseIterable, Identifiable {
+        case focused
+        case standard
+        case relaxed
+
+        var id: String { rawValue }
+
+        var titleKey: String {
+            switch self {
+            case .focused: return "10–20 min"
+            case .standard: return "20–35 min"
+            case .relaxed: return "30–50 min"
+            }
+        }
+
+        var rangeSeconds: ClosedRange<Int> {
+            switch self {
+            case .focused: return 600...1200
+            case .standard: return 1200...2100
+            case .relaxed: return 1800...3000
+            }
+        }
+    }
+
+    private enum PracticeToolSheet: String, Identifiable {
+        case metronome
+        case tuner
+
+        var id: String { rawValue }
     }
 
     private struct PracticeTemplate: Identifiable {
@@ -61,17 +115,25 @@ struct HomeView: View {
         let repertoireMinutes: Int
     }
 
+    private struct SessionSaveDraft {
+        var noteTitle: String = ""
+        var noteFocus: String = ""
+        var noteMood: PracticeNoteMood = .good
+        var pieces: [PracticeSessionJournalPiece] = []
+        var reflection: String = ""
+    }
+
     // Save flow
     @State private var showSaveSheet = false
-    @State private var noteTitle: String = ""
-    @State private var noteFocus: String = ""
-    @State private var noteMood: PracticeNoteMood = .good
-    @State private var journalPieces: [PracticeSessionJournalPiece] = []
-    @State private var journalReflection: String = ""
+    @State private var saveDraft = SessionSaveDraft()
     @State private var showSavedAlert = false
     @State private var lastSavedXP: Int = 0
+    @State private var lastSaveMessage: String = "Your practice session was added to History."
     @State private var showDiscardConfirm = false
+    @State private var isSavingSession = false
     @State private var showAppSelectionPicker = false
+    @State private var selectedHomeArea: HomeArea = .today
+    @State private var activePracticeToolSheet: PracticeToolSheet?
 
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
@@ -114,6 +176,13 @@ struct HomeView: View {
         )
     }
 
+    private var checkInIntervalPreset: Binding<CheckInIntervalPreset> {
+        Binding(
+            get: { CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed },
+            set: { checkInIntervalPresetRaw = $0.rawValue }
+        )
+    }
+
     // MARK: - Timer derived
 
     private var startDate: Date? {
@@ -122,7 +191,7 @@ struct HomeView: View {
 
     private var currentElapsedSeconds: Int {
         if isRunning, let startDate {
-            let running = Int(now.timeIntervalSince(startDate))
+            let running = Int(Date().timeIntervalSince(startDate))
             return accumulatedSeconds + max(0, running)
         } else {
             return accumulatedSeconds
@@ -131,6 +200,13 @@ struct HomeView: View {
 
     private var hasAnyTime: Bool { currentElapsedSeconds > 0 }
     private var canStop: Bool { hasAnyTime || isRunning }
+    private var verificationEnabledForSession: Bool { checkInsEnabled }
+    private var effectiveVerifiedSeconds: Int {
+        verificationEnabledForSession ? max(0, verifiedSeconds) : max(0, currentElapsedSeconds)
+    }
+    private var effectiveUnverifiedSeconds: Int {
+        verificationEnabledForSession ? max(0, unverifiedSeconds) : 0
+    }
 
     private var primaryButtonTitle: String {
         if isRunning { return "Pause" }
@@ -175,167 +251,87 @@ struct HomeView: View {
                 .foregroundStyle(palette.textPrimary)
 
             HStack(spacing: 8) {
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-                Text("Journey Lv \(journey.level)")
-                    .font(type.footnote.weight(.semibold))
-                    .foregroundStyle(palette.textPrimary)
-                Text("•")
-                    .foregroundStyle(palette.textSecondary)
-                Text("\(journey.xpToNextLevel) XP to next")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(palette.surfaceAlt)
-            .clipShape(Capsule())
-            .padding(.bottom, Constants.titleBottomPadding)
-
-            List {
-                Section {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(isRunning ? "Practicing" : (hasAnyTime ? "Paused" : "Ready"))
-                                .font(type.statusLabel)
-                                .foregroundStyle(palette.textSecondary)
-
-                            Text(DurationFormatter.string(from: currentElapsedSeconds))
-                                .font(type.timer)
-                                .monospacedDigit()
-                                .foregroundStyle(palette.textPrimary)
-                        }
-
-                        Spacer()
-
-                        Button(primaryButtonTitle) {
-                            hapticSoftTap()
-                            toggleStartPauseOrStart()
-                        }
-                        .font(type.button)
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Stop") {
-                            hapticSoftTap()
-                            stopTapped()
-                        }
-                        .font(type.button)
-                        .buttonStyle(.bordered)
-                        .disabled(!canStop)
-                    }
-                    .padding(.vertical, 4)
-
-                    Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
-                        .font(type.body)
-
-                    if distractionBlockEnabled {
-                        HStack(spacing: 10) {
-                            Button("Select Apps") {
-                                showAppSelectionPicker = true
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!appShield.isAvailable)
-
-                            Button("Authorize") {
-                                Task { await appShield.requestAuthorization() }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!appShield.isAvailable)
-                        }
-
-                        Text(appShield.statusLine)
+                Button {
+                    selectedTab = 1
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "figure.walk")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.accent)
+                        Text(L10n.f("Lv %@", "\(journey.level)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("•")
+                            .foregroundStyle(palette.textSecondary)
+                        Text(L10n.f("%@ XP to next level", "\(journey.xpToNextLevel)"))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(palette.surfaceAlt)
+                    .clipShape(Capsule())
                 }
-                .listRowBackground(palette.surface)
+                .buttonStyle(.plain)
 
-                Section("Practice Time") {
-                    Picker("View", selection: practiceTimeMode) {
-                        ForEach(PracticeTimeDisplayMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
-                    case .today:
-                        row("Today", seconds: store.totalTodaySeconds)
-                    case .week:
-                        row("This week", seconds: store.totalThisWeekSeconds)
-                    case .month:
-                        row("This month", seconds: store.totalThisMonthSeconds)
-                    case .all:
-                        row("Today", seconds: store.totalTodaySeconds)
-                        row("This week", seconds: store.totalThisWeekSeconds)
-                        row("This month", seconds: store.totalThisMonthSeconds)
-                    }
-
-                    ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
-                        Label("Share Practice Time", systemImage: "square.and.arrow.up")
-                            .font(type.body)
-                            .foregroundStyle(palette.accent)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(palette.accent)
-                }
-                .listRowBackground(palette.surface)
-
-                templatesSection
-                teacherToolsSection
-
-                practiceToolsSection
-                linkedAssignmentsSection
-                warmupOfWeekSection
-                practiceLabSection
-                practiceLabProSection
-
-                Section("Goal") {
-                    Picker("Period", selection: goalScope) {
-                        ForEach(GoalScope.allCases) { scope in
-                            Text(scope.title).tag(scope)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    if goalMinutes == 0 {
-                        Text("Goal is off. Turn it on in Settings.")
-                            .foregroundStyle(palette.textSecondary)
-                    } else {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text((GoalScope(rawValue: goalScopeRaw) ?? .today) == .today ? "Today" :
-                                     (GoalScope(rawValue: goalScopeRaw) ?? .today) == .week ? "This week" : "This month")
-                                    .foregroundStyle(palette.textPrimary)
-
-                                Spacer()
-
-                                Text("\(DurationFormatter.string(from: scopedSeconds)) / \(goalMinutes) min")
-                                    .font(type.number)
-                                    .foregroundStyle(palette.textSecondary)
-                                    .monospacedDigit()
-                            }
-
-                            ProgressView(value: goalProgress)
-
-                            if (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today {
-                                HStack {
-                                    Text("Streak")
-                                        .foregroundStyle(palette.textPrimary)
-                                    Spacer()
-                                    Text("\(streakDays) day\(streakDays == 1 ? "" : "s")")
-                                        .font(type.number)
-                                        .foregroundStyle(palette.textSecondary)
-                                        .monospacedDigit()
+                if purchaseManager.availableRoleModes.count > 1 || purchaseManager.canSwitchRoleFreely {
+                    Menu {
+                        ForEach(purchaseManager.canSwitchRoleFreely ? PBAccountType.allCases : purchaseManager.availableRoleModes) { role in
+                            Button {
+                                purchaseManager.setAccountType(role)
+                            } label: {
+                                if role == purchaseManager.accountType {
+                                    Label(LocalizedStringKey(role.title), systemImage: "checkmark")
+                                } else {
+                                    Text(LocalizedStringKey(role.title))
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(palette.accent)
+                            Text(LocalizedStringKey(purchaseManager.accountType.title))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textPrimary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(palette.surfaceAlt)
+                        .clipShape(Capsule())
                     }
                 }
-                .listRowBackground(palette.surface)
+            }
+            .padding(.bottom, Constants.titleBottomPadding)
+
+            Picker("Home Area", selection: $selectedHomeArea) {
+                ForEach(HomeArea.allCases) { area in
+                    Text(LocalizedStringKey(area.rawValue)).tag(area)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+
+            List {
+                switch selectedHomeArea {
+                case .today:
+                    sessionControlSection
+                    practiceTimeSection
+                    goalSection
+                    recentHistorySection
+                case .practice:
+                    templatesSection
+                    practiceToolsSection
+                    practiceLabSection
+                    practiceLabProSection
+                case .studio:
+                    teacherToolsSection
+                    linkedAssignmentsSection
+                    warmupOfWeekSection
+                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -361,6 +357,14 @@ struct HomeView: View {
             social.configure(modelContext: modelContext)
             social.refresh()
             appShield.refreshState()
+            checkInManager.restoreCounters(
+                checkInCount: checkInCountSaved,
+                missedCheckInCount: missedCheckInCountSaved,
+                events: decodedCheckInEvents(from: checkInEventsJSON)
+            )
+            checkInManager.updateConfiguration(
+                promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+            )
         }
         .onChange(of: isRunning) { _, running in
             if running {
@@ -377,6 +381,42 @@ struct HomeView: View {
                 Task { await appShield.startShieldingIfPossible() }
             }
         }
+        .onChange(of: checkInsEnabled) { _, enabled in
+            if !enabled {
+                checkInStatusMessage = nil
+                unverifiedSeconds = 0
+                checkInManager.reset()
+                checkInEventsJSON = ""
+                clearPendingCheckInNotifications()
+            } else if hasAnyTime {
+                checkInManager.restoreCounters(
+                    checkInCount: checkInCountSaved,
+                    missedCheckInCount: missedCheckInCountSaved,
+                    events: decodedCheckInEvents(from: checkInEventsJSON)
+                )
+                checkInManager.updateConfiguration(
+                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                )
+                if scenePhase != .active {
+                    scheduleBackgroundCheckInNotification()
+                }
+            }
+        }
+        .onChange(of: checkInIntervalPresetRaw) { _, _ in
+            checkInManager.updateConfiguration(
+                promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+            )
+            if scenePhase != .active, isRunning, verificationEnabledForSession {
+                scheduleBackgroundCheckInNotification()
+            }
+        }
+        .onChange(of: checkInNotificationsEnabled) { _, enabled in
+            if !enabled {
+                clearPendingCheckInNotifications()
+            } else if scenePhase != .active, isRunning, verificationEnabledForSession {
+                scheduleBackgroundCheckInNotification()
+            }
+        }
         .onDisappear {
             stopTicker()
             // Keep metronome running across app/tab transitions.
@@ -384,6 +424,19 @@ struct HomeView: View {
             tuner.stopListening()
             tuner.stopReferenceTone()
             appShield.stopShielding()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                applyBackgroundElapsedCatchUp()
+                clearPendingCheckInNotifications()
+            } else if isRunning {
+                if backgroundEnteredAt == nil {
+                    backgroundEnteredAt = Date()
+                }
+                if verificationEnabledForSession {
+                    scheduleBackgroundCheckInNotification()
+                }
+            }
         }
         .onChange(of: metronomeBPM) { _, newBPM in
             let clamped = min(max(newBPM, 40), 220)
@@ -424,7 +477,7 @@ struct HomeView: View {
                 soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
             )
         }
-        .onReceive(metronome.$pulseToken.removeDuplicates()) { token in
+        .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
             guard token > 0 else { return }
             withAnimation(.easeOut(duration: 0.08)) {
                 metronomePulseScale = 1.3
@@ -440,22 +493,33 @@ struct HomeView: View {
                 tuner.startReferenceTone(frequency: Double(newValue))
             }
         }
-        .onReceive(store.$sessions) { _ in
+        .onReceive(store.$sessions.dropFirst().map(\.count).removeDuplicates()) { _ in
             social.refresh()
         }
         .sheet(isPresented: $showSaveSheet) {
             saveSheet
         }
+        .sheet(item: $activePracticeToolSheet) { sheet in
+            NavigationStack {
+                switch sheet {
+                case .metronome:
+                    metronomeToolSheetContent
+                case .tuner:
+                    tunerToolSheetContent
+                }
+            }
+        }
         .alert("Saved!", isPresented: $showSavedAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            if lastSavedXP > 0 {
-                Text("Your practice session was added to History. +\(lastSavedXP) XP")
-            } else {
-                Text("Your practice session was added to History.")
-            }
+            Text(LocalizedStringKey(lastSaveMessage))
         }
         .practiceAppShieldPicker(isPresented: $showAppSelectionPicker, selection: appShield.selectionBinding)
+        .overlay {
+            if isRunning && verificationEnabledForSession && checkInManager.isAwaitingResponse {
+                checkInOverlay
+            }
+        }
     }
 
     // MARK: - Ticker control
@@ -466,6 +530,7 @@ struct HomeView: View {
             .autoconnect()
             .sink { _ in
                 now = Date()
+                handlePracticeTick()
             }
     }
 
@@ -474,9 +539,88 @@ struct HomeView: View {
         timerCancellable = nil
     }
 
+    private func handlePracticeTick() {
+        guard isRunning else { return }
+
+        if verificationEnabledForSession {
+            switch checkInManager.tick(now: Date(), enabled: true) {
+            case .none:
+                break
+            case .triggered:
+                checkInStatusMessage = "Check-in required."
+                selectedCheckInFocusTag = ""
+            case .missed:
+                checkInStatusMessage = "Missed check-in. Session paused."
+                accumulatedSeconds = currentElapsedSeconds
+                isRunning = false
+                startEpoch = 0
+                backgroundEnteredAt = nil
+                if distractionBlockEnabled {
+                    appShield.stopShielding()
+                }
+                clearPendingCheckInNotifications()
+            }
+
+            if checkInManager.isAwaitingResponse {
+                unverifiedSeconds += 1
+            } else {
+                verifiedSeconds += 1
+            }
+            checkInCountSaved = checkInManager.checkInCount
+            missedCheckInCountSaved = checkInManager.missedCheckInCount
+            checkInEventsJSON = checkInManager.eventsJSON()
+        } else {
+            verifiedSeconds += 1
+            unverifiedSeconds = 0
+            checkInStatusMessage = nil
+        }
+    }
+
+    private func applyBackgroundElapsedCatchUp() {
+        guard let started = backgroundEnteredAt else { return }
+        backgroundEnteredAt = nil
+
+        guard isRunning else { return }
+        let delta = max(0, Int(Date().timeIntervalSince(started)))
+        guard delta > 0 else { return }
+
+        if verificationEnabledForSession {
+            unverifiedSeconds += delta
+            checkInStatusMessage = "Background time counted as unverified."
+        } else {
+            verifiedSeconds += delta
+        }
+    }
+
+    private func scheduleBackgroundCheckInNotification() {
+        guard checkInNotificationsEnabled, verificationEnabledForSession, isRunning else { return }
+
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["pb.practice.checkin.prompt"])
+
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Practice Check-in")
+        content.body = String(localized: "Still practicing? Open Practice Buddy to confirm.")
+        content.sound = .default
+
+        let interval = TimeInterval(max(10, checkInManager.secondsUntilPrompt))
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "pb.practice.checkin.prompt",
+            content: content,
+            trigger: trigger
+        )
+
+        center.add(request)
+    }
+
+    private func clearPendingCheckInNotifications() {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["pb.practice.checkin.prompt"])
+    }
+
     private func row(_ title: String, seconds: Int) -> some View {
         HStack {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(palette.textPrimary)
             Spacer()
             Text(DurationFormatter.string(from: seconds))
@@ -486,28 +630,70 @@ struct HomeView: View {
         }
     }
 
-    private var sharePeriodForCurrentMode: SocialPeriod {
-        switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
-        case .today:
-            return .today
-        case .week:
-            return .week
-        case .month:
-            return .month
-        case .all:
-            return .week
+    private func practiceLabCard(title: String, subtitle: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(palette.accent)
+
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
         }
+        .frame(width: 220, height: 140, alignment: .topLeading)
+        .padding(12)
+        .background(palette.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private var practiceToolsSection: some View {
-        Section("Practice Tools") {
-            VStack(alignment: .leading, spacing: 12) {
+    private func practiceToolCard(title: String, subtitle: String, icon: String, details: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(palette.accent)
+
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(2)
+
+            Text(LocalizedStringKey(details))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(2)
+                .monospacedDigit()
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: 220, height: 120, alignment: .topLeading)
+        .padding(12)
+        .background(palette.surfaceAlt)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var metronomeToolSheetContent: some View {
+        Form {
+            Section("Metronome") {
                 HStack {
-                    Text("Metronome")
+                    Text("Tempo")
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
-                    Text("\(metronomeBPM) BPM")
+                    Text(L10n.f("%@ BPM", "\(metronomeBPM)"))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -525,14 +711,14 @@ struct HomeView: View {
 
                 Picker("Subdivision", selection: metronomeSubdivision) {
                     ForEach(MetronomeEngine.Subdivision.allCases) { value in
-                        Text(value.title).tag(value)
+                        Text(LocalizedStringKey(value.title)).tag(value)
                     }
                 }
                 .pickerStyle(.segmented)
 
                 Picker("Sound", selection: metronomeSoundStyle) {
                     ForEach(MetronomeEngine.SoundStyle.allCases) { style in
-                        Text(style.title).tag(style)
+                        Text(LocalizedStringKey(style.title)).tag(style)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -543,96 +729,444 @@ struct HomeView: View {
                             .fill(palette.accent.opacity(metronome.isRunning ? 0.35 : 0.18))
                             .frame(width: 14, height: 14)
                             .scaleEffect(metronomePulseScale)
-
                         Text(metronomeStatusText)
                             .font(type.body)
                             .foregroundStyle(palette.textSecondary)
                             .monospacedDigit()
                     }
-
                     Spacer()
-
                     metronomeControlButton
                 }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(chrome.ignoresSafeArea())
+        .navigationTitle("Metronome")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { activePracticeToolSheet = nil }
+            }
+        }
+    }
 
-                Divider()
-                    .padding(.vertical, 4)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Tuner")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Spacer()
-                        if let freq = tuner.detectedFrequency {
-                            Text("\(freq, specifier: "%.1f") Hz")
-                                .font(type.number)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        } else {
-                            Text("-- Hz")
-                                .font(type.number)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
+    private var tunerToolSheetContent: some View {
+        Form {
+            Section("Tuner") {
+                HStack {
+                    Text("Frequency")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    if let freq = tuner.detectedFrequency {
+                        Text("\(freq, specifier: "%.1f") Hz")
+                            .font(type.number)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
+                    } else {
+                        Text("-- Hz")
+                            .font(type.number)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
                     }
+                }
 
-                    Picker("Reference A", selection: $tunerReferenceHz) {
-                        Text("A=440").tag(440)
-                        Text("A=442").tag(442)
-                        Text("A=415").tag(415)
+                Picker("Reference A", selection: $tunerReferenceHz) {
+                    Text("A=440").tag(440)
+                    Text("A=442").tag(442)
+                    Text("A=415").tag(415)
+                }
+                .pickerStyle(.segmented)
+
+                HStack(spacing: 10) {
+                    Button(tuner.isReferenceTonePlaying ? "Stop A Tone" : "Play A Tone") {
+                        hapticSoftTap()
+                        tuner.toggleReferenceTone(frequency: Double(tunerReferenceHz))
                     }
-                    .pickerStyle(.segmented)
+                    .font(type.button)
+                    .buttonStyle(.bordered)
 
-                    HStack(spacing: 10) {
-                        Button(tuner.isReferenceTonePlaying ? "Stop A Tone" : "Play A Tone") {
-                            hapticSoftTap()
-                            tuner.toggleReferenceTone(frequency: Double(tunerReferenceHz))
+                    Button(tuner.isListening ? "Stop Tuner" : "Start Tuner") {
+                        hapticSoftTap()
+                        tuner.toggleListening()
+                    }
+                    .font(type.button)
+                    .buttonStyle(.borderedProminent)
+                }
+
+                HStack {
+                    Text(L10n.f("Detected: %@", tuner.detectedNoteName))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(centsLabel)
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                TunerNeedleGauge(cents: tuner.detectedFrequency == nil ? nil : tuner.detectedCents, accent: palette.accent)
+                    .frame(height: 84)
+
+                if tuner.permissionState == .denied {
+                    Text("Microphone access denied. Enable it in Settings to use tuner input.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else if let status = tuner.statusMessage {
+                    Text(LocalizedStringKey(status))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(chrome.ignoresSafeArea())
+        .navigationTitle("Tuner")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { activePracticeToolSheet = nil }
+            }
+        }
+    }
+
+    private var checkInOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                Text("Still practicing?")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(palette.textPrimary)
+
+                Text(L10n.f("Please confirm in %@s", "\(checkInManager.secondsUntilDeadline)"))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                    ForEach(Constants.checkInFocusTags, id: \.self) { tag in
+                        Button {
+                            selectedCheckInFocusTag = tag
+                        } label: {
+                            Text(LocalizedStringKey(tag))
+                                .font(type.footnote)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
                         }
-                        .font(type.button)
                         .buttonStyle(.bordered)
-
-                        Button(tuner.isListening ? "Stop Tuner" : "Start Tuner") {
-                            hapticSoftTap()
-                            tuner.toggleListening()
-                        }
-                        .font(type.button)
-                        .buttonStyle(.borderedProminent)
+                        .tint(selectedCheckInFocusTag == tag ? palette.accent : palette.textSecondary.opacity(0.8))
                     }
+                }
 
+                Button {
+                    let focus = selectedCheckInFocusTag
+                    checkInManager.respond(focusTag: focus, now: Date())
+                    checkInCountSaved = checkInManager.checkInCount
+                    missedCheckInCountSaved = checkInManager.missedCheckInCount
+                    checkInEventsJSON = checkInManager.eventsJSON()
+                    checkInStatusMessage = "Check-in confirmed."
+                    selectedCheckInFocusTag = ""
+                } label: {
+                    Text("I’m Here")
+                        .font(type.button)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
+            }
+            .padding(16)
+            .background(palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, 24)
+        }
+    }
+
+    private var sharePeriodForCurrentMode: SocialPeriod {
+        switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
+        case .today:
+            return .today
+        case .week:
+            return .week
+        case .month:
+            return .month
+        case .all:
+            return .week
+        }
+    }
+
+    private func decodedCheckInEvents(from raw: String) -> [PracticeCheckInEvent] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let events = try? JSONDecoder().decode([PracticeCheckInEvent].self, from: data) else {
+            return []
+        }
+        return events
+    }
+
+    private var sessionControlSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isRunning ? "Practicing" : (hasAnyTime ? "Paused" : "Ready"))
+                        .font(type.statusLabel)
+                        .foregroundStyle(palette.textSecondary)
+
+                    Text(DurationFormatter.string(from: currentElapsedSeconds))
+                        .font(type.timer)
+                        .monospacedDigit()
+                        .foregroundStyle(palette.textPrimary)
+                }
+
+                Spacer()
+
+                Button(primaryButtonTitle) {
+                    hapticSoftTap()
+                    toggleStartPauseOrStart()
+                }
+                .font(type.button)
+                .buttonStyle(.borderedProminent)
+
+                Button("Stop") {
+                    hapticSoftTap()
+                    stopTapped()
+                }
+                .font(type.button)
+                .buttonStyle(.bordered)
+                .disabled(!canStop)
+            }
+            .padding(.vertical, 4)
+
+            if verificationEnabledForSession {
+                HStack {
+                    Text("Check-ins")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Text(
+                        L10n.f(
+                            "%@ responded • %@ missed",
+                            "\(max(0, checkInManager.checkInCount - checkInManager.missedCheckInCount))",
+                            "\(checkInManager.missedCheckInCount)"
+                        )
+                    )
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+
+                if let checkInStatusMessage, !checkInStatusMessage.isEmpty {
+                    Text(LocalizedStringKey(checkInStatusMessage))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+
+                Picker("Check-in interval", selection: checkInIntervalPreset) {
+                    ForEach(CheckInIntervalPreset.allCases) { preset in
+                        Text(LocalizedStringKey(preset.titleKey)).tag(preset)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(type.footnote)
+
+                Toggle("Lock-screen check-in alerts", isOn: $checkInNotificationsEnabled)
+                    .font(type.footnote)
+            }
+
+            Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
+                .font(type.body)
+
+            if distractionBlockEnabled {
+                HStack(spacing: 10) {
+                    Button("Select Apps") {
+                        showAppSelectionPicker = true
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!appShield.isAvailable)
+
+                    Button("Authorize") {
+                        Task { await appShield.requestAuthorization() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!appShield.isAvailable)
+                }
+
+                Text(LocalizedStringKey(appShield.statusLine))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var practiceTimeSection: some View {
+        Section("Practice Time") {
+            Picker("View", selection: practiceTimeMode) {
+                ForEach(PracticeTimeDisplayMode.allCases) { mode in
+                    Text(LocalizedStringKey(mode.title)).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
+            case .today:
+                row("Today", seconds: store.totalTodaySeconds)
+            case .week:
+                row("This week", seconds: store.totalThisWeekSeconds)
+            case .month:
+                row("This month", seconds: store.totalThisMonthSeconds)
+            case .all:
+                row("Today", seconds: store.totalTodaySeconds)
+                row("This week", seconds: store.totalThisWeekSeconds)
+                row("This month", seconds: store.totalThisMonthSeconds)
+            }
+
+            ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
+                Label("Share Practice Time", systemImage: "square.and.arrow.up")
+                    .font(type.body)
+                    .foregroundStyle(palette.accent)
+            }
+            .buttonStyle(.bordered)
+            .tint(palette.accent)
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var goalSection: some View {
+        Section("Goal") {
+            Picker("Period", selection: goalScope) {
+                ForEach(GoalScope.allCases) { scope in
+                    Text(LocalizedStringKey(scope.title)).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if goalMinutes == 0 {
+                Text("Goal is off. Turn it on in Settings.")
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Detected: \(tuner.detectedNoteName)")
-                            .font(type.body)
+                        let scopeTitleKey =
+                            (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today ? "Today" :
+                            (GoalScope(rawValue: goalScopeRaw) ?? .today) == .week ? "This week" : "This month"
+                        Text(LocalizedStringKey(scopeTitleKey))
                             .foregroundStyle(palette.textPrimary)
+
                         Spacer()
-                        Text(centsLabel)
+
+                        Text(L10n.f("%@ / %@ min", DurationFormatter.string(from: scopedSeconds), "\(goalMinutes)"))
                             .font(type.number)
                             .foregroundStyle(palette.textSecondary)
                             .monospacedDigit()
                     }
 
-                    TunerNeedleGauge(cents: tuner.detectedFrequency == nil ? nil : tuner.detectedCents, accent: palette.accent)
-                        .frame(height: 84)
+                    ProgressView(value: goalProgress)
 
-                    if tuner.permissionState == .denied {
-                        Text("Microphone access denied. Enable it in Settings to use tuner input.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    } else if let status = tuner.statusMessage {
-                        Text(status)
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
+                    if (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today {
+                        HStack {
+                            Text("Streak")
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text(
+                                L10n.f(
+                                    streakDays == 1 ? "%@ day" : "%@ days",
+                                    "\(streakDays)"
+                                )
+                            )
+                                .font(type.number)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                        }
                     }
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var recentHistorySection: some View {
+        Section("Recent History") {
+            if store.sessions.isEmpty {
+                Text("No sessions yet.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                ForEach(Array(store.sessions.prefix(3)), id: \.id) { session in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.date, format: .dateTime.month(.abbreviated).day().hour().minute())
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Text(DurationFormatter.string(from: max(0, session.durationSeconds)))
+                                .font(type.number)
+                                .foregroundStyle(palette.textPrimary)
+                                .monospacedDigit()
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            NavigationLink {
+                PBLazyView(HistoryView())
+            } label: {
+                Text("View Full History")
+                    .font(type.body)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var practiceToolsSection: some View {
+        Section("Practice Tools") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    Button {
+                        activePracticeToolSheet = .metronome
+                    } label: {
+                        practiceToolCard(
+                            title: "Metronome",
+                            subtitle: L10n.f(
+                                "%@ BPM • %@",
+                                "\(metronomeBPM)",
+                                String(localized: metronome.isRunning ? "Running" : "Ready")
+                            ),
+                            icon: "metronome",
+                            details: metronomeStatusText
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        activePracticeToolSheet = .tuner
+                    } label: {
+                        practiceToolCard(
+                            title: "Tuner",
+                            subtitle: L10n.f(
+                                "A=%@ • %@",
+                                "\(tunerReferenceHz)",
+                                String(localized: tuner.isListening ? "Listening" : "Ready")
+                            ),
+                            icon: "tuningfork",
+                            details: tuner.detectedFrequency == nil
+                                ? String(localized: "Detected: --")
+                                : L10n.f("Detected: %@ %@", tuner.detectedNoteName, centsLabel)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 4)
+            }
         }
         .listRowBackground(palette.surface)
     }
 
     @ViewBuilder
     private var teacherToolsSection: some View {
-        if purchaseManager.accountType == .teacher {
+        if purchaseManager.hasRole(.teacher) {
             Section("Teacher Tools") {
                 if purchaseManager.isPro {
                     NavigationLink {
@@ -653,7 +1187,7 @@ struct HomeView: View {
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                         Button("Open Practice Buddy Pro") {
-                            selectedTab = 3
+                            selectedTab = 4
                         }
                         .buttonStyle(.bordered)
                         .font(type.footnote)
@@ -666,95 +1200,86 @@ struct HomeView: View {
 
     private var practiceLabSection: some View {
         Section("Practice Lab") {
-            NavigationLink {
-                PBLazyView(PlanExecuteReflectView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Plan → Execute → Reflect")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Build goals, run timed blocks, and save reflection notes.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    NavigationLink {
+                        PBLazyView(PlanExecuteReflectView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Plan → Execute → Reflect",
+                            subtitle: "Build goals, run timed blocks, and save reflection notes.",
+                            icon: "list.bullet.clipboard"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(WarmUpGeneratorView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Warm-up Generator")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Generate focused timed warm-up routines in one tap.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+                    NavigationLink {
+                        PBLazyView(WarmUpGeneratorView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Warm-up Generator",
+                            subtitle: "Create a warm-up plan.",
+                            icon: "figure.run"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(SmartLoopTimerView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Smart Loop Timer")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Loop work/rest cycles, tag focus, and save loop logs.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+                    NavigationLink {
+                        PBLazyView(SmartLoopTimerView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Smart Loop Timer",
+                            subtitle: "Loop work/rest cycles, tag focus, and save loop logs.",
+                            icon: "repeat.circle"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(PulseRhythmAccuracyView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Pulse + Rhythm Accuracy")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Measure early/late timing and track your groove score.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+                    NavigationLink {
+                        PBLazyView(PulseRhythmAccuracyView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Pulse + Rhythm Accuracy",
+                            subtitle: "Improve rhythm.",
+                            icon: "waveform.path.ecg"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(ScaleIntonationView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Scale Intonation Score")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Guided scale grading with per-note intonation and stability feedback.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+                    NavigationLink {
+                        PBLazyView(ScaleIntonationView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Scale Intonation Score",
+                            subtitle: "Play scales and get note-by-note pitch feedback.",
+                            icon: "tuningfork"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(AssignmentLinkedPracticeView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Assignment-linked Practice")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Attach practice results to today’s assignment tasks.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
+                    NavigationLink {
+                        PBLazyView(AssignmentLinkedPracticeView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Assignment-linked Practice",
+                            subtitle: "Attach practice results to today’s assignment tasks.",
+                            icon: "checklist"
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            NavigationLink {
-                PBLazyView(RunThroughModeView())
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Run-through Mode")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Record one-take performances with quick self-review.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                    NavigationLink {
+                        PBLazyView(RunThroughModeView())
+                    } label: {
+                        practiceLabCard(
+                            title: "Run-through Mode",
+                            subtitle: "Record one-take performances with quick self-review.",
+                            icon: "record.circle"
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
+                .padding(.vertical, 4)
             }
         }
         .listRowBackground(palette.surface)
@@ -762,7 +1287,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var practiceLabProSection: some View {
-        if purchaseManager.accountType == .student {
+        if purchaseManager.hasRole(.student) {
             Section("Practice Lab Pro") {
                 if purchaseManager.isPro {
                     NavigationLink {
@@ -783,7 +1308,7 @@ struct HomeView: View {
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                         Button("Open Practice Buddy Pro") {
-                            selectedTab = 3
+                            selectedTab = 4
                         }
                         .buttonStyle(.bordered)
                         .font(type.footnote)
@@ -796,7 +1321,7 @@ struct HomeView: View {
 
     private var warmupOfWeekSection: some View {
         Section("Warm-up of the Week") {
-            if purchaseManager.accountType != .student {
+            if !purchaseManager.hasRole(.student) {
                 Text("Studio warm-up appears for student accounts.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
@@ -805,7 +1330,7 @@ struct HomeView: View {
                     Text(warmup.title)
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
-                    Text("\(warmup.totalMinutes) min • \(warmup.instrument) • \(warmup.focus)")
+                    Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     NavigationLink {
@@ -826,7 +1351,7 @@ struct HomeView: View {
 
     private var linkedAssignmentsSection: some View {
         Section("Today’s Assignments") {
-            if purchaseManager.accountType != .student {
+            if !purchaseManager.hasRole(.student) {
                 Text("Assignment checklist appears for student accounts.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
@@ -898,7 +1423,7 @@ struct HomeView: View {
             }
 
             if let msg = assignmentLinkManager.statusMessage, !msg.isEmpty {
-                Text(msg)
+                Text(LocalizedStringKey(msg))
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -919,7 +1444,7 @@ struct HomeView: View {
                             Text(template.name)
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
-                            Text(template.focus)
+                            Text(LocalizedStringKey(template.focus))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                         }
@@ -932,7 +1457,7 @@ struct HomeView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
                     Button("Unlock Pro") {
-                        selectedTab = 3
+                        selectedTab = 4
                     }
                     .font(type.button)
                     .buttonStyle(.borderedProminent)
@@ -951,11 +1476,11 @@ struct HomeView: View {
     private var metronomeStatusText: String {
         if metronome.isRunning {
             if metronome.currentSubdivision > 1 {
-                return "Beat \(metronome.currentBeat).\(metronome.currentSubdivision)"
+                return L10n.f("Beat %@.%@", "\(metronome.currentBeat)", "\(metronome.currentSubdivision)")
             }
-            return "Beat \(metronome.currentBeat)/\(metronomeBeatsPerBar)"
+            return L10n.f("Beat %@/%@", "\(metronome.currentBeat)", "\(metronomeBeatsPerBar)")
         }
-        return "Ready"
+        return String(localized: "Ready")
     }
 
     @ViewBuilder
@@ -982,17 +1507,32 @@ struct HomeView: View {
             accumulatedSeconds = currentElapsedSeconds
             isRunning = false
             startEpoch = 0
+            backgroundEnteredAt = nil
             if distractionBlockEnabled {
                 appShield.stopShielding()
             }
+            clearPendingCheckInNotifications()
         } else {
             if !hasAnyTime {
                 accumulatedSeconds = 0
+                verifiedSeconds = 0
+                unverifiedSeconds = 0
+                checkInCountSaved = 0
+                missedCheckInCountSaved = 0
+                checkInEventsJSON = ""
+                checkInManager.reset()
             }
             startEpoch = Date().timeIntervalSince1970
             isRunning = true
+            backgroundEnteredAt = nil
+            if !verificationEnabledForSession {
+                checkInStatusMessage = nil
+            }
             if distractionBlockEnabled {
                 Task { await appShield.startShieldingIfPossible() }
+            }
+            if scenePhase != .active, verificationEnabledForSession {
+                scheduleBackgroundCheckInNotification()
             }
         }
     }
@@ -1002,12 +1542,14 @@ struct HomeView: View {
             accumulatedSeconds = currentElapsedSeconds
             isRunning = false
             startEpoch = 0
+            backgroundEnteredAt = nil
             if distractionBlockEnabled {
                 appShield.stopShielding()
             }
+            clearPendingCheckInNotifications()
         }
-        if journalPieces.isEmpty {
-            journalPieces = [makeEmptyPiece()]
+        if saveDraft.pieces.isEmpty {
+            saveDraft.pieces = [makeEmptyPiece()]
         }
         showSaveSheet = true
     }
@@ -1016,47 +1558,72 @@ struct HomeView: View {
         accumulatedSeconds = 0
         startEpoch = 0
         isRunning = false
+        backgroundEnteredAt = nil
+        verifiedSeconds = 0
+        unverifiedSeconds = 0
+        checkInCountSaved = 0
+        missedCheckInCountSaved = 0
+        checkInEventsJSON = ""
+        checkInManager.reset()
+        selectedCheckInFocusTag = ""
+        checkInStatusMessage = nil
         if distractionBlockEnabled {
             appShield.stopShielding()
         }
-        noteTitle = ""
-        noteFocus = ""
-        noteMood = .good
-        journalPieces = [makeEmptyPiece()]
-        journalReflection = ""
+        clearPendingCheckInNotifications()
+        saveDraft = SessionSaveDraft(
+            noteTitle: "",
+            noteFocus: "",
+            noteMood: .good,
+            pieces: [makeEmptyPiece()],
+            reflection: ""
+        )
+        isSavingSession = false
     }
 
     private var saveSheet: some View {
         NavigationStack {
             Form {
                 Section("Session") {
-                    Text("Duration: \(DurationFormatter.string(from: currentElapsedSeconds))")
+                    Text(L10n.f("Duration: %@", DurationFormatter.string(from: currentElapsedSeconds)))
                         .font(type.number)
                         .foregroundStyle(palette.textPrimary)
+
+                    if verificationEnabledForSession {
+                        Text(L10n.f("Verified: %@", DurationFormatter.string(from: effectiveVerifiedSeconds)))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Text(L10n.f("Unverified: %@", DurationFormatter.string(from: effectiveUnverifiedSeconds)))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Text(L10n.f("Check-ins: %@ total • %@ missed", "\(checkInManager.checkInCount)", "\(checkInManager.missedCheckInCount)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
                 }
 
                 Section("Journal Header") {
-                    TextField("Session title", text: $noteTitle)
+                    TextField("Session title", text: $saveDraft.noteTitle)
                         .font(type.body)
 
-                    TextField("Overall focus", text: $noteFocus)
+                    TextField("Overall focus", text: $saveDraft.noteFocus)
                         .font(type.body)
 
-                    Picker("Mood", selection: $noteMood) {
+                    Picker("Mood", selection: $saveDraft.noteMood) {
                         ForEach(PracticeNoteMood.allCases) { mood in
-                            Text(mood.title).tag(mood)
+                            Text(LocalizedStringKey(mood.title)).tag(mood)
                         }
                     }
                 }
 
                 Section("Pieces") {
-                    if journalPieces.isEmpty {
+                    if saveDraft.pieces.isEmpty {
                         Text("No pieces yet.")
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                     }
 
-                    ForEach($journalPieces) { $piece in
+                    ForEach($saveDraft.pieces) { $piece in
                         VStack(alignment: .leading, spacing: 8) {
                             TextField("Piece title", text: $piece.title)
                                 .font(type.body)
@@ -1079,7 +1646,7 @@ struct HomeView: View {
                             HStack {
                                 Spacer()
                                 Button("Remove Piece", role: .destructive) {
-                                    journalPieces.removeAll { $0.id == piece.id }
+                                    saveDraft.pieces.removeAll { $0.id == piece.id }
                                 }
                                 .font(type.footnote)
                             }
@@ -1088,7 +1655,7 @@ struct HomeView: View {
                     }
 
                     Button {
-                        journalPieces.append(makeEmptyPiece())
+                        saveDraft.pieces.append(makeEmptyPiece())
                     } label: {
                         Label("Add Piece", systemImage: "plus")
                     }
@@ -1096,7 +1663,7 @@ struct HomeView: View {
                 }
 
                 Section("Reflection") {
-                    TextField("How did the session feel? What to remember for next time?", text: $journalReflection, axis: .vertical)
+                    TextField("How did the session feel? What to remember for next time?", text: $saveDraft.reflection, axis: .vertical)
                         .font(type.body)
                         .lineLimit(4...8)
 
@@ -1117,27 +1684,56 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        guard !isSavingSession else { return }
+                        isSavingSession = true
                         hapticSuccess()
-                        let cleanedTitle = noteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let cleanedFocus = noteFocus.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let cleanedReflection = journalReflection.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let cleanedPieces = cleanedJournalPieces(from: journalPieces)
+                        let cleanedTitle = saveDraft.noteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cleanedFocus = saveDraft.noteFocus.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cleanedReflection = saveDraft.reflection.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cleanedPieces = cleanedJournalPieces(from: saveDraft.pieces)
                         let journal = PracticeSessionJournal(pieces: cleanedPieces, reflection: cleanedReflection)
                         let structuredJSON = journalJSONIfNeeded(journal)
-                        lastSavedXP = max(0, currentElapsedSeconds / 60)
+                        let verifiedToSave = effectiveVerifiedSeconds
+                        let unverifiedToSave = effectiveUnverifiedSeconds
+                        lastSavedXP = max(0, verifiedToSave / 60)
+                        let baseNotes = legacyNotesFallback(
+                            title: cleanedTitle,
+                            focus: cleanedFocus,
+                            mood: saveDraft.noteMood,
+                            journal: journal
+                        )
+                        let notesToSave = purchaseManager.isPro
+                            ? appendProSessionSummary(
+                                to: baseNotes,
+                                totalSeconds: currentElapsedSeconds,
+                                verifiedSeconds: verifiedToSave,
+                                unverifiedSeconds: unverifiedToSave,
+                                checkInCount: checkInManager.checkInCount,
+                                missedCheckInCount: checkInManager.missedCheckInCount,
+                                metronomeRunning: metronome.isRunning,
+                                tunerListening: tuner.isListening
+                            )
+                            : baseNotes
+                        if verificationEnabledForSession {
+                            lastSaveMessage = "Your practice session was added to History. Verified \(DurationFormatter.string(from: verifiedToSave)) / \(DurationFormatter.string(from: currentElapsedSeconds)). +\(lastSavedXP) XP"
+                        } else if lastSavedXP > 0 {
+                            lastSaveMessage = "Your practice session was added to History. +\(lastSavedXP) XP"
+                        } else {
+                            lastSaveMessage = "Your practice session was added to History."
+                        }
 
                         store.addSession(
                             date: Date(),
                             durationSeconds: currentElapsedSeconds,
-                            notes: legacyNotesFallback(
-                                title: cleanedTitle,
-                                focus: cleanedFocus,
-                                mood: noteMood,
-                                journal: journal
-                            ),
+                            verifiedSeconds: verifiedToSave,
+                            unverifiedSeconds: unverifiedToSave,
+                            checkInCount: checkInManager.checkInCount,
+                            missedCheckInCount: checkInManager.missedCheckInCount,
+                            checkInLogJSON: checkInManager.eventsJSON(),
+                            notes: notesToSave,
                             noteTitle: cleanedTitle,
                             noteFocus: cleanedFocus,
-                            noteMoodRaw: noteMood.rawValue,
+                            noteMoodRaw: saveDraft.noteMood.rawValue,
                             noteStructuredJSON: structuredJSON
                         )
                         resetSession()
@@ -1145,7 +1741,7 @@ struct HomeView: View {
                         showSavedAlert = true
                     }
                     .font(type.button)
-                    .disabled(currentElapsedSeconds == 0)
+                    .disabled(currentElapsedSeconds == 0 || isSavingSession)
                 }
             }
             .alert("Discard Session?", isPresented: $showDiscardConfirm) {
@@ -1235,6 +1831,38 @@ struct HomeView: View {
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func appendProSessionSummary(
+        to baseNotes: String,
+        totalSeconds: Int,
+        verifiedSeconds: Int,
+        unverifiedSeconds: Int,
+        checkInCount: Int,
+        missedCheckInCount: Int,
+        metronomeRunning: Bool,
+        tunerListening: Bool
+    ) -> String {
+        let toolFlags: [String] = [
+            metronomeRunning ? "Metronome active" : nil,
+            tunerListening ? "Tuner active" : nil,
+            verificationEnabledForSession ? "Verification enabled" : "Verification off"
+        ].compactMap { $0 }
+
+        let summaryLines = [
+            "### Pro Session Summary",
+            "Total: \(DurationFormatter.string(from: totalSeconds))",
+            "Verified: \(DurationFormatter.string(from: verifiedSeconds))",
+            "Unverified: \(DurationFormatter.string(from: unverifiedSeconds))",
+            "Check-ins: \(checkInCount) total • \(missedCheckInCount) missed",
+            "XP awarded: +\(max(0, verifiedSeconds / 60))",
+            "Tools: \(toolFlags.isEmpty ? "none" : toolFlags.joined(separator: ", "))"
+        ]
+        let summary = summaryLines.joined(separator: "\n")
+        if baseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return summary
+        }
+        return "\(baseNotes)\n\n\(summary)"
+    }
+
     private func hapticSoftTap() {
         impact.impactOccurred()
         impact.prepare()
@@ -1268,7 +1896,7 @@ struct HomeView: View {
         [
             PracticeTemplate(
                 id: "template_quick_reset",
-                name: "Quick Reset (20m)",
+                name: String(localized: "Short Session (20m)"),
                 focus: "Warmup 5 • Etude 7 • Repertoire 8",
                 warmupMinutes: 5,
                 etudeMinutes: 7,
@@ -1276,7 +1904,7 @@ struct HomeView: View {
             ),
             PracticeTemplate(
                 id: "template_balanced_session",
-                name: "Balanced Session (45m)",
+                name: String(localized: "Standard Session (45m)"),
                 focus: "Warmup 10 • Etude 15 • Repertoire 20",
                 warmupMinutes: 10,
                 etudeMinutes: 15,
@@ -1284,7 +1912,7 @@ struct HomeView: View {
             ),
             PracticeTemplate(
                 id: "template_deep_work",
-                name: "Deep Work (60m)",
+                name: String(localized: "Deep Focus (60m)"),
                 focus: "Warmup 10 • Etude 20 • Repertoire 30",
                 warmupMinutes: 10,
                 etudeMinutes: 20,
@@ -1294,11 +1922,11 @@ struct HomeView: View {
     }
 
     private func applyTemplate(_ template: PracticeTemplate) {
-        noteTitle = template.name
-        noteFocus = template.focus
-        noteMood = .good
-        journalReflection = ""
-        journalPieces = [
+        saveDraft = SessionSaveDraft(
+            noteTitle: template.name,
+            noteFocus: template.focus,
+            noteMood: .good,
+            pieces: [
             PracticeSessionJournalPiece(
                 title: "Warmup",
                 tempo: "\(template.warmupMinutes) min",
@@ -1320,7 +1948,9 @@ struct HomeView: View {
                 needsWork: "",
                 nextAction: ""
             )
-        ]
+        ],
+            reflection: ""
+        )
 
         accumulatedSeconds = 0
         startEpoch = Date().timeIntervalSince1970
@@ -1391,7 +2021,7 @@ final class MetronomeEngine: ObservableObject {
 
         var title: String {
             switch self {
-            case .none: return "Quarter"
+            case .none: return "1/4"
             case .eighths: return "8th"
             case .triplets: return "Triplet"
             case .sixteenths: return "16th"
@@ -1646,6 +2276,9 @@ final class PracticeAppShieldManager: ObservableObject {
     @Published private(set) var isAuthorized: Bool = false
     @Published private(set) var selectedAppsCount: Int = 0
     @Published var statusMessage: String?
+    private var hasFamilyControlsEntitlement: Bool {
+        (Bundle.main.object(forInfoDictionaryKey: "PBEnableFamilyControls") as? Bool) == true
+    }
 
 #if canImport(FamilyControls) && canImport(ManagedSettings)
     @Published var selection = FamilyActivitySelection() {
@@ -1654,7 +2287,7 @@ final class PracticeAppShieldManager: ObservableObject {
             persistSelection()
         }
     }
-    private let store = ManagedSettingsStore()
+    private var managedStore: ManagedSettingsStore?
 #endif
 
     init() {
@@ -1679,6 +2312,12 @@ final class PracticeAppShieldManager: ObservableObject {
 
     func refreshState() {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard hasFamilyControlsEntitlement else {
+            isAvailable = false
+            isAuthorized = false
+            selectedAppsCount = 0
+            return
+        }
         if #available(iOS 16.0, *) {
             isAvailable = true
             isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
@@ -1697,6 +2336,12 @@ final class PracticeAppShieldManager: ObservableObject {
 
     func requestAuthorization() async {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard hasFamilyControlsEntitlement else {
+            isAvailable = false
+            isAuthorized = false
+            statusMessage = "Screen Time blocking isn't available in this build."
+            return
+        }
         guard #available(iOS 16.0, *), isAvailable else {
             statusMessage = "Screen Time blocking isn't available here."
             return
@@ -1707,7 +2352,7 @@ final class PracticeAppShieldManager: ObservableObject {
             statusMessage = isAuthorized ? "Screen Time authorization granted." : "Screen Time authorization not granted."
         } catch {
             isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
-            statusMessage = "Screen Time authorization failed: \(error.localizedDescription)"
+            statusMessage = L10n.f("Screen Time authorization failed: %@", error.localizedDescription)
         }
 #else
         statusMessage = "Screen Time blocking requires FamilyControls support."
@@ -1716,6 +2361,12 @@ final class PracticeAppShieldManager: ObservableObject {
 
     func startShieldingIfPossible() async {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard hasFamilyControlsEntitlement else {
+            isAvailable = false
+            isAuthorized = false
+            statusMessage = "Screen Time blocking isn't available in this build."
+            return
+        }
         guard #available(iOS 16.0, *), isAvailable else {
             statusMessage = "Screen Time blocking isn't available here."
             return
@@ -1731,6 +2382,8 @@ final class PracticeAppShieldManager: ObservableObject {
             return
         }
 
+        let store = managedStore ?? ManagedSettingsStore()
+        managedStore = store
         store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
         store.shield.applicationCategories = selection.categoryTokens.isEmpty
             ? nil
@@ -1744,6 +2397,7 @@ final class PracticeAppShieldManager: ObservableObject {
 
     func stopShielding() {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
+        guard let store = managedStore else { return }
         store.shield.applications = nil
         store.shield.applicationCategories = nil
         store.shield.webDomains = nil
@@ -1752,7 +2406,7 @@ final class PracticeAppShieldManager: ObservableObject {
 
 #if canImport(FamilyControls) && canImport(ManagedSettings)
     var selectionBinding: Binding<FamilyActivitySelection>? {
-        guard #available(iOS 16.0, *) else { return nil }
+        guard #available(iOS 16.0, *), hasFamilyControlsEntitlement else { return nil }
         return Binding(
             get: { self.selection },
             set: {
@@ -1779,6 +2433,7 @@ final class PracticeAppShieldManager: ObservableObject {
 #else
     var selectionBinding: Binding<Never>? { nil }
 #endif
+
 }
 
 private struct PracticeAppShieldPickerModifier: ViewModifier {

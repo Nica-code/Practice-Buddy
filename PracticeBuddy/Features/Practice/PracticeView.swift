@@ -100,7 +100,7 @@ struct PracticeView: View {
         NavigationStack {
             Form {
                 Section("Session") {
-                    Text("Duration: \(DurationFormatter.string(from: currentElapsedSeconds))")
+                    Text(L10n.f("Duration: %@", DurationFormatter.string(from: currentElapsedSeconds)))
                 }
                 Section("Notes (optional)") {
                     TextField("What did you practice?", text: $notes, axis: .vertical)

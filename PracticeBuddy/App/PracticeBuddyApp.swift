@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 import FirebaseCore
-import FirebaseMessaging
 import CoreText
 import UserNotifications
 import UIKit
@@ -9,18 +8,26 @@ import UIKit
 @main
 struct PracticeBuddyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var firebase = FirebaseBootstrap()
-    @StateObject private var purchaseManager = PurchaseManager()
+    @StateObject private var firebase: FirebaseBootstrap
+    @StateObject private var purchaseManager: PurchaseManager
+    @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
 
     init() {
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+        _firebase = StateObject(wrappedValue: FirebaseBootstrap())
+        _purchaseManager = StateObject(wrappedValue: PurchaseManager())
         PBFontRegistrar.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
     }
 
     var body: some Scene {
+        let appLanguage = AppLanguage(rawValue: appLanguageRaw) ?? .system
         WindowGroup {
             ContentView()
                 .preferredColorScheme(.light)
+                .environment(\.locale, Locale(identifier: appLanguage.localeIdentifier))
                 .task {
                     await firebase.start()
                 }
@@ -43,7 +50,7 @@ private final class PBNotificationDelegate: NSObject, UNUserNotificationCenterDe
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
@@ -51,40 +58,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate {
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
-        Messaging.messaging().delegate = self
-        registerForPushNotifications(application)
         return true
-    }
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        Messaging.messaging().apnsToken = deviceToken
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        // no-op
-    }
-
-    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-        guard let fcmToken, !fcmToken.isEmpty else { return }
-        Task {
-            await PushTokenManager.shared.upsertCurrentToken(fcmToken)
-        }
-    }
-
-    private func registerForPushNotifications(_ application: UIApplication) {
-        let defaults = UserDefaults.standard
-        let assignmentsEnabled = defaults.object(forKey: "pb.notifications.assignments") as? Bool ?? true
-        let buddiesEnabled = defaults.object(forKey: "pb.notifications.buddies") as? Bool ?? true
-        if !(assignmentsEnabled || buddiesEnabled) {
-            return
-        }
-
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            guard granted else { return }
-            DispatchQueue.main.async {
-                application.registerForRemoteNotifications()
-            }
-        }
     }
 }
 

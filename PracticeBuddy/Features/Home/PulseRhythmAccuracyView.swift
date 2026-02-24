@@ -26,10 +26,10 @@ struct PulseRhythmAccuracyView: View {
     var body: some View {
         Form {
             Section("Setup") {
-                Stepper("Tempo: \(bpm) BPM", value: $bpm, in: 40...220)
+                Stepper(L10n.f("Tempo: %@ BPM", "\(bpm)"), value: $bpm, in: 40...220)
                     .font(type.body)
 
-                Stepper("Target beats: \(targetBeats)", value: $targetBeats, in: 8...128, step: 8)
+                Stepper(L10n.f("Target beats: %@", "\(targetBeats)"), value: $targetBeats, in: 8...128, step: 8)
                     .font(type.body)
 
                 Toggle("Use metronome click", isOn: $useMetronome)
@@ -43,7 +43,7 @@ struct PulseRhythmAccuracyView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
-                    Text(engine.isRunning ? "Listening" : "Ready")
+                    Text(String(localized: engine.isRunning ? "Listening" : "Ready"))
                         .font(type.number)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
@@ -123,7 +123,7 @@ struct PulseRhythmAccuracyView: View {
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
                             ForEach(Array(summary.windowStats.enumerated()), id: \.offset) { idx, row in
-                                Text("Window \(idx + 1): \(row)")
+                                Text(L10n.f("Window %@: %@", "\(idx + 1)", row))
                                     .font(type.footnote)
                                     .foregroundStyle(palette.textSecondary)
                             }
@@ -136,7 +136,7 @@ struct PulseRhythmAccuracyView: View {
 
                     if let linked = assignmentLinkManager.linkedAssignment {
                         Divider().padding(.vertical, 4)
-                        Text("Linked assignment: \(linked.title)")
+                        Text(L10n.f("Linked assignment: %@", linked.title))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                         Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
@@ -157,7 +157,7 @@ struct PulseRhythmAccuracyView: View {
 
             if let statusMessage {
                 Section {
-                    Text(statusMessage)
+                    Text(LocalizedStringKey(statusMessage))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -166,7 +166,7 @@ struct PulseRhythmAccuracyView: View {
 
             if let engineMessage = engine.statusMessage, !engineMessage.isEmpty {
                 Section {
-                    Text(engineMessage)
+                    Text(LocalizedStringKey(engineMessage))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -211,7 +211,11 @@ struct PulseRhythmAccuracyView: View {
         try? modelContext.save()
 
         if assignmentLinkManager.linkedAssignment != nil {
-            let fallback = String(format: "Rhythm take: score %d, avg %+.1f ms.", summary.grooveScore, summary.averageOffsetMs)
+            let fallback = L10n.f(
+                "Rhythm take: score %@, avg %@ ms.",
+                "\(summary.grooveScore)",
+                String(format: "%+.1f", summary.averageOffsetMs)
+            )
             let note = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? fallback
                 : linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -363,7 +367,9 @@ final class RhythmAccuracyEngine: ObservableObject {
 
         offsetsMs.append(offsetMs)
         beatsAnalyzed = offsetsMs.count
-        liveFeelText = offsetMs == 0 ? "On" : (offsetMs < 0 ? "Early" : "Late")
+        liveFeelText = offsetMs == 0
+            ? String(localized: "On")
+            : (offsetMs < 0 ? String(localized: "Early") : String(localized: "Late"))
 
         if beatsAnalyzed >= targetBeats {
             isRunning = false
