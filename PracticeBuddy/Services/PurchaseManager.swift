@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 import FirebaseFirestore
-import FirebaseAuth
 import StoreKit
 import UIKit
 
@@ -40,12 +39,7 @@ final class PurchaseManager: ObservableObject {
     static let proTrialDurationDays = 7
     static let proKey = "pb.pro.isUnlocked"
     static let accountTypeKey = "pb.pro.accountType"
-    static let enabledRolesKey = "pb.pro.enabledRoles"
-    static let accountTypeSetKey = "pb.pro.accountTypeSet"
-    static let accountTypeChangeUsedKey = "pb.pro.accountTypeChangeUsed"
     static let entitlementTierKey = "pb.pro.entitlementTier"
-    static let canSwitchRoleFreelyKey = "pb.pro.canSwitchRoleFreely"
-    static let isMasterAccountKey = "pb.pro.isMasterAccount"
     static let trialUsedKey = "pb.pro.trialUsed"
     static let trialStartedAtKey = "pb.pro.trialStartedAt"
     static let trialEndsAtKey = "pb.pro.trialEndsAt"
@@ -54,16 +48,11 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var isPro: Bool
     @Published private(set) var hasLifetimePro: Bool
     @Published private(set) var entitlementTier: PBEntitlementTier
-    @Published private(set) var canSwitchRoleFreely: Bool
-    @Published private(set) var isMasterAccount: Bool
     @Published private(set) var isProTrialActive: Bool
     @Published private(set) var hasUsedProTrial: Bool
     @Published private(set) var proTrialStartedAt: Date?
     @Published private(set) var proTrialEndsAt: Date?
     @Published private(set) var accountType: PBAccountType
-    @Published private(set) var enabledRoles: Set<PBAccountType>
-    @Published private(set) var hasCompletedInitialRoleSelection: Bool
-    @Published private(set) var accountTypeChangeUsed: Bool
     @Published private(set) var syncStatus: String?
     @Published private(set) var availableProducts: [Product] = []
 
@@ -79,36 +68,20 @@ final class PurchaseManager: ObservableObject {
         let defaults = UserDefaults.standard
         let storedLifetimePro = defaults.bool(forKey: Self.proKey)
         let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
-        let storedCanSwitch = defaults.bool(forKey: Self.canSwitchRoleFreelyKey)
-        let storedIsMaster = defaults.bool(forKey: Self.isMasterAccountKey)
         let storedTrialUsed = defaults.bool(forKey: Self.trialUsedKey)
         let storedTrialStart = Self.readDateDefault(key: Self.trialStartedAtKey, defaults: defaults)
         let storedTrialEnd = Self.readDateDefault(key: Self.trialEndsAtKey, defaults: defaults)
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
-        let storedRolesRaw = defaults.array(forKey: Self.enabledRolesKey) as? [String] ?? []
-        var storedRoles = Set(storedRolesRaw.compactMap(PBAccountType.init(rawValue:)))
-        if storedRoles.isEmpty {
-            storedRoles = [storedType]
-        } else if !storedRoles.contains(storedType) {
-            storedRoles.insert(storedType)
-        }
-        let storedTypeSet = defaults.bool(forKey: Self.accountTypeSetKey)
-        let storedTypeChangeUsed = defaults.bool(forKey: Self.accountTypeChangeUsedKey)
 
         hasLifetimePro = storedLifetimePro
         entitlementTier = storedTier
-        canSwitchRoleFreely = storedCanSwitch
-        isMasterAccount = storedIsMaster
         hasUsedProTrial = storedTrialUsed
         proTrialStartedAt = storedTrialStart
         proTrialEndsAt = storedTrialEnd
         isProTrialActive = false
         isPro = false
         accountType = storedType
-        enabledRoles = storedRoles
-        hasCompletedInitialRoleSelection = storedTypeSet
-        accountTypeChangeUsed = storedTypeChangeUsed
         if storedLifetimePro {
             ownedProductIDs = [Self.proProductID]
         }
@@ -197,10 +170,7 @@ final class PurchaseManager: ObservableObject {
                     return
                 }
 
-                self.applyMasterAccount(self.resolveMasterStatus(for: uid))
-
                 guard let data = snapshot?.data() else {
-                    self.applyLaunchProgramPolicy()
                     await self.pushLocalStateToFirestore()
                     return
                 }
@@ -214,16 +184,6 @@ final class PurchaseManager: ObservableObject {
                    let tier = PBEntitlementTier(rawValue: tierRaw),
                    tier != self.entitlementTier {
                     self.applyEntitlementTier(tier)
-                }
-
-                let remoteCanSwitch = (data["canSwitchRoleFreely"] as? Bool) ?? false
-                if remoteCanSwitch != self.canSwitchRoleFreely {
-                    self.applyCanSwitchRoleFreely(remoteCanSwitch)
-                }
-
-                let remoteMaster = (data["isMasterAccount"] as? Bool) ?? self.isMasterAccount
-                if remoteMaster != self.isMasterAccount {
-                    self.applyMasterAccount(remoteMaster)
                 }
 
                 let remoteTrialUsed = (data["trialUsed"] as? Bool) ?? self.hasUsedProTrial
@@ -244,118 +204,37 @@ final class PurchaseManager: ObservableObject {
                    remoteType != self.accountType {
                     self.applyAccountType(remoteType)
                 }
-
-                if let rawRoles = data["enabledRoles"] as? [String] {
-                    let remoteRoles = Set(rawRoles.compactMap(PBAccountType.init(rawValue:)))
-                    if !remoteRoles.isEmpty, remoteRoles != self.enabledRoles {
-                        self.applyEnabledRoles(remoteRoles)
-                    }
-                } else if (data["accountType"] as? String) != nil {
-                    self.applyEnabledRoles([self.accountType])
-                }
-
-                let remoteTypeSet = (data["accountTypeSet"] as? Bool) ?? ((data["accountType"] as? String) != nil)
-                // Never downgrade local completion from true -> false based on remote lag/cache.
-                if remoteTypeSet, !self.hasCompletedInitialRoleSelection {
-                    self.applyHasCompletedInitialRoleSelection(true)
-                }
-
-                let remoteChangeUsed = (data["accountTypeChangeUsed"] as? Bool) ?? false
-                if remoteChangeUsed != self.accountTypeChangeUsed {
-                    self.applyAccountTypeChangeUsed(remoteChangeUsed)
-                }
-
-                self.applyLaunchProgramPolicy()
             }
         }
 
         Task {
-            applyMasterAccount(resolveMasterStatus(for: uid))
-            applyLaunchProgramPolicy()
             await pushLocalStateToFirestore()
         }
     }
 
     func setAccountType(_ newType: PBAccountType) {
         guard newType != accountType else { return }
-        if canSwitchRoleFreely {
-            if !enabledRoles.contains(newType) {
-                var next = enabledRoles
-                next.insert(newType)
-                applyEnabledRoles(next)
-            }
-            applyAccountType(newType)
-            applyHasCompletedInitialRoleSelection(true)
-            syncStatus = "Switched to \(newType.title) mode."
-            Task { await pushLocalStateToFirestore() }
-            return
-        }
-
-        guard enabledRoles.contains(newType) else {
-            syncStatus = "Enable \(newType.title) role first."
-            return
-        }
-
-        if enabledRoles.count > 1 {
-            applyAccountType(newType)
-            syncStatus = "Switched to \(newType.title) mode."
-            Task { await pushLocalStateToFirestore() }
-            return
-        }
-
-        if !hasCompletedInitialRoleSelection {
-            completeInitialAccountSetup(as: newType)
-            return
-        }
-
-        guard !accountTypeChangeUsed else {
-            syncStatus = "Account type can only be changed once."
-            return
-        }
-
         applyAccountType(newType)
-        applyAccountTypeChangeUsed(true)
-        syncStatus = "Account type updated."
+        syncStatus = "Switched to \(newType.title) tools."
         Task { await pushLocalStateToFirestore() }
     }
 
     func completeInitialAccountSetup(as type: PBAccountType) {
-        applyEnabledRoles([type])
         applyAccountType(type)
-        applyHasCompletedInitialRoleSelection(true)
-        applyAccountTypeChangeUsed(false)
         syncStatus = nil
         Task { await pushLocalStateToFirestore() }
     }
 
     func hasRole(_ role: PBAccountType) -> Bool {
-        enabledRoles.contains(role)
+        true
     }
 
     var availableRoleModes: [PBAccountType] {
-        if canSwitchRoleFreely { return PBAccountType.allCases }
-        return PBAccountType.allCases.filter { enabledRoles.contains($0) }
+        PBAccountType.allCases
     }
 
     func setRoleEnabled(_ role: PBAccountType, isEnabled: Bool) {
-        var next = enabledRoles
-        if isEnabled {
-            next.insert(role)
-        } else {
-            guard next.count > 1 else {
-                syncStatus = "At least one role must remain enabled."
-                return
-            }
-            next.remove(role)
-            if accountType == role, let fallback = next.first {
-                applyAccountType(fallback)
-            }
-        }
-
-        applyEnabledRoles(next)
-        applyHasCompletedInitialRoleSelection(true)
         syncStatus = nil
-        Task { await pushLocalStateToFirestore() }
     }
 
     func debugUnlockPro() {
@@ -439,18 +318,6 @@ final class PurchaseManager: ObservableObject {
         recalculateProAccess()
     }
 
-    private func applyCanSwitchRoleFreely(_ value: Bool) {
-        guard canSwitchRoleFreely != value else { return }
-        canSwitchRoleFreely = value
-        UserDefaults.standard.set(value, forKey: Self.canSwitchRoleFreelyKey)
-    }
-
-    private func applyMasterAccount(_ value: Bool) {
-        guard isMasterAccount != value else { return }
-        isMasterAccount = value
-        UserDefaults.standard.set(value, forKey: Self.isMasterAccountKey)
-    }
-
     private func applyTrialState(used: Bool, startedAt: Date?, endsAt: Date?) {
         guard hasUsedProTrial != used || proTrialStartedAt != startedAt || proTrialEndsAt != endsAt else { return }
         hasUsedProTrial = used
@@ -487,31 +354,6 @@ final class PurchaseManager: ObservableObject {
         UserDefaults.standard.set(value.rawValue, forKey: Self.accountTypeKey)
     }
 
-    private func applyEnabledRoles(_ roles: Set<PBAccountType>) {
-        var safe = roles
-        if safe.isEmpty {
-            safe = [accountType]
-        }
-        if !safe.contains(accountType), let fallback = safe.first {
-            applyAccountType(fallback)
-        }
-        guard enabledRoles != safe else { return }
-        enabledRoles = safe
-        UserDefaults.standard.set(Array(safe.map(\.rawValue)), forKey: Self.enabledRolesKey)
-    }
-
-    private func applyHasCompletedInitialRoleSelection(_ value: Bool) {
-        guard hasCompletedInitialRoleSelection != value else { return }
-        hasCompletedInitialRoleSelection = value
-        UserDefaults.standard.set(value, forKey: Self.accountTypeSetKey)
-    }
-
-    private func applyAccountTypeChangeUsed(_ value: Bool) {
-        guard accountTypeChangeUsed != value else { return }
-        accountTypeChangeUsed = value
-        UserDefaults.standard.set(value, forKey: Self.accountTypeChangeUsedKey)
-    }
-
     private func pushLocalStateToFirestore() async {
         guard let uid = linkedUID else { return }
         let fingerprint = localStateFingerprint()
@@ -523,13 +365,8 @@ final class PurchaseManager: ObservableObject {
                 "isPro": isPro,
                 "hasLifetimePro": hasLifetimePro,
                 "entitlementTier": entitlementTier.rawValue,
-                "canSwitchRoleFreely": canSwitchRoleFreely,
-                "isMasterAccount": isMasterAccount,
                 "trialUsed": hasUsedProTrial,
                 "accountType": accountType.rawValue,
-                "enabledRoles": enabledRoles.map(\.rawValue),
-                "accountTypeSet": hasCompletedInitialRoleSelection,
-                "accountTypeChangeUsed": accountTypeChangeUsed,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             if hasLifetimePro {
@@ -553,22 +390,16 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func localStateFingerprint() -> String {
-        let roles = enabledRoles.map(\.rawValue).sorted().joined(separator: ",")
         let trialStart = proTrialStartedAt?.timeIntervalSince1970 ?? 0
         let trialEnd = proTrialEndsAt?.timeIntervalSince1970 ?? 0
         return [
             isPro ? "1" : "0",
             hasLifetimePro ? "1" : "0",
             entitlementTier.rawValue,
-            canSwitchRoleFreely ? "1" : "0",
-            isMasterAccount ? "1" : "0",
             hasUsedProTrial ? "1" : "0",
             "\(Int(trialStart))",
             "\(Int(trialEnd))",
-            accountType.rawValue,
-            roles,
-            hasCompletedInitialRoleSelection ? "1" : "0",
-            accountTypeChangeUsed ? "1" : "0"
+            accountType.rawValue
         ].joined(separator: "|")
     }
 
@@ -591,43 +422,6 @@ final class PurchaseManager: ObservableObject {
             }
             applyLifetimeProState(true)
             await pushLocalStateToFirestore()
-        }
-    }
-
-    private func resolveMasterStatus(for uid: String) -> Bool {
-        let info = Bundle.main.infoDictionary
-        let masterUIDs = (info?["PBMasterUIDs"] as? [String]) ?? []
-        if masterUIDs.contains(uid) { return true }
-
-        let configuredEmails = (info?["PBMasterEmails"] as? [String])?.map { $0.lowercased() } ?? ["nicaviolin@icloud.com"]
-        guard let currentUser = Auth.auth().currentUser else { return false }
-        let directEmail = currentUser.email?.lowercased()
-        let providerEmails = currentUser.providerData.compactMap { $0.email?.lowercased() }
-        let allEmails = Set(([directEmail].compactMap { $0 }) + providerEmails)
-        return !allEmails.intersection(configuredEmails).isEmpty
-    }
-
-    private func applyLaunchProgramPolicy() {
-        if isMasterAccount {
-            applyCanSwitchRoleFreely(true)
-            applyAccountTypeChangeUsed(false)
-            applyHasCompletedInitialRoleSelection(true)
-            applyEnabledRoles([.student, .teacher])
-            if accountType != .teacher {
-                applyAccountType(.teacher)
-            }
-            if entitlementTier != .allAccess {
-                applyEntitlementTier(.allAccess)
-            }
-            if !hasLifetimePro {
-                applyLifetimeProState(true)
-            }
-            return
-        }
-
-        applyCanSwitchRoleFreely(false)
-        if !enabledRoles.contains(accountType) || enabledRoles.isEmpty {
-            applyEnabledRoles([accountType])
         }
     }
 

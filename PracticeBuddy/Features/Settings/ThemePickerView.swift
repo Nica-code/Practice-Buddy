@@ -87,14 +87,21 @@ struct ThemePickerView: View {
                         .foregroundStyle(currentTheme.textSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .background(currentTheme.surfaceAlt)
-                        .clipShape(Capsule())
+                        .background(
+                            Capsule()
+                                .fill(currentTheme.surfaceAlt)
+                                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
+                        )
                 }
                 .buttonStyle(.plain)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(currentTheme.surface)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(currentTheme.surface)
+                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+            )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -115,8 +122,7 @@ struct ThemePickerView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)
-        .background(currentTheme.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pbSurfaceCard(palette: currentTheme.resolvedPalette(for: colorScheme), cornerRadius: 12)
         .accessibilityLabel(Text(LocalizedStringKey("\(theme.name) swatches")))
     }
 
@@ -148,8 +154,7 @@ struct ThemePickerView: View {
                         .monospacedDigit()
                 }
                 .padding(12)
-                .background(palette.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .pbSurfaceCard(palette: palette, cornerRadius: 14)
 
                 Button {} label: {
                     Text("Accent Button")
@@ -165,8 +170,7 @@ struct ThemePickerView: View {
             }
         }
         .padding()
-        .background(palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .pbSurfaceCard(palette: palette, cornerRadius: 18)
     }
 }
 
@@ -223,13 +227,11 @@ private struct ThemePreviewSheet: View {
                                     .monospacedDigit()
                             }
                             .padding(12)
-                            .background(palette.surfaceAlt)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .pbSurfaceCard(palette: palette, cornerRadius: 14)
                         }
                     }
                     .padding()
-                    .background(palette.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .pbSurfaceCard(palette: palette, cornerRadius: 18)
 
                     Button {
                         onApply()
@@ -272,7 +274,10 @@ private struct ThemePreviewSheet: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(palette.surfaceAlt)
-        .clipShape(Capsule())
+        .background(
+            Capsule()
+                .fill(palette.surfaceAlt)
+                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
+        )
     }
 }

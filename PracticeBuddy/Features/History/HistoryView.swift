@@ -215,9 +215,7 @@ struct HistoryView: View {
                     analyticsSection
                     sessionsBucketsSection
                 case .skills:
-                    loopLogsSection
                     planLogsSection
-                    rhythmLogsSection
                     intonationSection
                 case .runThroughs:
                     runThroughSection
@@ -263,18 +261,6 @@ struct HistoryView: View {
                         .monospacedDigit()
                 }
 
-                if let trend = loopTempoTrendText {
-                    HStack {
-                        Text("Loop tempo trend")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Spacer()
-                        Text(trend)
-                            .font(type.number)
-                            .foregroundStyle(palette.textSecondary)
-                            .monospacedDigit()
-                    }
-                }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Advanced analytics is part of PracticeBuddy Pro.")
@@ -320,33 +306,11 @@ struct HistoryView: View {
             }
 
             HStack {
-                Text("Loop logs")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text("\(filteredLoopLogs.count)")
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
                 Text("Guided plans")
                     .font(type.body)
                     .foregroundStyle(palette.textPrimary)
                 Spacer()
                 Text("\(filteredPlanLogs.count)")
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Rhythm takes")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text("\(filteredRhythmTakes.count)")
                     .font(type.number)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
@@ -1220,16 +1184,6 @@ struct HistoryView: View {
     private var recentSkillCards: [HistorySkillCard] {
         var cards: [HistorySkillCard] = []
 
-        if let rhythm = filteredRhythmTakes.first {
-            cards.append(
-                HistorySkillCard(
-                    id: "rhythm",
-                    title: "Rhythm",
-                    value: "Score \(rhythm.grooveScore)",
-                    meta: "\(rhythm.bpm) BPM • \(rhythm.beatsAnalyzed) beats"
-                )
-            )
-        }
         if let intonation = filteredIntonationTakes.first {
             cards.append(
                 HistorySkillCard(
@@ -1237,16 +1191,6 @@ struct HistoryView: View {
                     title: "Intonation",
                     value: "Score \(intonation.overallScore)",
                     meta: "\(intonation.keyRaw) \(intonation.modeRaw.capitalized)"
-                )
-            )
-        }
-        if let loop = filteredLoopLogs.first {
-            cards.append(
-                HistorySkillCard(
-                    id: "loop",
-                    title: "Loop",
-                    value: "\(loop.loopsCompleted) loops",
-                    meta: "Tempo \(loop.tempoStartBPM)→\(loop.tempoEndBPM)"
                 )
             )
         }
@@ -1272,13 +1216,6 @@ struct HistoryView: View {
             )
         }
         return cards
-    }
-
-    private var loopTempoTrendText: String? {
-        let logs = filteredLoopLogs.filter { $0.tempoStartBPM > 0 || $0.tempoEndBPM > 0 }
-        guard logs.count >= 2 else { return nil }
-        guard let newest = logs.first, let oldest = logs.last else { return nil }
-        return "\(oldest.tempoStartBPM) → \(newest.tempoEndBPM) BPM"
     }
 
     private var runThroughCompareSummaryText: String? {

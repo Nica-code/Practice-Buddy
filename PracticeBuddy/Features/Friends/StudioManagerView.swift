@@ -32,6 +32,12 @@ struct StudioManagerView: View {
         var titleKey: String { rawValue }
     }
 
+    private enum StudioToolMode: String, CaseIterable, Identifiable {
+        case teacher = "Teacher Tools"
+        case student = "Student Tools"
+        var id: String { rawValue }
+    }
+
     private enum AssignmentAudience: String, CaseIterable, Identifiable {
         case studio
         case individual
@@ -87,7 +93,7 @@ struct StudioManagerView: View {
     @State private var editDueAt: Date = Date()
     @State private var editAudience: AssignmentAudience = .studio
     @State private var editSelectedStudentUID: String = ""
-    @State private var studioRoleMode: PBAccountType = .teacher
+    @State private var studioToolMode: StudioToolMode = .teacher
     @State private var teacherPanel: TeacherPanel = .overview
     @State private var studentPanel: StudentPanel = .overview
     @State private var showAssignmentComposer: Bool = false
@@ -115,24 +121,16 @@ struct StudioManagerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
-            let initial = defaultStudioRoleMode()
-            studioRoleMode = initial
-            viewModel.start(for: uid, role: initial)
+            viewModel.start(for: uid, role: studioToolMode == .teacher ? .teacher : .student)
         }
-        .onChange(of: purchaseManager.accountType) { _, _ in
-            guard purchaseManager.availableRoleModes.contains(studioRoleMode) else {
-                studioRoleMode = defaultStudioRoleMode()
-                return
-            }
-        }
-        .onChange(of: studioRoleMode) { _, newRole in
+        .onChange(of: studioToolMode) { _, newMode in
             guard let uid = firebase.currentUserID else { return }
-            if newRole == .teacher {
+            if newMode == .teacher {
                 teacherPanel = .overview
             } else {
                 studentPanel = .overview
             }
-            viewModel.start(for: uid, role: newRole)
+            viewModel.start(for: uid, role: newMode == .teacher ? .teacher : .student)
         }
         .onChange(of: viewModel.studentMembers.map(\.id)) { _, ids in
             if assignmentAudience == .individual, !ids.contains(selectedStudentUID) {
@@ -164,6 +162,7 @@ struct StudioManagerView: View {
     }
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     @ViewBuilder
     private var mainContent: some View {
@@ -171,7 +170,7 @@ struct StudioManagerView: View {
             lockedCard
         } else {
             roleModePicker
-            if studioRoleMode == .teacher {
+            if studioToolMode == .teacher {
                 teacherContentCard
             } else {
                 studentContentCard
@@ -181,22 +180,13 @@ struct StudioManagerView: View {
 
     @ViewBuilder
     private var roleModePicker: some View {
-        if purchaseManager.availableRoleModes.count > 1 {
-            Picker("Studio Mode", selection: $studioRoleMode) {
-                ForEach(purchaseManager.availableRoleModes) { role in
-                    Text(LocalizedStringKey(role.title)).tag(role)
-                }
+        Picker("Studio Mode", selection: $studioToolMode) {
+            ForEach(StudioToolMode.allCases) { mode in
+                Text(LocalizedStringKey(mode.rawValue)).tag(mode)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 2)
         }
-    }
-
-    private func defaultStudioRoleMode() -> PBAccountType {
-        if purchaseManager.availableRoleModes.contains(purchaseManager.accountType) {
-            return purchaseManager.accountType
-        }
-        return purchaseManager.availableRoleModes.first ?? .student
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 2)
     }
 
     private var lockedCard: some View {
@@ -211,8 +201,7 @@ struct StudioManagerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 
     private var teacherContentCard: some View {
@@ -238,8 +227,7 @@ struct StudioManagerView: View {
                     TextField("Studio name", text: $studioNameInput)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     Button("Create Studio") {
                         Task { await viewModel.createStudio(name: studioNameInput) }
@@ -256,8 +244,7 @@ struct StudioManagerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 
     private var studentContentCard: some View {
@@ -285,8 +272,7 @@ struct StudioManagerView: View {
                         .disableAutocorrection(true)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     Button("Join Studio") {
                         let code = inviteCodeInput
@@ -305,8 +291,7 @@ struct StudioManagerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
+        .pbModernCard(palette: palette)
     }
 
     private var teacherPanelPicker: some View {
@@ -415,8 +400,7 @@ struct StudioManagerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(theme.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+        .pbSurfaceCard(palette: palette)
     }
 
     @ViewBuilder
@@ -450,8 +434,7 @@ struct StudioManagerView: View {
             }
         }
         .padding(10)
-        .background(theme.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+        .pbSurfaceCard(palette: palette)
     }
 
     private func inviteURL(for code: String) -> URL? {
@@ -491,8 +474,7 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textSecondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(viewModel.members) { member in
                     HStack {
@@ -511,8 +493,7 @@ struct StudioManagerView: View {
                         Spacer()
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
             }
         }
@@ -542,15 +523,13 @@ struct StudioManagerView: View {
                     TextField("Assignment title", text: $assignmentTitleInput)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     TextField("Details (optional)", text: $assignmentDetailsInput, axis: .vertical)
                         .font(type.body)
                         .lineLimit(2...4)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     DatePicker("Due", selection: $assignmentDueAt, displayedComponents: .date)
                         .datePickerStyle(.compact)
@@ -609,8 +588,7 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textPrimary)
             }
             .padding(10)
-            .background(theme.surfaceAlt)
-            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+            .pbSurfaceCard(palette: palette)
 
             let filtered = filteredTeacherAssignments
             let recent = Array(filtered.prefix(8))
@@ -621,8 +599,7 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textSecondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(recent) { assignment in
                     teacherAssignmentRow(assignment)
@@ -642,8 +619,7 @@ struct StudioManagerView: View {
                             .foregroundStyle(theme.textSecondary)
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
             }
         }
@@ -660,20 +636,17 @@ struct StudioManagerView: View {
                     TextField("Warm-up title", text: $warmupTitleInput)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     TextField("Instrument (e.g. Strings)", text: $warmupInstrumentInput)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     TextField("Focus (e.g. Intonation, shifts)", text: $warmupFocusInput)
                         .font(type.body)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     Stepper(value: $warmupMinutesInput, in: 5...60, step: 5) {
                         HStack {
@@ -709,8 +682,7 @@ struct StudioManagerView: View {
                         .font(type.body)
                         .lineLimit(4...8)
                         .padding(10)
-                        .background(theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .pbSurfaceCard(palette: palette)
 
                     Button("Publish Warm-up") {
                         let title = warmupTitleInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -760,8 +732,7 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textPrimary)
             }
             .padding(10)
-            .background(theme.surfaceAlt)
-            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+            .pbSurfaceCard(palette: palette)
         }
     }
 
@@ -786,8 +757,7 @@ struct StudioManagerView: View {
                     .foregroundStyle(theme.textSecondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(recent) { assignment in
                     let isCompleted = viewModel.myAssignmentCompletion[assignment.id] ?? false
@@ -831,8 +801,7 @@ struct StudioManagerView: View {
                         dueBadge(for: assignment, isCompleted: isCompleted)
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
 
                 if !older.isEmpty {
@@ -880,8 +849,7 @@ struct StudioManagerView: View {
                                     dueBadge(for: assignment, isCompleted: isCompleted)
                                 }
                                 .padding(10)
-                                .background(theme.surfaceAlt)
-                                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                                .pbSurfaceCard(palette: palette)
                             }
                         }
                         .padding(.top, 8)
@@ -891,8 +859,7 @@ struct StudioManagerView: View {
                             .foregroundStyle(theme.textSecondary)
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
             }
         }
@@ -920,8 +887,7 @@ struct StudioManagerView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
                 .buttonStyle(.plain)
             }
@@ -1114,8 +1080,7 @@ struct StudioManagerView: View {
             }
         }
         .padding(10)
-        .background(theme.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+        .pbSurfaceCard(palette: palette)
     }
 
     private func beginEditing(_ assignment: StudioAssignment) {

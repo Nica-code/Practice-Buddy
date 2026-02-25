@@ -40,7 +40,6 @@ struct HomeView: View {
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
 
     // Home display settings
-    @AppStorage("pb.home.practiceTimeMode") private var practiceTimeModeRaw: String = PracticeTimeDisplayMode.all.rawValue
     @AppStorage("pb.tools.metronome.bpm") private var metronomeBPM: Int = 80
     @AppStorage("pb.tools.metronome.beatsPerBar") private var metronomeBeatsPerBar: Int = 4
     @AppStorage("pb.tools.metronome.subdivision") private var metronomeSubdivisionRaw: String = MetronomeEngine.Subdivision.none.rawValue
@@ -60,12 +59,14 @@ struct HomeView: View {
     @State private var checkInStatusMessage: String?
     @State private var backgroundEnteredAt: Date?
     @State private var animateHeader: Bool = false
+    @State private var didRunInitialHomeBootstrap: Bool = false
 
     private enum Constants {
         static let tickSeconds: TimeInterval = 1
         static let titleTopPadding: CGFloat = 18
         static let titleBottomPadding: CGFloat = 8
         static let checkInFocusTags: [String] = ["Intonation", "Rhythm", "Bow", "Shifts", "Vibrato", "Run-through"]
+        static let templatesStorageKey = "pb.home.editableSessionTemplates.v1"
     }
 
     private enum HomeArea: String, CaseIterable, Identifiable {
@@ -116,6 +117,45 @@ struct HomeView: View {
         let repertoireMinutes: Int
     }
 
+    private struct EditableSessionTemplate: Identifiable, Codable, Equatable {
+        let id: String
+        var name: String
+        var warmupMinutes: Int
+        var techniqueMinutes: Int
+        var repertoireMinutes: Int
+
+        var totalMinutes: Int { warmupMinutes + techniqueMinutes + repertoireMinutes }
+
+        var focusSummary: String {
+            "Warm-up \(warmupMinutes) • Technique \(techniqueMinutes) • Repertoire \(repertoireMinutes)"
+        }
+
+        var asPracticeTemplate: PracticeTemplate {
+            PracticeTemplate(
+                id: id,
+                name: name,
+                focus: focusSummary,
+                warmupMinutes: warmupMinutes,
+                etudeMinutes: techniqueMinutes,
+                repertoireMinutes: repertoireMinutes
+            )
+        }
+    }
+
+    private struct GuidedTemplateSessionPlan: Identifiable {
+        let id = UUID()
+        let name: String
+        let warmupMinutes: Int
+        let techniqueMinutes: Int
+        let repertoireMinutes: Int
+
+        var totalSeconds: Int {
+            max(0, warmupMinutes) * 60
+            + max(0, techniqueMinutes) * 60
+            + max(0, repertoireMinutes) * 60
+        }
+    }
+
     private struct SessionSaveDraft {
         var noteTitle: String = ""
         var noteFocus: String = ""
@@ -132,6 +172,11 @@ struct HomeView: View {
     @State private var lastSaveMessage: String = "Your practice session was added to History."
     @State private var showDiscardConfirm = false
     @State private var isSavingSession = false
+    @State private var pendingSessionResetAfterSave = false
+    @State private var pendingSavedAlertAfterDismiss = false
+    @State private var templatesLoaded = false
+    @State private var editableTemplates: [EditableSessionTemplate] = []
+    @State private var activeTemplateSessionPlan: GuidedTemplateSessionPlan?
     @State private var showAppSelectionPicker = false
     @State private var selectedHomeArea: HomeArea = .today
     @State private var activePracticeToolSheet: PracticeToolSheet?
@@ -141,13 +186,6 @@ struct HomeView: View {
     private let notify = UINotificationFeedbackGenerator()
 
     // MARK: - Bindings
-
-    private var practiceTimeMode: Binding<PracticeTimeDisplayMode> {
-        Binding(
-            get: { PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all },
-            set: { practiceTimeModeRaw = $0.rawValue }
-        )
-    }
 
     private var goalScope: Binding<GoalScope> {
         Binding(
@@ -243,7 +281,7 @@ struct HomeView: View {
 
     var body: some View {
         lifecycleScaffold
-        .sheet(isPresented: $showSaveSheet) {
+        .sheet(isPresented: $showSaveSheet, onDismiss: handleSaveSheetDismiss) {
             saveSheet
         }
         .sheet(item: $activePracticeToolSheet) { sheet in
@@ -261,6 +299,11 @@ struct HomeView: View {
         } message: {
             Text(LocalizedStringKey(lastSaveMessage))
         }
+        .sheet(item: $activeTemplateSessionPlan) { plan in
+            NavigationStack {
+                guidedTemplateSessionSheet(for: plan)
+            }
+        }
         .practiceAppShieldPicker(isPresented: $showAppSelectionPicker, selection: appShield.selectionBinding)
         .overlay {
             if isRunning && verificationEnabledForSession && checkInManager.isAwaitingResponse {
@@ -277,14 +320,13 @@ struct HomeView: View {
                 switch selectedHomeArea {
                 case .today:
                     sessionControlSection
-                    practiceTimeSection
                     goalSection
+                    practiceTimeSection
                     recentHistorySection
                 case .practice:
                     templatesSection
                     practiceToolsSection
                     practiceLabSection
-                    practiceLabProSection
                 case .studio:
                     teacherToolsSection
                     linkedAssignmentsSection
@@ -326,18 +368,35 @@ struct HomeView: View {
                 if isRunning {
                     startTicker()
                 }
-
-                social.configure(modelContext: modelContext)
-                social.refresh()
-                appShield.refreshState()
-                checkInManager.restoreCounters(
-                    checkInCount: checkInCountSaved,
-                    missedCheckInCount: missedCheckInCountSaved,
-                    events: decodedCheckInEvents(from: checkInEventsJSON)
-                )
-                checkInManager.updateConfiguration(
-                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                )
+                if !didRunInitialHomeBootstrap {
+                    didRunInitialHomeBootstrap = true
+                    if !templatesLoaded {
+                        templatesLoaded = true
+                        loadEditableTemplates()
+                    }
+                    Task { @MainActor in
+                        // Let tab transition complete before heavy setup runs.
+                        await Task.yield()
+                        social.configure(modelContext: modelContext)
+                        social.refresh()
+                        // Refresh shield state lazily unless user has the feature enabled.
+                        if distractionBlockEnabled {
+                            appShield.refreshState()
+                        }
+                        checkInManager.restoreCounters(
+                            checkInCount: checkInCountSaved,
+                            missedCheckInCount: missedCheckInCountSaved,
+                            events: decodedCheckInEvents(from: checkInEventsJSON)
+                        )
+                        checkInManager.updateConfiguration(
+                            promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                        )
+                    }
+                } else {
+                    checkInManager.updateConfiguration(
+                        promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
+                    )
+                }
             }
             .onChange(of: isRunning) { _, running in
                 if running {
@@ -567,16 +626,22 @@ struct HomeView: View {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["pb.practice.checkin.prompt"])
     }
 
-    private func row(_ title: String, seconds: Int) -> some View {
-        HStack {
+    private func compactTimeStat(title: String, seconds: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title))
-                .foregroundStyle(palette.textPrimary)
-            Spacer()
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
             Text(DurationFormatter.string(from: seconds))
                 .font(type.number)
-                .foregroundStyle(palette.textSecondary)
+                .foregroundStyle(palette.textPrimary)
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
     }
 
     private func practiceLabCard(title: String, subtitle: String, icon: String) -> some View {
@@ -601,11 +666,10 @@ struct HomeView: View {
         }
         .frame(width: 220, height: 140, alignment: .topLeading)
         .padding(12)
-        .background(palette.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .pbSurfaceCard(palette: palette, cornerRadius: 14)
     }
 
-    private func practiceToolCard(title: String, subtitle: String, icon: String, details: String) -> some View {
+    private func practiceToolCard(title: String, subtitle: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .semibold))
@@ -620,23 +684,16 @@ struct HomeView: View {
                 .foregroundStyle(palette.textSecondary)
                 .lineLimit(2)
 
-            Text(LocalizedStringKey(details))
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-                .lineLimit(2)
-                .monospacedDigit()
-
             Spacer(minLength: 0)
         }
-        .frame(width: 220, height: 120, alignment: .topLeading)
+        .frame(width: 220, height: 102, alignment: .topLeading)
         .padding(12)
-        .background(palette.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .pbSurfaceCard(palette: palette, cornerRadius: 14)
     }
 
     private var metronomeToolSheetContent: some View {
         Form {
-            Section("Metronome") {
+            Section {
                 HStack {
                     Text("Tempo")
                         .font(type.body)
@@ -700,7 +757,7 @@ struct HomeView: View {
 
     private var tunerToolSheetContent: some View {
         Form {
-            Section("Tuner") {
+            Section {
                 HStack {
                     Text("Frequency")
                         .font(type.body)
@@ -831,16 +888,7 @@ struct HomeView: View {
     }
 
     private var sharePeriodForCurrentMode: SocialPeriod {
-        switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
-        case .today:
-            return .today
-        case .week:
-            return .week
-        case .month:
-            return .month
-        case .all:
-            return .week
-        }
+        .week
     }
 
     private var homeHeader: some View {
@@ -855,8 +903,8 @@ struct HomeView: View {
 
             HStack(spacing: 8) {
                 levelChip
-                roleChip
             }
+            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.bottom, Constants.titleBottomPadding)
 
             Picker("Home Area", selection: $selectedHomeArea) {
@@ -903,40 +951,6 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private var roleChip: some View {
-        if purchaseManager.availableRoleModes.count > 1 || purchaseManager.canSwitchRoleFreely {
-            Menu {
-                ForEach(purchaseManager.canSwitchRoleFreely ? PBAccountType.allCases : purchaseManager.availableRoleModes) { role in
-                    Button {
-                        purchaseManager.setAccountType(role)
-                    } label: {
-                        if role == purchaseManager.accountType {
-                            Label(LocalizedStringKey(role.title), systemImage: "checkmark")
-                        } else {
-                            Text(LocalizedStringKey(role.title))
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(palette.accent)
-                    Text(LocalizedStringKey(purchaseManager.accountType.title))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(palette.surfaceAlt)
-                .clipShape(Capsule())
-            }
-        } else {
-            EmptyView()
-        }
-    }
-
     private func decodedCheckInEvents(from raw: String) -> [PracticeCheckInEvent] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -948,28 +962,19 @@ struct HomeView: View {
     }
 
     private var sessionControlSection: some View {
-        Section {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isRunning ? "Practicing" : (hasAnyTime ? "Paused" : "Ready"))
-                        .font(type.statusLabel)
-                        .foregroundStyle(palette.textSecondary)
-
-                    Text(DurationFormatter.string(from: currentElapsedSeconds))
-                        .font(type.timer)
-                        .monospacedDigit()
-                        .foregroundStyle(palette.textPrimary)
-                }
-
+        Section("Practice Timer") {
+            HStack(alignment: .center, spacing: 12) {
+                Text(DurationFormatter.string(from: currentElapsedSeconds))
+                    .font(type.timer)
+                    .monospacedDigit()
+                    .foregroundStyle(palette.textPrimary)
                 Spacer()
-
                 Button(primaryButtonTitle) {
                     hapticSoftTap()
                     toggleStartPauseOrStart()
                 }
                 .font(type.button)
                 .buttonStyle(.borderedProminent)
-
                 Button("Stop") {
                     hapticSoftTap()
                     stopTapped()
@@ -978,65 +983,76 @@ struct HomeView: View {
                 .buttonStyle(.bordered)
                 .disabled(!canStop)
             }
-            .padding(.vertical, 4)
 
             if verificationEnabledForSession {
+                Text("XP, quests, and tokens are awarded from verified minutes only.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
                 HStack {
-                    Text("Check-ins")
+                    Text("Verified")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                     Spacer()
-                    Text(
-                        L10n.f(
-                            "%@ responded • %@ missed",
-                            "\(max(0, checkInManager.checkInCount - checkInManager.missedCheckInCount))",
-                            "\(checkInManager.missedCheckInCount)"
-                        )
-                    )
+                    Text(DurationFormatter.string(from: effectiveVerifiedSeconds))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
                 }
+            } else {
+                Text("Verification is OFF. This session will not award XP, quests, or tokens.")
+                    .font(type.footnote)
+                    .foregroundStyle(.orange)
+            }
 
-                if let checkInStatusMessage, !checkInStatusMessage.isEmpty {
-                    Text(LocalizedStringKey(checkInStatusMessage))
+            DisclosureGroup("Verification & Focus Settings") {
+                if verificationEnabledForSession {
+                    HStack {
+                        Text("Check-ins")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Spacer()
+                        Text(
+                            L10n.f(
+                                "%@ responded • %@ missed",
+                                "\(max(0, checkInManager.checkInCount - checkInManager.missedCheckInCount))",
+                                "\(checkInManager.missedCheckInCount)"
+                            )
+                        )
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                    }
+                    Picker("Check-in interval", selection: checkInIntervalPreset) {
+                        ForEach(CheckInIntervalPreset.allCases) { preset in
+                            Text(LocalizedStringKey(preset.titleKey)).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(type.footnote)
+                    Toggle("Lock-screen check-in alerts", isOn: $checkInNotificationsEnabled)
+                        .font(type.footnote)
+                }
+
+                Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
+                    .font(type.body)
+
+                if distractionBlockEnabled {
+                    HStack(spacing: 10) {
+                        Button("Select Apps") {
+                            showAppSelectionPicker = true
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!appShield.isAvailable)
+                        Button("Authorize") {
+                            Task { await appShield.requestAuthorization() }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!appShield.isAvailable)
+                    }
+                    Text(LocalizedStringKey(appShield.statusLine))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
-
-                Picker("Check-in interval", selection: checkInIntervalPreset) {
-                    ForEach(CheckInIntervalPreset.allCases) { preset in
-                        Text(LocalizedStringKey(preset.titleKey)).tag(preset)
-                    }
-                }
-                .pickerStyle(.menu)
-                .font(type.footnote)
-
-                Toggle("Lock-screen check-in alerts", isOn: $checkInNotificationsEnabled)
-                    .font(type.footnote)
-            }
-
-            Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
-                .font(type.body)
-
-            if distractionBlockEnabled {
-                HStack(spacing: 10) {
-                    Button("Select Apps") {
-                        showAppSelectionPicker = true
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!appShield.isAvailable)
-
-                    Button("Authorize") {
-                        Task { await appShield.requestAuthorization() }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!appShield.isAvailable)
-                }
-
-                Text(LocalizedStringKey(appShield.statusLine))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
             }
         }
         .listRowBackground(palette.surface)
@@ -1044,25 +1060,12 @@ struct HomeView: View {
 
     private var practiceTimeSection: some View {
         Section("Practice Time") {
-            Picker("View", selection: practiceTimeMode) {
-                ForEach(PracticeTimeDisplayMode.allCases) { mode in
-                    Text(LocalizedStringKey(mode.title)).tag(mode)
-                }
+            HStack(spacing: 10) {
+                compactTimeStat(title: "Today", seconds: store.totalTodaySeconds)
+                compactTimeStat(title: "Week", seconds: store.totalThisWeekSeconds)
+                compactTimeStat(title: "Month", seconds: store.totalThisMonthSeconds)
             }
-            .pickerStyle(.segmented)
-
-            switch PracticeTimeDisplayMode(rawValue: practiceTimeModeRaw) ?? .all {
-            case .today:
-                row("Today", seconds: store.totalTodaySeconds)
-            case .week:
-                row("This week", seconds: store.totalThisWeekSeconds)
-            case .month:
-                row("This month", seconds: store.totalThisMonthSeconds)
-            case .all:
-                row("Today", seconds: store.totalTodaySeconds)
-                row("This week", seconds: store.totalThisWeekSeconds)
-                row("This month", seconds: store.totalThisMonthSeconds)
-            }
+            .padding(.vertical, 2)
 
             ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
                 Label("Share Practice Time", systemImage: "square.and.arrow.up")
@@ -1082,7 +1085,7 @@ struct HomeView: View {
                     Text(LocalizedStringKey(scope.title)).tag(scope)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
 
             if goalMinutes == 0 {
                 Text("Goal is off. Turn it on in Settings.")
@@ -1136,18 +1139,26 @@ struct HomeView: View {
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                ForEach(Array(store.sessions.prefix(3)), id: \.id) { session in
+                ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(session.date, format: .dateTime.month(.abbreviated).day().hour().minute())
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                            Text(DurationFormatter.string(from: max(0, session.durationSeconds)))
-                                .font(type.number)
-                                .foregroundStyle(palette.textPrimary)
-                                .monospacedDigit()
+                        ForEach(Array(store.sessions.prefix(5)), id: \.id) { session in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(session.date, format: .dateTime.month(.abbreviated).day().hour().minute())
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                                Text(DurationFormatter.string(from: max(0, session.durationSeconds)))
+                                    .font(type.number)
+                                    .foregroundStyle(palette.textPrimary)
+                                    .monospacedDigit()
+                                let xp = max(0, (session.hasVerificationData ? session.verifiedSeconds : session.durationSeconds) / 60)
+                                Text(L10n.f("+%@ XP", "\(xp)"))
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.accent)
+                            }
+                            .frame(width: 170, alignment: .leading)
+                            .padding(10)
+                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
                         }
-                        Spacer()
                     }
                     .padding(.vertical, 2)
                 }
@@ -1172,13 +1183,8 @@ struct HomeView: View {
                     } label: {
                         practiceToolCard(
                             title: "Metronome",
-                            subtitle: L10n.f(
-                                "%@ BPM • %@",
-                                "\(metronomeBPM)",
-                                String(localized: metronome.isRunning ? "Running" : "Ready")
-                            ),
-                            icon: "metronome",
-                            details: metronomeStatusText
+                            subtitle: L10n.f("%@ BPM • %@", "\(metronomeBPM)", metronome.isRunning ? "Running" : "Tap to start"),
+                            icon: "metronome"
                         )
                     }
                     .buttonStyle(.plain)
@@ -1191,12 +1197,9 @@ struct HomeView: View {
                             subtitle: L10n.f(
                                 "A=%@ • %@",
                                 "\(tunerReferenceHz)",
-                                String(localized: tuner.isListening ? "Listening" : "Ready")
+                                tuner.isListening ? "Listening" : "Tap to tune"
                             ),
-                            icon: "tuningfork",
-                            details: tuner.detectedFrequency == nil
-                                ? String(localized: "Detected: --")
-                                : L10n.f("Detected: %@ %@", tuner.detectedNoteName, centsLabel)
+                            icon: "tuningfork"
                         )
                     }
                     .buttonStyle(.plain)
@@ -1207,38 +1210,35 @@ struct HomeView: View {
         .listRowBackground(palette.surface)
     }
 
-    @ViewBuilder
     private var teacherToolsSection: some View {
-        if purchaseManager.hasRole(.teacher) {
-            Section("Teacher Tools") {
-                if purchaseManager.isPro {
-                    NavigationLink {
-                        PBLazyView(StudioManagerView())
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Studio Manager")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Create your studio, manage roster, and publish assignments.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Teacher tools are part of Practice Buddy Pro.")
+        Section("Teacher Tools") {
+            if purchaseManager.isPro {
+                NavigationLink {
+                    PBLazyView(StudioManagerView())
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Studio Manager")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Create your studio, manage roster, and publish assignments.")
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
-                        Button("Open Practice Buddy Pro") {
-                            selectedTab = 4
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.footnote)
                     }
                 }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Teacher tools are part of Practice Buddy Pro.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Button("Open Practice Buddy Pro") {
+                        selectedTab = 4
+                    }
+                    .buttonStyle(.bordered)
+                    .font(type.footnote)
+                }
             }
-            .listRowBackground(palette.surface)
         }
+        .listRowBackground(palette.surface)
     }
 
     private var practiceLabSection: some View {
@@ -1268,45 +1268,12 @@ struct HomeView: View {
                     .buttonStyle(.plain)
 
                     NavigationLink {
-                        PBLazyView(SmartLoopTimerView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Smart Loop Timer",
-                            subtitle: "Loop work/rest cycles, tag focus, and save loop logs.",
-                            icon: "repeat.circle"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        PBLazyView(PulseRhythmAccuracyView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Pulse + Rhythm Accuracy",
-                            subtitle: "Improve rhythm.",
-                            icon: "waveform.path.ecg"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
                         PBLazyView(ScaleIntonationView())
                     } label: {
                         practiceLabCard(
                             title: "Scale Intonation Score",
                             subtitle: "Play scales and get note-by-note pitch feedback.",
                             icon: "tuningfork"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        PBLazyView(AssignmentLinkedPracticeView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Assignment-linked Practice",
-                            subtitle: "Attach practice results to today’s assignment tasks.",
-                            icon: "checklist"
                         )
                     }
                     .buttonStyle(.plain)
@@ -1328,47 +1295,9 @@ struct HomeView: View {
         .listRowBackground(palette.surface)
     }
 
-    @ViewBuilder
-    private var practiceLabProSection: some View {
-        if purchaseManager.hasRole(.student) {
-            Section("Practice Lab Pro") {
-                if purchaseManager.isPro {
-                    NavigationLink {
-                        PBLazyView(SmartPracticePlanGeneratorView())
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Smart Practice Plan Generator")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Adaptive coach plan using your recent practice data and feedback.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Practice Lab Pro unlocks adaptive student coaching tools.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        Button("Open Practice Buddy Pro") {
-                            selectedTab = 4
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.footnote)
-                    }
-                }
-            }
-            .listRowBackground(palette.surface)
-        }
-    }
-
     private var warmupOfWeekSection: some View {
         Section("Warm-up of the Week") {
-            if !purchaseManager.hasRole(.student) {
-                Text("Studio warm-up appears for student accounts.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else if let warmup = warmupOfWeekManager.warmup {
+            if let warmup = warmupOfWeekManager.warmup {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(warmup.title)
                         .font(type.body)
@@ -1394,11 +1323,7 @@ struct HomeView: View {
 
     private var linkedAssignmentsSection: some View {
         Section("Today’s Assignments") {
-            if !purchaseManager.hasRole(.student) {
-                Text("Assignment checklist appears for student accounts.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else if assignmentLinkManager.todayAssignments.isEmpty {
+            if assignmentLinkManager.todayAssignments.isEmpty {
                 Text("No assignments due today.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
@@ -1432,23 +1357,9 @@ struct HomeView: View {
 
                             if assignmentLinkManager.isAssignmentLinked(item.id) {
                                 NavigationLink {
-                                    PBLazyView(SmartLoopTimerView())
-                                } label: {
-                                    Text("Start Linked Loop")
-                                        .font(type.footnote)
-                                }
-
-                                NavigationLink {
                                     PBLazyView(PlanExecuteReflectView())
                                 } label: {
                                     Text("Start Linked Plan")
-                                        .font(type.footnote)
-                                }
-
-                                NavigationLink {
-                                    PBLazyView(PulseRhythmAccuracyView())
-                                } label: {
-                                    Text("Start Linked Rhythm")
                                         .font(type.footnote)
                                 }
 
@@ -1478,21 +1389,31 @@ struct HomeView: View {
     private var templatesSection: some View {
         Section("Session Templates") {
             if purchaseManager.isPro {
-                ForEach(practiceTemplates) { template in
-                    Button {
-                        hapticSoftTap()
-                        applyTemplate(template)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(template.name)
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text(LocalizedStringKey(template.focus))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
+                ForEach($editableTemplates) { $template in
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Template name", text: $template.name)
+                            .font(type.body)
+
+                        VStack(spacing: 8) {
+                            stepperMinutes("Warm-up", value: $template.warmupMinutes)
+                            stepperMinutes("Technique", value: $template.techniqueMinutes)
+                            stepperMinutes("Repertoire", value: $template.repertoireMinutes)
+                        }
+
+                        HStack {
+                            Spacer()
+                            Button("Start") {
+                                hapticSoftTap()
+                                applyTemplate(template.asPracticeTemplate)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(type.button)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                }
+                .onChange(of: editableTemplates) { _, _ in
+                    persistEditableTemplates()
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1621,7 +1542,19 @@ struct HomeView: View {
             pieces: [makeEmptyPiece()],
             reflection: ""
         )
+        activeTemplateSessionPlan = nil
         isSavingSession = false
+    }
+
+    private func handleSaveSheetDismiss() {
+        if pendingSessionResetAfterSave {
+            pendingSessionResetAfterSave = false
+            resetSession()
+        }
+        if pendingSavedAlertAfterDismiss {
+            pendingSavedAlertAfterDismiss = false
+            showSavedAlert = true
+        }
     }
 
     private var saveSheet: some View {
@@ -1666,23 +1599,23 @@ struct HomeView: View {
                             .foregroundStyle(palette.textSecondary)
                     }
 
-                    ForEach($saveDraft.pieces) { $piece in
+                    ForEach(saveDraft.pieces) { piece in
                         VStack(alignment: .leading, spacing: 8) {
-                            TextField("Piece title", text: $piece.title)
+                            TextField("Piece title", text: pieceBinding(piece.id, \.title))
                                 .font(type.body)
 
-                            TextField("Tempo worked on (optional)", text: $piece.tempo)
+                            TextField("Tempo worked on (optional)", text: pieceBinding(piece.id, \.tempo))
                                 .font(type.body)
 
-                            TextField("What went well", text: $piece.wentWell, axis: .vertical)
-                                .font(type.body)
-                                .lineLimit(2...4)
-
-                            TextField("Needs work", text: $piece.needsWork, axis: .vertical)
+                            TextField("What went well", text: pieceBinding(piece.id, \.wentWell), axis: .vertical)
                                 .font(type.body)
                                 .lineLimit(2...4)
 
-                            TextField("Next action for tomorrow", text: $piece.nextAction, axis: .vertical)
+                            TextField("Needs work", text: pieceBinding(piece.id, \.needsWork), axis: .vertical)
+                                .font(type.body)
+                                .lineLimit(2...4)
+
+                            TextField("Next action for tomorrow", text: pieceBinding(piece.id, \.nextAction), axis: .vertical)
                                 .font(type.body)
                                 .lineLimit(2...4)
 
@@ -1765,7 +1698,7 @@ struct HomeView: View {
                             lastSaveMessage = "Your practice session was added to History."
                         }
 
-                        store.addSession(
+                        let didSave = store.addSession(
                             date: Date(),
                             durationSeconds: currentElapsedSeconds,
                             verifiedSeconds: verifiedToSave,
@@ -1779,9 +1712,15 @@ struct HomeView: View {
                             noteMoodRaw: saveDraft.noteMood.rawValue,
                             noteStructuredJSON: structuredJSON
                         )
-                        resetSession()
+                        guard didSave else {
+                            isSavingSession = false
+                            return
+                        }
+
+                        // Dismiss first; reset only after sheet dismissal callback.
                         showSaveSheet = false
-                        showSavedAlert = true
+                        pendingSessionResetAfterSave = true
+                        pendingSavedAlertAfterDismiss = true
                     }
                     .font(type.button)
                     .disabled(currentElapsedSeconds == 0 || isSavingSession)
@@ -1828,6 +1767,21 @@ struct HomeView: View {
                   piece.needsWork.isEmpty &&
                   piece.nextAction.isEmpty)
             }
+    }
+
+    private func pieceBinding(
+        _ pieceID: UUID,
+        _ keyPath: WritableKeyPath<PracticeSessionJournalPiece, String>
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                saveDraft.pieces.first(where: { $0.id == pieceID })?[keyPath: keyPath] ?? ""
+            },
+            set: { newValue in
+                guard let idx = saveDraft.pieces.firstIndex(where: { $0.id == pieceID }) else { return }
+                saveDraft.pieces[idx][keyPath: keyPath] = newValue
+            }
+        )
     }
 
     private func journalJSONIfNeeded(_ journal: PracticeSessionJournal) -> String {
@@ -1935,33 +1889,81 @@ struct HomeView: View {
         metronomeSoundStyleRaw = (MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click).rawValue
     }
 
-    private var practiceTemplates: [PracticeTemplate] {
+    private var defaultEditableTemplates: [EditableSessionTemplate] {
         [
-            PracticeTemplate(
+            EditableSessionTemplate(
                 id: "template_quick_reset",
-                name: String(localized: "Short Session (20m)"),
-                focus: "Warmup 5 • Etude 7 • Repertoire 8",
+                name: String(localized: "Short Session"),
                 warmupMinutes: 5,
-                etudeMinutes: 7,
+                techniqueMinutes: 7,
                 repertoireMinutes: 8
             ),
-            PracticeTemplate(
+            EditableSessionTemplate(
                 id: "template_balanced_session",
-                name: String(localized: "Standard Session (45m)"),
-                focus: "Warmup 10 • Etude 15 • Repertoire 20",
+                name: String(localized: "Standard Session"),
                 warmupMinutes: 10,
-                etudeMinutes: 15,
+                techniqueMinutes: 15,
                 repertoireMinutes: 20
             ),
-            PracticeTemplate(
+            EditableSessionTemplate(
                 id: "template_deep_work",
-                name: String(localized: "Deep Focus (60m)"),
-                focus: "Warmup 10 • Etude 20 • Repertoire 30",
+                name: String(localized: "Deep Focus"),
                 warmupMinutes: 10,
-                etudeMinutes: 20,
+                techniqueMinutes: 20,
                 repertoireMinutes: 30
             )
         ]
+    }
+
+    private func loadEditableTemplates() {
+        guard let data = UserDefaults.standard.data(forKey: Constants.templatesStorageKey),
+              let decoded = try? JSONDecoder().decode([EditableSessionTemplate].self, from: data),
+              !decoded.isEmpty else {
+            editableTemplates = defaultEditableTemplates
+            persistEditableTemplates()
+            return
+        }
+        editableTemplates = decoded
+    }
+
+    private func persistEditableTemplates() {
+        guard let data = try? JSONEncoder().encode(editableTemplates) else { return }
+        UserDefaults.standard.set(data, forKey: Constants.templatesStorageKey)
+    }
+
+    private func stepperMinutes(_ title: String, value: Binding<Int>) -> some View {
+        HStack(spacing: 8) {
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            Button {
+                value.wrappedValue = max(0, value.wrappedValue - 1)
+            } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(palette.textSecondary)
+
+            Text(L10n.f("%@ min", "\(value.wrappedValue)"))
+                .font(type.number)
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+                .frame(minWidth: 72, alignment: .center)
+
+            Button {
+                value.wrappedValue = min(90, value.wrappedValue + 1)
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(palette.accent)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
     }
 
     private func applyTemplate(_ template: PracticeTemplate) {
@@ -1971,14 +1973,14 @@ struct HomeView: View {
             noteMood: .good,
             pieces: [
             PracticeSessionJournalPiece(
-                title: "Warmup",
+                title: "Warm-up",
                 tempo: "\(template.warmupMinutes) min",
                 wentWell: "",
                 needsWork: "",
                 nextAction: ""
             ),
             PracticeSessionJournalPiece(
-                title: "Etude",
+                title: "Technique",
                 tempo: "\(template.etudeMinutes) min",
                 wentWell: "",
                 needsWork: "",
@@ -1996,8 +1998,140 @@ struct HomeView: View {
         )
 
         accumulatedSeconds = 0
+        verifiedSeconds = 0
+        unverifiedSeconds = 0
+        checkInCountSaved = 0
+        missedCheckInCountSaved = 0
+        checkInEventsJSON = ""
+        checkInManager.reset()
         startEpoch = Date().timeIntervalSince1970
         isRunning = true
+        activeTemplateSessionPlan = GuidedTemplateSessionPlan(
+            name: template.name,
+            warmupMinutes: template.warmupMinutes,
+            techniqueMinutes: template.etudeMinutes,
+            repertoireMinutes: template.repertoireMinutes
+        )
+    }
+
+    private func guidedTemplateSessionSheet(for plan: GuidedTemplateSessionPlan) -> some View {
+        let guidance = templateGuidance(for: plan, elapsedSeconds: currentElapsedSeconds)
+        return Form {
+            Section("Session") {
+                HStack {
+                    Text(plan.name)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: currentElapsedSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.accent)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Current")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Text(guidance.currentBlockTitle)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                }
+
+                HStack {
+                    Text(guidance.nextLabel)
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Text(mmss(guidance.secondsToNext))
+                        .font(type.number)
+                        .foregroundStyle(palette.textPrimary)
+                        .monospacedDigit()
+                }
+            }
+
+            Section("Blocks") {
+                templateSessionRow("Warm-up", minutes: plan.warmupMinutes, isActive: guidance.currentBlockTitle == "Warm-up")
+                templateSessionRow("Technique", minutes: plan.techniqueMinutes, isActive: guidance.currentBlockTitle == "Technique")
+                templateSessionRow("Repertoire", minutes: plan.repertoireMinutes, isActive: guidance.currentBlockTitle == "Repertoire")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(chrome.ignoresSafeArea())
+        .navigationTitle("Template Session")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    activeTemplateSessionPlan = nil
+                }
+            }
+        }
+    }
+
+    private func templateSessionRow(_ title: String, minutes: Int, isActive: Bool) -> some View {
+        HStack {
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            Text(L10n.f("%@ min", "\(minutes)"))
+                .font(type.number)
+                .foregroundStyle(isActive ? palette.accent : palette.textSecondary)
+                .monospacedDigit()
+        }
+    }
+
+    private func templateGuidance(for plan: GuidedTemplateSessionPlan, elapsedSeconds: Int) -> (
+        currentBlockTitle: String,
+        secondsToNext: Int,
+        nextLabel: String,
+        phaseProgress: Double,
+        totalProgress: Double
+    ) {
+        let blocks: [(title: String, seconds: Int)] = [
+            ("Warm-up", max(0, plan.warmupMinutes) * 60),
+            ("Technique", max(0, plan.techniqueMinutes) * 60),
+            ("Repertoire", max(0, plan.repertoireMinutes) * 60)
+        ].filter { $0.seconds > 0 }
+
+        guard !blocks.isEmpty else {
+            return ("Complete", 0, "Time to next", 1.0, 1.0)
+        }
+
+        let total = max(1, blocks.reduce(0) { $0 + $1.seconds })
+        let elapsed = max(0, elapsedSeconds)
+        var running = 0
+
+        for (index, block) in blocks.enumerated() {
+            let start = running
+            let end = running + block.seconds
+            if elapsed < end {
+                let into = max(0, elapsed - start)
+                let remaining = max(0, end - elapsed)
+                let nextLabel = index < blocks.count - 1
+                    ? L10n.f("Time to %@", blocks[index + 1].title)
+                    : String(localized: "Time remaining")
+                return (
+                    currentBlockTitle: block.title,
+                    secondsToNext: remaining,
+                    nextLabel: nextLabel,
+                    phaseProgress: block.seconds > 0 ? min(1, Double(into) / Double(block.seconds)) : 1,
+                    totalProgress: min(1, Double(elapsed) / Double(total))
+                )
+            }
+            running = end
+        }
+
+        return ("Complete", 0, String(localized: "Session complete"), 1.0, 1.0)
+    }
+
+    private func mmss(_ totalSeconds: Int) -> String {
+        let seconds = max(0, totalSeconds)
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return String(format: "%02d:%02d", minutes, remainder)
     }
 }
 

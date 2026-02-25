@@ -35,13 +35,9 @@ struct AboutSectionView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Contact Information")
+                Text("Contact Information & Feedback")
                     .font(.headline)
                     .foregroundStyle(palette.textPrimary)
-
-                Text(emailAddress)
-                    .font(.subheadline)
-                    .foregroundStyle(palette.textSecondary)
             }
             .padding(.vertical, 2)
 
@@ -71,12 +67,7 @@ struct AboutSectionView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(palette.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 0.5)
-        )
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
     }
 
     // MARK: - Actions

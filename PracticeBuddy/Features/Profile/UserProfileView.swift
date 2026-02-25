@@ -4,7 +4,6 @@ struct UserProfileView: View {
     @ObservedObject var buddiesVM: BuddiesViewModel
 
     @EnvironmentObject private var journey: JourneyProgressManager
-    @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -70,7 +69,7 @@ struct UserProfileView: View {
                             .foregroundStyle(palette.textPrimary)
                         HStack(spacing: 8) {
                             PBLevelBadgeView(level: max(1, profile.publicLevel))
-                            Text(LocalizedStringKey(purchaseManager.accountType.title))
+                            Text("Member")
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                         }
@@ -160,8 +159,11 @@ struct UserProfileView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(8)
-                        .background(selected ? palette.accent.opacity(0.18) : palette.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                        .background(
+                            RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                                .fill(selected ? palette.accent.opacity(0.18) : palette.surfaceAlt)
+                                .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
+                        )
                     }
                     .buttonStyle(.plain)
                 }

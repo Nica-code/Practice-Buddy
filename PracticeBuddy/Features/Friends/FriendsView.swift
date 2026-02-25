@@ -21,9 +21,15 @@ struct FriendsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                accountCard
-                buddiesCard
-                leaderboardCard
+                socialSection("Your Studio") {
+                    accountCard
+                }
+                socialSection("Friends") {
+                    buddiesCard
+                }
+                socialSection("Leaderboard") {
+                    leaderboardCard
+                }
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -103,12 +109,22 @@ struct FriendsView: View {
         return buddiesVM.buddies.filter { ids.contains($0.id) }
     }
 
+    private func socialSection<Content: View>(
+        _ title: LocalizedStringKey,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(type.footnote.weight(.semibold))
+                .foregroundStyle(theme.textSecondary)
+                .textCase(.uppercase)
+                .tracking(0.3)
+            content()
+        }
+    }
+
     private var accountCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Your Studio")
-                .font(type.sectionTitle)
-                .foregroundStyle(theme.textPrimary)
-
             if let profile = buddiesVM.myProfile {
                 NavigationLink {
                     PBLazyView(UserProfileView(buddiesVM: buddiesVM))
@@ -129,8 +145,7 @@ struct FriendsView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                .pbSurfaceCard(palette: palette)
 
                 if firebase.isAnonymousUser {
                     VStack(alignment: .leading, spacing: 8) {
@@ -152,8 +167,7 @@ struct FriendsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
 
                 HStack(spacing: 10) {
@@ -171,8 +185,7 @@ struct FriendsView: View {
                     .buttonStyle(.bordered)
                 }
                 .padding(10)
-                .background(theme.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                .pbSurfaceCard(palette: palette)
 
                 if profile.nameEditUsed {
                     HStack {
@@ -185,15 +198,13 @@ struct FriendsView: View {
                             .foregroundStyle(theme.textPrimary)
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 } else {
                     HStack(spacing: 8) {
                         TextField("Display name", text: $displayNameInput)
                             .font(type.body)
                             .padding(10)
-                            .background(theme.surfaceAlt)
-                            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                            .pbSurfaceCard(palette: palette)
 
                         Button("Save") {
                             Task { await buddiesVM.saveDisplayName(displayNameInput) }
@@ -217,8 +228,7 @@ struct FriendsView: View {
                             .foregroundStyle(theme.textSecondary)
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(theme.surfaceAlt)
-                            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                            .pbSurfaceCard(palette: palette)
                     } else {
                         ForEach(studioBuddies) { buddy in
                             HStack {
@@ -242,8 +252,7 @@ struct FriendsView: View {
                                 .buttonStyle(.bordered)
                             }
                             .padding(10)
-                            .background(theme.surfaceAlt)
-                            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                            .pbSurfaceCard(palette: palette)
                         }
                     }
                 }
@@ -266,18 +275,13 @@ struct FriendsView: View {
 
     private var buddiesCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Friends")
-                .font(type.sectionTitle)
-                .foregroundStyle(theme.textPrimary)
-
             HStack(spacing: 8) {
                 TextField("Enter friend code (ABCD-1234)", text: $inviteCodeInput)
                     .textInputAutocapitalization(.characters)
                     .disableAutocorrection(true)
                     .font(type.body)
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
 
                 Button("Add") {
                     let code = inviteCodeInput
@@ -302,9 +306,6 @@ struct FriendsView: View {
     private var leaderboardCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Leaderboard")
-                    .font(type.sectionTitle)
-                    .foregroundStyle(theme.textPrimary)
                 Spacer()
                 Button {
                     Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true) }
@@ -321,8 +322,7 @@ struct FriendsView: View {
                     .foregroundStyle(theme.textSecondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(Array(buddiesVM.leaderboardRows.enumerated()), id: \.element.id) { idx, row in
                     HStack(spacing: 8) {
@@ -348,8 +348,7 @@ struct FriendsView: View {
                             .monospacedDigit()
                     }
                     .padding(10)
-                    .background(theme.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette)
                 }
             }
         }

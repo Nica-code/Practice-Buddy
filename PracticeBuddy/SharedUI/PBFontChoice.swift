@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import CoreText
 
 struct PBFontChoice: Identifiable, Equatable {
 
@@ -60,17 +59,17 @@ struct PBFontChoice: Identifiable, Equatable {
         titleRole: .init(
             preferredNames: ["Manrope-Regular", "Manrope"],
             fileStems: ["Manrope-Regular"],
-            fallbackDesign: .default
+            fallbackDesign: .monospaced
         ),
         headlineRole: .init(
             preferredNames: ["Manrope-Regular", "Manrope"],
             fileStems: ["Manrope-Regular"],
-            fallbackDesign: .default
+            fallbackDesign: .monospaced
         ),
         bodyRole: .init(
             preferredNames: ["Manrope-Regular", "Manrope"],
             fileStems: ["Manrope-Regular"],
-            fallbackDesign: .default
+            fallbackDesign: .monospaced
         ),
         numberRole: .init(
             preferredNames: ["RobotoMono-Regular", "Roboto Mono"],
@@ -205,19 +204,12 @@ struct PBFontChoice: Identifiable, Equatable {
             return .custom(customName, size: size)
         }
 
-        if let registeredName = PBFontBundleIndex.shared.firstPostScriptName(matchingAnyStem: role.fileStems) {
-            return .custom(registeredName, size: size)
-        }
-
         return .system(size: size, weight: weight, design: role.fallbackDesign)
     }
 
     private func resolvedNameOrFallback(for role: RoleSpec) -> String {
         if let customName = resolvedFontName(from: role.preferredNames) {
             return customName
-        }
-        if let registeredName = PBFontBundleIndex.shared.firstPostScriptName(matchingAnyStem: role.fileStems) {
-            return registeredName
         }
         return "fallback-\(role.fallbackDesign)"
     }
@@ -228,61 +220,5 @@ struct PBFontChoice: Identifiable, Equatable {
         }
 
         return nil
-    }
-}
-
-private final class PBFontBundleIndex {
-    static let shared = PBFontBundleIndex()
-
-    private let postScriptNamesByStem: [String: [String]]
-
-    private init() {
-        var map: [String: [String]] = [:]
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: Bundle.main.bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            postScriptNamesByStem = [:]
-            return
-        }
-
-        for case let fileURL as URL in enumerator {
-            let ext = fileURL.pathExtension.lowercased()
-            guard ext == "ttf" || ext == "otf" else { continue }
-
-            let stem = fileURL.deletingPathExtension().lastPathComponent.lowercased()
-            let names = Self.extractPostScriptNames(from: fileURL)
-            if names.isEmpty { continue }
-            map[stem] = names
-        }
-
-        postScriptNamesByStem = map
-    }
-
-    func firstPostScriptName(matchingAnyStem stems: [String]) -> String? {
-        for stem in stems {
-            if let names = postScriptNamesByStem[stem.lowercased()], let first = names.first {
-                return first
-            }
-        }
-        return nil
-    }
-
-    private static func extractPostScriptNames(from fileURL: URL) -> [String] {
-        guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(fileURL as CFURL) as? [CTFontDescriptor] else {
-            return []
-        }
-
-        var names: [String] = []
-        for descriptor in descriptors {
-            if let name = CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute) as? String, !name.isEmpty {
-                if !names.contains(name) {
-                    names.append(name)
-                }
-            }
-        }
-        return names
     }
 }

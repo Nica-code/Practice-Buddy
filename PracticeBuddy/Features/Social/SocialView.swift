@@ -151,8 +151,11 @@ struct SocialView: View {
                 }
             }
             .padding(10)
-            .background(isMine ? palette.accent.opacity(0.22) : palette.surface)
-            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                    .fill(isMine ? palette.accent.opacity(0.22) : palette.surface)
+                    .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
+            )
             if !isMine { Spacer(minLength: 40) }
         }
     }
@@ -173,8 +176,7 @@ struct SocialView: View {
                     .lineLimit(1...4)
                     .focused($isComposerFocused)
                     .padding(10)
-                    .background(palette.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
 
                 Button("Send") {
                     Task {

@@ -56,6 +56,20 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PlayfairDisplay-Regular.ttf</string>
+		<string>Lora-Regular.ttf</string>
+		<string>IBMPlexMono-Regular.ttf</string>
+		<string>Manrope-Regular.ttf</string>
+		<string>RobotoMono-Regular.ttf</string>
+		<string>SpaceGrotesk-Regular.ttf</string>
+		<string>Outfit-Regular.ttf</string>
+		<string>SpaceMono-Regular.ttf</string>
+		<string>Fredoka-Regular.ttf</string>
+		<string>Quicksand-Regular.ttf</string>
+		<string>NunitoSans-VariableFont_YTLC,opsz,wdth,wght.ttf</string>
+	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

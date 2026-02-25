@@ -78,7 +78,7 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Included For Everyone (Pro Core)") {
+            Section("Included For Everyone") {
                 featureRow("Advanced analytics and trends")
                 featureRow("Practice templates and session builder")
                 featureRow("PDF/CSV export")
@@ -86,47 +86,44 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            if purchaseManager.hasRole(.teacher) {
-                Section("Teacher Tools") {
-                    if purchaseManager.isPro {
-                        Button {
-                            selectedTab = 0
-                        } label: {
-                            Label("Studio Manager", systemImage: "person.3")
-                                .font(type.body)
-                        }
-                    } else {
-                        Text("Unlock Pro to open Studio Manager.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
+            Section("Teacher Tools (Pro features)") {
+                if purchaseManager.isPro {
+                    Button {
+                        selectedTab = 0
+                    } label: {
+                        Label("Studio Manager", systemImage: "person.3")
+                            .font(type.body)
                     }
-                    featureRow("Studio roster and invites")
-                    featureRow("Assignments and submissions")
-                    featureRow("Teacher dashboard and feedback workflow")
+                } else {
+                    Text("Unlock Pro to open Studio Manager.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
                 }
-                .listRowBackground(palette.surface)
+                featureRow("Studio roster and invites")
+                featureRow("Assignments and submissions")
+                featureRow("Teacher dashboard and feedback workflow")
             }
+            .listRowBackground(palette.surface)
 
-            if purchaseManager.hasRole(.student) {
-                Section("Student Tools") {
-                    if purchaseManager.isPro {
-                        NavigationLink {
-                            PBLazyView(StudioManagerView())
-                        } label: {
-                            Label("Join Studio", systemImage: "person.3")
-                                .font(type.body)
-                        }
-                    } else {
-                        Text("Unlock Pro to join a studio.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
+            Section("Student Tools (Pro features)") {
+                if purchaseManager.isPro {
+                    NavigationLink {
+                        PBLazyView(StudioManagerView())
+                    } label: {
+                        Label("Join Studio", systemImage: "person.3")
+                            .font(type.body)
                     }
-                    featureRow("Assignment checklist")
-                    featureRow("Smart reminder path")
-                    featureRow("Weekly report to teacher")
+                } else {
+                    Text("Unlock Pro to join a studio.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
                 }
-                .listRowBackground(palette.surface)
+                featureRow("Smart Practice Plan Generator")
+                featureRow("Assignment checklist")
+                featureRow("Smart reminder path")
+                featureRow("Weekly report to teacher")
             }
+            .listRowBackground(palette.surface)
 
             Section {
                 Button {

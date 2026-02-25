@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
     @State private var inviteJoinAlert: InviteJoinAlert?
+    @State private var lastPipelineSyncKey: String?
+    @State private var lastPipelineSyncAt: Date = .distantPast
     private let studiosRepository = FirebaseStudiosRepository()
 
     var body: some View {
@@ -98,7 +100,7 @@ struct ContentView: View {
                 }
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
-            syncUserPipelines()
+            syncUserPipelines(force: true)
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
@@ -113,35 +115,18 @@ struct ContentView: View {
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             syncUserPipelines()
         }
-        .onChange(of: purchaseManager.accountType) { _, newType in
-            guard scenePhase == .active, canRunRealtimePipelines else { return }
-            assignmentLinkManager.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.hasRole(.student) ? .student : newType
-            )
-            warmupOfWeekManager.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.hasRole(.student) ? .student : newType,
-                isPro: purchaseManager.isPro
-            )
-            Task { await assignmentLinkManager.flushPendingQueue() }
-        }
         .onChange(of: purchaseManager.isPro) { _, isPro in
             guard scenePhase == .active, canRunRealtimePipelines else { return }
             warmupOfWeekManager.start(
                 uid: firebase.currentUserID,
-                accountType: purchaseManager.hasRole(.student) ? .student : purchaseManager.accountType,
+                accountType: .student,
                 isPro: isPro
             )
             Task { await assignmentLinkManager.flushPendingQueue() }
         }
-        .onChange(of: purchaseManager.enabledRoles) { _, _ in
-            guard scenePhase == .active else { return }
-            syncUserPipelines()
-        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                syncUserPipelines()
+                syncUserPipelines(force: true)
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
@@ -193,17 +178,34 @@ struct ContentView: View {
     private var theme: PBTheme { themeManager.theme }
 
     private func resumeRealtimeManagers() {
-        let roleForStudentPipelines: PBAccountType = purchaseManager.hasRole(.student) ? .student : purchaseManager.accountType
-        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: roleForStudentPipelines)
-        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: roleForStudentPipelines, isPro: purchaseManager.isPro)
+        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: .student)
+        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: .student, isPro: purchaseManager.isPro)
         Task { await assignmentLinkManager.flushPendingQueue() }
     }
 
-    private func syncUserPipelines() {
+    private func syncUserPipelines(force: Bool = false) {
         let linkUID: String? = {
             guard let uid = firebase.currentUserID, !uid.isEmpty, !firebase.isAnonymousUser else { return nil }
             return uid
         }()
+
+        let syncKey = [
+            scenePhase == .active ? "active" : "inactive",
+            firebase.currentUserID ?? "nil",
+            firebase.isAnonymousUser ? "anon" : "auth",
+            purchaseManager.isPro ? "pro" : "free",
+            needsAccountSetup ? "setup" : "ready"
+        ].joined(separator: "|")
+
+        let now = Date()
+        if !force,
+           syncKey == lastPipelineSyncKey,
+           now.timeIntervalSince(lastPipelineSyncAt) < 15 {
+            return
+        }
+        lastPipelineSyncKey = syncKey
+        lastPipelineSyncAt = now
+
         purchaseManager.linkToUser(uid: linkUID)
 
         guard canRunRealtimePipelines else {

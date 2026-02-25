@@ -223,6 +223,7 @@ struct SettingsView: View {
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padLG)
         .pbModernCard(palette: palette)
         .padding(.horizontal, PBLayout.padSM)

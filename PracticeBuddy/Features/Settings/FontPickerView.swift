@@ -3,6 +3,7 @@ import SwiftUI
 struct FontPickerView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
 
@@ -75,12 +76,10 @@ struct FontPickerView: View {
                 }
             }
             .padding(12)
-            .background(theme.surfaceAlt)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .pbSurfaceCard(palette: theme.resolvedPalette(for: colorScheme), cornerRadius: 14)
         }
         .padding()
-        .background(theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .pbSurfaceCard(palette: theme.resolvedPalette(for: colorScheme), cornerRadius: 18)
     }
 
     private func fontRow(_ choice: PBFontChoice) -> some View {

@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 import FirebaseCore
-import CoreText
 import UserNotifications
 import UIKit
 
@@ -13,12 +12,9 @@ struct PracticeBuddyApp: App {
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
 
     init() {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        }
+        PBSwiftDataBootstrap.ensureApplicationSupportDirectory()
         _firebase = StateObject(wrappedValue: FirebaseBootstrap())
         _purchaseManager = StateObject(wrappedValue: PurchaseManager())
-        PBFontRegistrar.registerBundledFonts()
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
     }
 
@@ -50,44 +46,29 @@ private final class PBNotificationDelegate: NSObject, UNUserNotificationCenterDe
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        }
+        FirebaseApp.configure()
+        FirebaseBootstrap.markConfiguredAtLaunch()
         return true
     }
 }
 
-private enum PBFontRegistrar {
-    private static let bundledFonts: [(name: String, ext: String)] = [
-        ("PlayfairDisplay-Regular", "ttf"),
-        ("Lora-Regular", "ttf"),
-        ("IBMPlexMono-Regular", "ttf"),
-        ("Manrope-Regular", "ttf"),
-        ("RobotoMono-Regular", "ttf"),
-        ("SpaceGrotesk-Regular", "ttf"),
-        ("Outfit-Regular", "ttf"),
-        ("SpaceMono-Regular", "ttf"),
-        ("Fredoka-Regular", "ttf"),
-        ("Quicksand-Regular", "ttf"),
-        ("NunitoSans-VariableFont_YTLC,opsz,wdth,wght", "ttf")
-    ]
-
-    static func registerBundledFonts() {
-        for font in bundledFonts {
-            guard let fileURL = Bundle.main.url(
-                forResource: font.name,
-                withExtension: font.ext,
-                subdirectory: "Fonts"
-            ) else {
-                continue
-            }
-            var error: Unmanaged<CFError>?
-            CTFontManagerRegisterFontsForURL(fileURL as CFURL, .process, &error)
+private enum PBSwiftDataBootstrap {
+    static func ensureApplicationSupportDirectory() {
+        do {
+            let base = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        } catch {
+            // Best-effort hardening; SwiftData/CoreData still has its own recovery path.
         }
     }
 }

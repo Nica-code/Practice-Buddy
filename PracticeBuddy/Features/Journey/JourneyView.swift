@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import AVFoundation
 
 struct JourneyView: View {
     private enum JourneySection: String, CaseIterable, Identifiable {
@@ -16,11 +15,8 @@ struct JourneyView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
-    @Query(sort: [SortDescriptor(\PracticeSessionModel.date, order: .reverse)]) private var sessions: [PracticeSessionModel]
-    @Query(sort: [SortDescriptor(\RunThroughModel.date, order: .reverse)]) private var runThroughs: [RunThroughModel]
     @Query(sort: [SortDescriptor(\RhythmAccuracyTakeModel.date, order: .reverse)]) private var rhythmTakes: [RhythmAccuracyTakeModel]
     @Query(sort: [SortDescriptor(\ScaleIntonationTakeModel.date, order: .reverse)]) private var intonationTakes: [ScaleIntonationTakeModel]
-    @Query(sort: [SortDescriptor(\LoopPracticeLogModel.date, order: .reverse)]) private var loopLogs: [LoopPracticeLogModel]
     @State private var selectedSection: JourneySection = .overview
     @State private var rewardsMessage: String?
     @State private var didLoadDuelTargets = false
@@ -42,8 +38,6 @@ struct JourneyView: View {
                 if selectedSection == .overview {
                     levelSection
                     duelLeagueSection
-                    pieceDashboardSection
-                    skillTrendsSection
                     questsSection
                     aboutSection
                 } else {
@@ -287,7 +281,7 @@ struct JourneyView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Incoming Invites")
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .foregroundStyle(palette.textPrimary)
                     ForEach(duelLeague.incomingInvites) { challenge in
                         incomingInviteRow(challenge)
                     }
@@ -298,7 +292,7 @@ struct JourneyView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Outgoing Invites")
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .foregroundStyle(palette.textPrimary)
                     ForEach(duelLeague.outgoingInvites) { challenge in
                         outgoingInviteRow(challenge)
                     }
@@ -309,7 +303,7 @@ struct JourneyView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Active Duels")
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .foregroundStyle(palette.textPrimary)
                     ForEach(duelLeague.activeChallenges) { challenge in
                         duelChallengeRow(challenge)
                     }
@@ -320,7 +314,7 @@ struct JourneyView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Recent Results")
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .foregroundStyle(palette.textPrimary)
                     ForEach(duelLeague.recentCompleted.prefix(3)) { challenge in
                         duelCompletedRow(challenge)
                     }
@@ -529,126 +523,25 @@ struct JourneyView: View {
         )
     }
 
-    private var pieceDashboardSection: some View {
-        Section("Piece Dashboard") {
-            if pieceRows.isEmpty {
-                Text("Save run-throughs with a piece name to build your dashboard.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                ForEach(pieceRows) { row in
-                    NavigationLink {
-                        PieceDetailView(
-                            pieceName: row.pieceName,
-                            sessions: pieceSessions(named: row.pieceName),
-                            runThroughs: pieceRunThroughs(named: row.pieceName),
-                            latestTempo: row.latestTempo
-                        )
-                    } label: {
-                        pieceRowSummary(row)
-                    }
-                }
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private func pieceRowSummary(_ row: PieceDashboardRow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(row.pieceName)
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                if let rating = row.bestRating {
-                    Text(L10n.f("Best %@/5", "\(rating)"))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-            }
-
-            HStack {
-                Text(L10n.f("%@m practice", "\(row.totalMinutes)"))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-                Spacer()
-                Text(L10n.f("%@ run-throughs", "\(row.runThroughCount)"))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text(L10n.f("Last: %@", row.lastPracticed.formatted(date: .abbreviated, time: .omitted)))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                Spacer()
-                if let tempo = row.latestTempo {
-                    Text(L10n.f("Tempo %@ BPM", "\(tempo)"))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var skillTrendsSection: some View {
-        Section("Skill Trends") {
-            HStack {
-                Text("Rhythm groove")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(rhythmTrendText)
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Intonation score")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(intonationTrendText)
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Loop tempo")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(loopTrendText)
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
     private var questsSection: some View {
         Section("Quests") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Daily Quests")
                     .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .foregroundStyle(palette.textPrimary)
                 ForEach(journey.dailyQuests) { quest in
                     questRow(quest, period: .daily)
                 }
             }
 
+            Divider()
+                .overlay(palette.textSecondary.opacity(0.45))
+                .padding(.vertical, 4)
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Weekly Quests")
                     .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .foregroundStyle(palette.textPrimary)
                 ForEach(journey.weeklyQuests) { quest in
                     questRow(quest, period: .weekly)
                 }
@@ -740,40 +633,6 @@ struct JourneyView: View {
         .listRowBackground(palette.surface)
     }
 
-    private var rhythmTrendText: String {
-        let rows = Array(rhythmTakes.prefix(10))
-        guard !rows.isEmpty else { return String(localized: "No data") }
-        if rows.count == 1 {
-            return "\(rows[0].grooveScore)"
-        }
-        let recent = Double(rows.prefix(3).map(\.grooveScore).reduce(0, +)) / Double(min(3, rows.count))
-        let baseline = Double(rows.suffix(3).map(\.grooveScore).reduce(0, +)) / Double(min(3, rows.count))
-        let delta = Int((recent - baseline).rounded())
-        return "\(Int(recent.rounded())) (\(delta >= 0 ? "+" : "")\(delta))"
-    }
-
-    private var intonationTrendText: String {
-        let rows = Array(intonationTakes.prefix(10))
-        guard !rows.isEmpty else { return String(localized: "No data") }
-        if rows.count == 1 {
-            return "\(rows[0].overallScore)"
-        }
-        let recent = Double(rows.prefix(3).map(\.overallScore).reduce(0, +)) / Double(min(3, rows.count))
-        let baseline = Double(rows.suffix(3).map(\.overallScore).reduce(0, +)) / Double(min(3, rows.count))
-        let delta = Int((recent - baseline).rounded())
-        return "\(Int(recent.rounded())) (\(delta >= 0 ? "+" : "")\(delta))"
-    }
-
-    private var loopTrendText: String {
-        let rows = loopLogs.filter { $0.tempoEndBPM > 0 }
-        guard let newest = rows.first, let oldest = rows.dropFirst().last else {
-            return rows.first.map { L10n.f("%@ BPM", "\($0.tempoEndBPM)") } ?? String(localized: "No data")
-        }
-        let delta = newest.tempoEndBPM - oldest.tempoEndBPM
-        let prefix = delta >= 0 ? "+" : ""
-        return L10n.f("%@ BPM (%@%@)", "\(newest.tempoEndBPM)", prefix, "\(delta)")
-    }
-
     @ViewBuilder
     private func questRow(_ quest: JourneyQuestRow, period: JourneyQuestPeriod) -> some View {
         let status = journey.questRewardStatus(for: quest, period: period)
@@ -823,324 +682,4 @@ struct JourneyView: View {
         .padding(.vertical, 4)
     }
 
-    private var pieceRows: [PieceDashboardRow] {
-        var accumulator: [String: PieceAccumulator] = [:]
-
-        for run in runThroughs {
-            let key = normalizedPieceName(from: run.pieceName)
-            guard !key.isEmpty else { continue }
-            var current = accumulator[key] ?? PieceAccumulator(pieceName: key)
-            current.lastPracticed = max(current.lastPracticed ?? .distantPast, run.date)
-            current.runThroughCount += 1
-            current.totalPracticeSeconds += run.durationSeconds
-            current.latestTempo = inferTempo(from: run.notes) ?? current.latestTempo
-            if let best = current.bestRating {
-                current.bestRating = max(best, run.selfRating)
-            } else {
-                current.bestRating = run.selfRating
-            }
-            accumulator[key] = current
-        }
-
-        for session in sessions {
-            let key = normalizedPieceName(from: session.noteTitle)
-            guard !key.isEmpty else { continue }
-            var current = accumulator[key] ?? PieceAccumulator(pieceName: key)
-            current.lastPracticed = max(current.lastPracticed ?? .distantPast, session.date)
-            current.totalPracticeSeconds += session.durationSeconds
-            accumulator[key] = current
-        }
-
-        return accumulator.values
-            .map { entry in
-                PieceDashboardRow(
-                    pieceName: entry.pieceName,
-                    totalMinutes: max(0, entry.totalPracticeSeconds / 60),
-                    runThroughCount: entry.runThroughCount,
-                    bestRating: entry.bestRating,
-                    latestTempo: entry.latestTempo,
-                    lastPracticed: entry.lastPracticed ?? .distantPast
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.lastPracticed == rhs.lastPracticed {
-                    return lhs.pieceName.localizedCaseInsensitiveCompare(rhs.pieceName) == .orderedAscending
-                }
-                return lhs.lastPracticed > rhs.lastPracticed
-            }
-            .prefix(8)
-            .map { $0 }
-    }
-
-    private func normalizedPieceName(from raw: String) -> String {
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return "" }
-        let collapsed = value.replacingOccurrences(of: "  ", with: " ")
-        if let splitIndex = collapsed.firstIndex(of: "-"), splitIndex > collapsed.startIndex {
-            let lead = String(collapsed[..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return lead.isEmpty ? collapsed : lead
-        }
-        return collapsed
-    }
-
-    private func inferTempo(from notes: String) -> Int? {
-        let words = notes
-            .split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "." || $0 == ":" || $0 == ";" })
-            .map(String.init)
-
-        for (index, token) in words.enumerated() {
-            if token.lowercased().hasPrefix("tempo"), index + 1 < words.count {
-                let raw = words[index + 1].filter(\.isNumber)
-                if let bpm = Int(raw), (40...260).contains(bpm) {
-                    return bpm
-                }
-            }
-            if token.uppercased() == "BPM", index > 0 {
-                let raw = words[index - 1].filter(\.isNumber)
-                if let bpm = Int(raw), (40...260).contains(bpm) {
-                    return bpm
-                }
-            }
-        }
-        return nil
-    }
-
-    private func pieceRunThroughs(named pieceName: String) -> [RunThroughModel] {
-        let normalized = normalizedPieceName(from: pieceName).lowercased()
-        guard !normalized.isEmpty else { return [] }
-        return runThroughs.filter {
-            normalizedPieceName(from: $0.pieceName).lowercased() == normalized
-        }
-    }
-
-    private func pieceSessions(named pieceName: String) -> [PracticeSessionModel] {
-        let normalized = normalizedPieceName(from: pieceName).lowercased()
-        guard !normalized.isEmpty else { return [] }
-
-        return sessions.filter { session in
-            let titleMatch = normalizedPieceName(from: session.noteTitle).lowercased() == normalized
-            if titleMatch { return true }
-            guard let journal = session.journal else { return false }
-            return journal.pieces.contains {
-                normalizedPieceName(from: $0.title).lowercased() == normalized
-            }
-        }
-    }
-}
-
-private struct PieceDashboardRow: Identifiable {
-    let id: String
-    let pieceName: String
-    let totalMinutes: Int
-    let runThroughCount: Int
-    let bestRating: Int?
-    let latestTempo: Int?
-    let lastPracticed: Date
-
-    init(
-        pieceName: String,
-        totalMinutes: Int,
-        runThroughCount: Int,
-        bestRating: Int?,
-        latestTempo: Int?,
-        lastPracticed: Date
-    ) {
-        self.id = pieceName.lowercased()
-        self.pieceName = pieceName
-        self.totalMinutes = totalMinutes
-        self.runThroughCount = runThroughCount
-        self.bestRating = bestRating
-        self.latestTempo = latestTempo
-        self.lastPracticed = lastPracticed
-    }
-}
-
-private struct PieceAccumulator {
-    let pieceName: String
-    var totalPracticeSeconds: Int = 0
-    var runThroughCount: Int = 0
-    var bestRating: Int?
-    var latestTempo: Int?
-    var lastPracticed: Date?
-}
-
-private struct PieceDetailView: View {
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
-    @Environment(\.colorScheme) private var colorScheme
-
-    let pieceName: String
-    let sessions: [PracticeSessionModel]
-    let runThroughs: [RunThroughModel]
-    let latestTempo: Int?
-
-    @State private var player: AVAudioPlayer?
-    @State private var isPlaying = false
-
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
-
-    private var totalMinutes: Int {
-        let fromSessions = sessions.reduce(0) { $0 + max(0, $1.durationSeconds) }
-        let fromRuns = runThroughs.reduce(0) { $0 + max(0, $1.durationSeconds) }
-        return max(0, (fromSessions + fromRuns) / 60)
-    }
-
-    private var bestRating: Int? {
-        runThroughs.map(\.selfRating).max()
-    }
-
-    private var latestPlayableRunThrough: RunThroughModel? {
-        runThroughs.first(where: { !$0.audioFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-    }
-
-    private var timelineRows: [PieceTimelineRow] {
-        var rows: [PieceTimelineRow] = []
-
-        rows.append(contentsOf: sessions.map {
-            PieceTimelineRow(
-                date: $0.date,
-                title: "Session",
-                subtitle: DurationFormatter.string(from: max(0, $0.durationSeconds)),
-                detail: $0.noteFocus.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        })
-
-        rows.append(contentsOf: runThroughs.map {
-            PieceTimelineRow(
-                date: $0.date,
-                title: "Run-through",
-                subtitle: L10n.f("%@ • %@/5", DurationFormatter.string(from: max(0, $0.durationSeconds)), "\($0.selfRating)"),
-                detail: $0.notes.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        })
-
-        return rows.sorted { $0.date > $1.date }
-    }
-
-    var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(pieceName)
-                        .font(type.sectionTitle)
-                        .foregroundStyle(palette.textPrimary)
-
-                    HStack {
-                        Text(L10n.f("%@m total", "\(totalMinutes)"))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                            .monospacedDigit()
-                        Spacer()
-                        Text(L10n.f("%@ run-throughs", "\(runThroughs.count)"))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                            .monospacedDigit()
-                    }
-
-                    HStack {
-                        if let bestRating {
-                            Text(L10n.f("Best %@/5", "\(bestRating)"))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
-                        Spacer()
-                        if let latestTempo {
-                            Text(L10n.f("Tempo %@ BPM", "\(latestTempo)"))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
-                    }
-
-                    if let run = latestPlayableRunThrough {
-                        Button(isPlaying ? "Stop Playback" : "Play Latest Run-through") {
-                            togglePlayback(for: run)
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.button)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Timeline") {
-                if timelineRows.isEmpty {
-                    Text("No entries for this piece yet.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else {
-                    ForEach(timelineRows) { row in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(row.title)
-                                    .font(type.body)
-                                    .foregroundStyle(palette.textPrimary)
-                                Spacer()
-                                Text(row.date.formatted(date: .abbreviated, time: .shortened))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                            Text(row.subtitle)
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                            if !row.detail.isEmpty {
-                                Text(row.detail)
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                                    .lineLimit(2)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-            .listRowBackground(palette.surface)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
-        .navigationTitle("Piece Detail")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            player?.stop()
-            player = nil
-            isPlaying = false
-        }
-    }
-
-    private func togglePlayback(for run: RunThroughModel) {
-        if isPlaying {
-            player?.stop()
-            player = nil
-            isPlaying = false
-            return
-        }
-
-        let path = run.audioFilePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-
-        do {
-            let fresh = try AVAudioPlayer(contentsOf: url)
-            fresh.prepareToPlay()
-            fresh.play()
-            player = fresh
-            isPlaying = true
-        } catch {
-            player = nil
-            isPlaying = false
-        }
-    }
-}
-
-private struct PieceTimelineRow: Identifiable {
-    let id = UUID()
-    let date: Date
-    let title: String
-    let subtitle: String
-    let detail: String
 }

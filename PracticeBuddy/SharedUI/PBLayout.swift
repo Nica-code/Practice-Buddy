@@ -58,7 +58,25 @@ private struct PBModernCardModifier: ViewModifier {
                         RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous)
                             .stroke(palette.accent.opacity(0.16), lineWidth: 1)
                     )
-                    .shadow(color: Color.black.opacity(0.10), radius: 14, x: 0, y: 8)
+                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
+            )
+    }
+}
+
+private struct PBSurfaceCardModifier: ViewModifier {
+    let palette: PBTheme.Palette
+    let cornerRadius: Double
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(palette.surfaceAlt)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(palette.accent.opacity(0.10), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
             )
     }
 }
@@ -66,6 +84,10 @@ private struct PBModernCardModifier: ViewModifier {
 extension View {
     func pbModernCard(palette: PBTheme.Palette) -> some View {
         modifier(PBModernCardModifier(palette: palette))
+    }
+
+    func pbSurfaceCard(palette: PBTheme.Palette, cornerRadius: Double = 12) -> some View {
+        modifier(PBSurfaceCardModifier(palette: palette, cornerRadius: cornerRadius))
     }
 }
 

@@ -123,6 +123,7 @@ final class SessionStore: ObservableObject {
 
     // MARK: - CRUD
 
+    @discardableResult
     func addSession(
         date: Date,
         durationSeconds: Int,
@@ -136,8 +137,8 @@ final class SessionStore: ObservableObject {
         noteFocus: String = "",
         noteMoodRaw: String = "",
         noteStructuredJSON: String = ""
-    ) {
-        guard let modelContext else { return }
+    ) -> Bool {
+        guard let modelContext else { return false }
 
         let s = PracticeSessionModel(
             date: date,
@@ -159,12 +160,14 @@ final class SessionStore: ObservableObject {
             try modelContext.save()
             sessions.insert(s, at: 0)
             pruneToRetentionIfNeeded()
+            return true
         } catch {
             PBLog.sessionStore.error("SwiftData save failed (addSession): \(String(describing: error), privacy: .public)")
             lastAppError = PBAppError(
                 title: "Save Failed",
                 message: "Your session couldn't be saved. Please try again."
             )
+            return false
         }
     }
 

@@ -10,6 +10,12 @@ import UIKit
 
 @MainActor
 final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private static var didMarkConfigured = false
+
+    static func markConfiguredAtLaunch() {
+        didMarkConfigured = true
+    }
+
     @Published private(set) var isReady = false
     @Published private(set) var currentUserID: String?
     @Published private(set) var isAnonymousUser: Bool = true
@@ -29,19 +35,19 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     private func waitForFirebaseConfiguration() async -> Bool {
-        for _ in 0..<30 {
-            if FirebaseApp.app() != nil {
-                _ = Firestore.firestore()
-                isReady = true
-                statusMessage = "Firebase initialized."
-                PBLog.firebase.info("Firebase already configured.")
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+        // Configure is expected to happen in PracticeBuddyApp.init().
+        // Avoid polling FirebaseApp.app() here because querying before configure
+        // can emit noisy startup warnings in console.
+        guard Self.didMarkConfigured else {
+            statusMessage = "Firebase is not configured yet."
+            PBLog.firebase.error("Firebase not marked as configured at launch.")
+            return false
         }
-        statusMessage = "Firebase is not configured yet."
-        PBLog.firebase.error("Firebase app missing after startup wait window.")
-        return false
+        _ = Firestore.firestore()
+        isReady = true
+        statusMessage = "Firebase initialized."
+        PBLog.firebase.info("Firebase already configured.")
+        return true
     }
 
     private func ensureAnonymousAuth() async {
