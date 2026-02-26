@@ -4,8 +4,19 @@ import UIKit
 import AuthenticationServices
 
 struct FriendsView: View {
+    private struct LeaderboardActionUser: Identifiable, Hashable {
+        let id: String
+        let displayName: String
+    }
+
+    private enum SocialScrollAnchor: String {
+        case pendingRequests = "social.pendingRequests"
+        case leaderboard = "social.leaderboard"
+    }
+
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var journey: JourneyProgressManager
+    @EnvironmentObject private var duelLeague: DuelLeagueManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -15,25 +26,39 @@ struct FriendsView: View {
 
     @State private var inviteCodeInput: String = ""
     @State private var displayNameInput: String = ""
+    @State private var selectedDuelOctaves: DuelOctaveCount = .one
+    @State private var expandedLeaderboardUserID: String?
+    @State private var profileTarget: LeaderboardActionUser?
 
-    @AppStorage("pb.studio.selectedBuddyIDs") private var studioBuddyIDsRaw: String = ""
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
+    @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                socialSection("Your Studio") {
-                    accountCard
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 14) {
+                    socialSection("Account") {
+                        accountCard
+                    }
+                    socialSection("Friends") {
+                        buddiesCard
+                    }
+                    socialSection("Leaderboard") {
+                        leaderboardCard
+                    }
                 }
-                socialSection("Friends") {
-                    buddiesCard
-                }
-                socialSection("Leaderboard") {
-                    leaderboardCard
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, PBLayout.padXL)
+            }
+            .onChange(of: socialJumpTargetRaw) { _, value in
+                guard !value.isEmpty else { return }
+                let raw = value.split(separator: ":").first.map(String.init) ?? value
+                guard let anchor = SocialScrollAnchor(rawValue: raw) else { return }
+                withAnimation(.snappy(duration: 0.25, extraBounce: 0)) {
+                    proxy.scrollTo(anchor.rawValue, anchor: .top)
                 }
             }
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, PBLayout.padXL)
         }
         .background {
             PBBackdropView(palette: palette)
@@ -58,13 +83,7 @@ struct FriendsView: View {
             guard firebase.currentUserID != nil else { return }
             await buddiesVM.syncPublicLevel(journey.level)
         }
-        .onChange(of: buddiesVM.buddies) { _, latest in
-            let valid = Set(latest.map { $0.id })
-            let filtered = selectedStudioBuddyIDs.filter { valid.contains($0) }
-            if filtered != selectedStudioBuddyIDs {
-                setSelectedStudioBuddyIDs(filtered)
-            }
-
+        .onChange(of: buddiesVM.buddies) { _, _ in
             Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes) }
         }
         .onChange(of: buddiesVM.myProfile?.displayName) { _, newValue in
@@ -73,6 +92,12 @@ struct FriendsView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $profileTarget) { target in
+            PublicUserProfileView(
+                userID: target.id,
+                fallbackDisplayName: target.displayName
+            )
+        }
     }
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -80,33 +105,6 @@ struct FriendsView: View {
 
     private var myTotalMinutes: Int {
         store.totalAllMinutes
-    }
-
-    private var selectedStudioBuddyIDs: Set<String> {
-        let parts = studioBuddyIDsRaw
-            .split(separator: ",")
-            .map { String($0) }
-            .filter { !$0.isEmpty }
-        return Set(parts)
-    }
-
-    private func setSelectedStudioBuddyIDs(_ ids: Set<String>) {
-        studioBuddyIDsRaw = ids.sorted().joined(separator: ",")
-    }
-
-    private func toggleStudioBuddy(_ buddyID: String) {
-        var current = selectedStudioBuddyIDs
-        if current.contains(buddyID) {
-            current.remove(buddyID)
-        } else {
-            current.insert(buddyID)
-        }
-        setSelectedStudioBuddyIDs(current)
-    }
-
-    private var studioBuddies: [BuddySummary] {
-        let ids = selectedStudioBuddyIDs
-        return buddiesVM.buddies.filter { ids.contains($0.id) }
     }
 
     private func socialSection<Content: View>(
@@ -126,8 +124,8 @@ struct FriendsView: View {
     private var accountCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let profile = buddiesVM.myProfile {
-                NavigationLink {
-                    PBLazyView(UserProfileView(buddiesVM: buddiesVM))
+                Button {
+                    selectedTab = 3
                 } label: {
                     HStack(spacing: 10) {
                         PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 36)
@@ -216,46 +214,6 @@ struct FriendsView: View {
                         .font(type.footnote)
                         .foregroundStyle(theme.textSecondary)
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Studio Friends")
-                        .font(type.body)
-                        .foregroundStyle(theme.textPrimary)
-
-                    if studioBuddies.isEmpty {
-                        Text("No friends in Your Studio yet.")
-                            .font(type.footnote)
-                            .foregroundStyle(theme.textSecondary)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .pbSurfaceCard(palette: palette)
-                    } else {
-                        ForEach(studioBuddies) { buddy in
-                            HStack {
-                                PBAvatarView(avatarID: buddy.avatarID, displayName: buddy.displayName, size: 30)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(buddy.displayName)
-                                        .font(type.body)
-                                        .foregroundStyle(theme.textPrimary)
-                                    HStack(spacing: 6) {
-                                        Text(buddy.friendCode)
-                                            .font(type.footnote)
-                                            .foregroundStyle(theme.textSecondary)
-                                            .monospacedDigit()
-                                        PBLevelBadgeView(level: buddy.publicLevel)
-                                    }
-                                }
-                                Spacer()
-                                Button("Remove") {
-                                    toggleStudioBuddy(buddy.id)
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            .padding(10)
-                            .pbSurfaceCard(palette: palette)
-                        }
-                    }
-                }
             } else {
                 Text(LocalizedStringKey(firebase.statusMessage ?? "Preparing account…"))
                     .font(type.footnote)
@@ -275,37 +233,150 @@ struct FriendsView: View {
 
     private var buddiesCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                TextField("Enter friend code (ABCD-1234)", text: $inviteCodeInput)
-                    .textInputAutocapitalization(.characters)
-                    .disableAutocorrection(true)
-                    .font(type.body)
-                    .padding(10)
-                    .pbSurfaceCard(palette: palette)
-
-                Button("Add") {
-                    let code = inviteCodeInput
-                    inviteCodeInput = ""
-                    Task {
-                        if let newBuddyID = await buddiesVM.sendInvite(friendCode: code) {
-                            var ids = selectedStudioBuddyIDs
-                            ids.insert(newBuddyID)
-                            setSelectedStudioBuddyIDs(ids)
-                        }
-                        await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true)
-                    }
-                }
-                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
-            }
+            friendCodeEntryRow
+            incomingRequestsSection
+            outgoingRequestsSection
+            circleSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
         .pbModernCard(palette: palette)
+        .id(SocialScrollAnchor.pendingRequests.rawValue)
+    }
+
+    private var friendCodeEntryRow: some View {
+        HStack(spacing: 8) {
+            TextField("Enter friend code (ABCD-1234)", text: $inviteCodeInput)
+                .textInputAutocapitalization(.characters)
+                .disableAutocorrection(true)
+                .font(type.body)
+                .padding(10)
+                .pbSurfaceCard(palette: palette)
+
+            Button("Add") {
+                let code = inviteCodeInput
+                inviteCodeInput = ""
+                Task {
+                    _ = await buddiesVM.sendInvite(friendCode: code)
+                    await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true)
+                }
+            }
+            .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+        }
+    }
+
+    @ViewBuilder
+    private var incomingRequestsSection: some View {
+        if !buddiesVM.incomingInvites.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Incoming Requests")
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+                ForEach(buddiesVM.incomingInvites) { invite in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(invite.fromDisplayName)
+                                .font(type.body)
+                                .foregroundStyle(theme.textPrimary)
+                            Text(invite.fromFriendCode)
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                        }
+                        Spacer()
+                        Button("Accept") {
+                            Task { await buddiesVM.acceptInvite(invite) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(palette.accent)
+
+                        Button("Reject", role: .destructive) {
+                            Task { await buddiesVM.declineInvite(invite) }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(10)
+                    .pbSurfaceCard(palette: palette)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var outgoingRequestsSection: some View {
+        if !buddiesVM.outgoingInvites.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Pending Requests")
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+                ForEach(buddiesVM.outgoingInvites) { invite in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(invite.toDisplayName)
+                                .font(type.body)
+                                .foregroundStyle(theme.textPrimary)
+                            Text("Awaiting response")
+                                .font(type.footnote)
+                                .foregroundStyle(theme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "clock")
+                            .foregroundStyle(theme.textSecondary)
+                    }
+                    .padding(10)
+                    .pbSurfaceCard(palette: palette)
+                }
+            }
+        }
+    }
+
+    private var circleSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Practice Buddies")
+                .font(type.footnote)
+                .foregroundStyle(theme.textSecondary)
+
+            if buddiesVM.buddies.isEmpty {
+                Text("Add friends to build your buddy list.")
+                    .font(type.footnote)
+                    .foregroundStyle(theme.textSecondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .pbSurfaceCard(palette: palette)
+            } else {
+                ForEach(Array(buddiesVM.buddies.enumerated()), id: \.element.id) { _, buddy in
+                    HStack {
+                        PBAvatarView(avatarID: buddy.avatarID, displayName: buddy.displayName, size: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(buddy.displayName)
+                                .font(type.body)
+                                .foregroundStyle(theme.textPrimary)
+                            HStack(spacing: 6) {
+                                Text(buddy.friendCode)
+                                    .font(type.footnote)
+                                    .foregroundStyle(theme.textSecondary)
+                                    .monospacedDigit()
+                                PBLevelBadgeView(level: buddy.publicLevel)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
+                    .pbSurfaceCard(palette: palette)
+                }
+            }
+        }
     }
 
     private var leaderboardCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Picker("Octaves", selection: $selectedDuelOctaves) {
+                    ForEach(DuelOctaveCount.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 Spacer()
                 Button {
                     Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true) }
@@ -325,27 +396,56 @@ struct FriendsView: View {
                     .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(Array(buddiesVM.leaderboardRows.enumerated()), id: \.element.id) { idx, row in
-                    HStack(spacing: 8) {
-                        Text("#\(idx + 1)")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                expandedLeaderboardUserID = (expandedLeaderboardUserID == row.id) ? nil : row.id
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("#\(idx + 1)")
+                                    .font(type.footnote)
+                                    .foregroundStyle(theme.textSecondary)
+                                    .frame(width: 34, alignment: .leading)
+                                    .monospacedDigit()
+
+                                PBAvatarView(avatarID: row.avatarID, displayName: row.name, size: 26)
+
+                                Text(row.name)
+                                    .font(type.body)
+                                    .foregroundStyle(theme.textPrimary)
+
+                                Spacer()
+
+                                PBLevelBadgeView(level: row.publicLevel)
+
+                                Text(L10n.f("%@ min", "\(row.minutes)"))
+                                    .font(type.number)
+                                    .foregroundStyle(theme.accent)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if expandedLeaderboardUserID == row.id {
+                            HStack(spacing: 8) {
+                                Button("Go to Profile") {
+                                    profileTarget = LeaderboardActionUser(id: row.id, displayName: row.name)
+                                    expandedLeaderboardUserID = nil
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button("Duel Challenge") {
+                                    Task {
+                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: selectedDuelOctaves)
+                                    }
+                                    expandedLeaderboardUserID = nil
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(firebase.currentUserID == row.id || firebase.isAnonymousUser)
+                            }
                             .font(type.footnote)
-                            .foregroundStyle(theme.textSecondary)
-                            .frame(width: 34, alignment: .leading)
-                            .monospacedDigit()
-
-                        PBAvatarView(avatarID: row.avatarID, displayName: row.name, size: 26)
-
-                        Text(row.name)
-                            .font(type.body)
-                            .foregroundStyle(theme.textPrimary)
-
-                        Spacer()
-
-                        PBLevelBadgeView(level: row.publicLevel)
-
-                        Text(L10n.f("%@ min", "\(row.minutes)"))
-                            .font(type.number)
-                            .foregroundStyle(theme.accent)
-                            .monospacedDigit()
+                        }
                     }
                     .padding(10)
                     .pbSurfaceCard(palette: palette)
@@ -355,5 +455,6 @@ struct FriendsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
         .pbModernCard(palette: palette)
+        .id(SocialScrollAnchor.leaderboard.rawValue)
     }
 }

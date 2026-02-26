@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import FirebaseFirestore
+import FirebaseAuth
 
 struct JourneyQuestRow: Identifiable, Equatable {
     let id: String
@@ -418,9 +419,9 @@ enum DuelLeagueTier: String, CaseIterable {
 
     var minRating: Int {
         switch self {
-        case .bronze: return 1000
-        case .silver: return 1150
-        case .gold: return 1300
+        case .bronze: return 0
+        case .silver: return 200
+        case .gold: return 450
         }
     }
 
@@ -472,6 +473,15 @@ struct DuelTargetCandidate: Identifiable, Equatable {
     let subtitle: String
 }
 
+enum DuelOctaveCount: Int, CaseIterable, Identifiable {
+    case one = 1
+    case two = 2
+    case three = 3
+
+    var id: Int { rawValue }
+    var title: String { "\(rawValue) octave\(rawValue == 1 ? "" : "s")" }
+}
+
 enum DuelLeaderboardScope: String, CaseIterable, Identifiable {
     case global = "Global"
     case friends = "Friends"
@@ -510,8 +520,15 @@ struct DuelChallenge: Identifiable, Equatable {
     let status: DuelChallengeStatus
     let queueType: DuelChallengeQueueType
     let objective: String
+    let scaleName: String?
+    let octaveCount: Int
+    let creatorAccepted: Bool
+    let opponentAccepted: Bool
+    let opponentRequestedOctaves: Int?
     let createdAt: Date
+    let acceptByAt: Date?
     let startedAt: Date?
+    let submissionDeadlineAt: Date?
     let completedAt: Date?
     let creatorScore: Int?
     let opponentScore: Int?
@@ -550,7 +567,7 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var seasonMatches: Int = 0
     @Published private(set) var seasonWins: Int = 0
     @Published private(set) var leaderboardRows: [DuelLeaderboardRow] = []
-    @Published private(set) var duelRating: Int = 1000
+    @Published private(set) var duelRating: Int = 0
     @Published private(set) var duelWins: Int = 0
     @Published private(set) var duelLosses: Int = 0
     @Published private(set) var duelDraws: Int = 0
@@ -568,6 +585,7 @@ final class DuelLeagueManager: ObservableObject {
     private var leaderboardCache: [DuelLeaderboardScope: (seasonKey: String, rows: [DuelLeaderboardRow], fetchedAt: Date)] = [:]
     private let targetCandidatesRefreshCooldown: TimeInterval = 30
     private let leaderboardRefreshCooldown: TimeInterval = 30
+    private let urlSession = URLSession.shared
 
     func start(uid: String?) {
         guard let uid, !uid.isEmpty else {
@@ -601,7 +619,7 @@ final class DuelLeagueManager: ObservableObject {
         seasonMatches = 0
         seasonWins = 0
         leaderboardRows = []
-        duelRating = 1000
+        duelRating = 0
         duelWins = 0
         duelLosses = 0
         duelDraws = 0
@@ -613,7 +631,7 @@ final class DuelLeagueManager: ObservableObject {
         leaderboardCache = [:]
     }
 
-    func queueAsyncScaleDuel() async {
+    func queueAsyncScaleDuel(octaves: DuelOctaveCount = .one) async {
         guard let uid = configuredUID else { return }
         if myOpenChallenge != nil {
             statusMessage = "You already have an open duel request."
@@ -628,49 +646,47 @@ final class DuelLeagueManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            if try await tryJoinOpenChallenge(uid: uid) {
-                statusMessage = "Matched. Submit your score when done."
-                return
-            }
-
-            let ref = db.collection("duelChallenges").document()
-            try await ref.setData([
-                "createdByUid": uid,
-                "opponentUid": NSNull(),
-                "participants": [uid],
-                "status": DuelChallengeStatus.open.rawValue,
-                "queueType": DuelChallengeQueueType.open.rawValue,
-                "objective": "Random scale challenge",
-                "creatorScore": NSNull(),
-                "opponentScore": NSNull(),
-                "winnerUid": NSNull(),
-                "creatorRatingDelta": 0,
-                "opponentRatingDelta": 0,
-                "createdAt": FieldValue.serverTimestamp(),
-                "updatedAt": FieldValue.serverTimestamp(),
-                "startedAt": NSNull(),
-                "completedAt": NSNull()
-            ])
-            // Optimistic local state so the UI flips to "Cancel" immediately
-            // instead of waiting for listener round-trip.
-            myOpenChallenge = DuelChallenge(
-                id: ref.documentID,
-                createdByUID: uid,
-                opponentUID: nil,
-                participants: [uid],
-                status: .open,
-                queueType: .open,
-                objective: "Random scale challenge",
-                createdAt: Date(),
-                startedAt: nil,
-                completedAt: nil,
-                creatorScore: nil,
-                opponentScore: nil,
-                winnerUID: nil,
-                creatorRatingDelta: 0,
-                opponentRatingDelta: 0
+            let response = try await callDuelEndpoint(
+                name: "duelQueueJoin",
+                body: ["octaves": octaves.rawValue]
             )
-            statusMessage = "Queued. Waiting for another player."
+            let status = (response["status"] as? String) ?? ""
+            let challengeID = (response["challengeId"] as? String) ?? UUID().uuidString
+            switch status {
+            case "already_queued", "queued":
+                myOpenChallenge = DuelChallenge(
+                    id: challengeID,
+                    createdByUID: uid,
+                    opponentUID: nil,
+                    participants: [uid],
+                    status: .open,
+                    queueType: .open,
+                    objective: "Queued • \(octaves.title)",
+                    scaleName: nil,
+                    octaveCount: octaves.rawValue,
+                    creatorAccepted: true,
+                    opponentAccepted: false,
+                    opponentRequestedOctaves: nil,
+                    createdAt: Date(),
+                    acceptByAt: nil,
+                    startedAt: nil,
+                    submissionDeadlineAt: nil,
+                    completedAt: nil,
+                    creatorScore: nil,
+                    opponentScore: nil,
+                    winnerUID: nil,
+                    creatorRatingDelta: 0,
+                    opponentRatingDelta: 0
+                )
+                statusMessage = "Queued for \(octaves.title). Waiting for another player."
+            case "matched_pending_accept":
+                myOpenChallenge = nil
+                statusMessage = "Match found. Waiting for acceptance."
+            case "blocked_active_duel":
+                statusMessage = "Finish your active duel before queueing a new one."
+            default:
+                statusMessage = "Queue updated."
+            }
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -701,7 +717,7 @@ final class DuelLeagueManager: ObservableObject {
         }
     }
 
-    func inviteTargetedDuel(targetUID: String, source: DuelInviteSource) async {
+    func inviteTargetedDuel(targetUID: String, source: DuelInviteSource, octaves: DuelOctaveCount = .one) async {
         guard let uid = configuredUID, uid != targetUID else { return }
         if activeChallenges.contains(where: { $0.myScore(for: uid) == nil }) {
             statusMessage = "Finish your active duel before sending a new invitation."
@@ -717,39 +733,26 @@ final class DuelLeagueManager: ObservableObject {
         }
 
         do {
-            let ref = db.collection("duelChallenges").document()
-            try await ref.setData([
-                "createdByUid": uid,
-                "opponentUid": targetUID,
-                "participants": [uid, targetUID],
-                "status": DuelChallengeStatus.invited.rawValue,
-                "queueType": source.rawValue,
-                "objective": "Random scale challenge",
-                "creatorScore": NSNull(),
-                "opponentScore": NSNull(),
-                "winnerUid": NSNull(),
-                "creatorRatingDelta": 0,
-                "opponentRatingDelta": 0,
-                "createdAt": FieldValue.serverTimestamp(),
-                "updatedAt": FieldValue.serverTimestamp(),
-                "startedAt": NSNull(),
-                "completedAt": NSNull()
-            ])
-            statusMessage = "\(source.title) duel invitation sent."
+            _ = try await callDuelEndpoint(
+                name: "duelInvite",
+                body: [
+                    "targetUID": targetUID,
+                    "source": source.rawValue,
+                    "octaves": octaves.rawValue
+                ]
+            )
+            statusMessage = "\(source.title) duel invitation sent (\(octaves.title))."
         } catch {
             statusMessage = error.localizedDescription
         }
     }
 
     func cancelOpenChallenge() async {
-        guard let uid = configuredUID, let open = myOpenChallenge, open.createdByUID == uid else { return }
-        let previousOpen = open
+        guard configuredUID != nil else { return }
+        let previousOpen = myOpenChallenge
         myOpenChallenge = nil
         do {
-            try await db.collection("duelChallenges").document(open.id).setData([
-                "status": DuelChallengeStatus.canceled.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
+            _ = try await callDuelEndpoint(name: "duelQueueCancel", body: [:])
             statusMessage = "Open duel canceled."
         } catch {
             myOpenChallenge = previousOpen
@@ -760,10 +763,10 @@ final class DuelLeagueManager: ObservableObject {
     func cancelInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
         do {
-            try await db.collection("duelChallenges").document(challengeID).setData([
-                "status": DuelChallengeStatus.canceled.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
+            _ = try await callDuelEndpoint(
+                name: "duelRespond",
+                body: ["challengeId": challengeID, "accept": false]
+            )
             statusMessage = "Invite canceled."
         } catch {
             statusMessage = error.localizedDescription
@@ -773,12 +776,12 @@ final class DuelLeagueManager: ObservableObject {
     func acceptInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
         do {
-            try await db.collection("duelChallenges").document(challengeID).setData([
-                "status": DuelChallengeStatus.active.rawValue,
-                "startedAt": FieldValue.serverTimestamp(),
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
-            statusMessage = "Duel accepted."
+            let result = try await callDuelEndpoint(
+                name: "duelRespond",
+                body: ["challengeId": challengeID, "accept": true]
+            )
+            let status = (result["status"] as? String) ?? ""
+            statusMessage = status == "activated" ? "Duel accepted. Match started." : "Duel accepted."
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -787,132 +790,38 @@ final class DuelLeagueManager: ObservableObject {
     func declineInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
         do {
-            try await db.collection("duelChallenges").document(challengeID).setData([
-                "status": DuelChallengeStatus.canceled.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
-            statusMessage = "Invite declined."
+            let result = try await callDuelEndpoint(
+                name: "duelRespond",
+                body: ["challengeId": challengeID, "accept": false]
+            )
+            let status = (result["status"] as? String) ?? ""
+            statusMessage = status == "requeued_both" ? "Match declined. Searching new opponent." : "Invite declined."
         } catch {
             statusMessage = error.localizedDescription
         }
     }
 
     func submitDerivedAttempt(challengeID: String, metrics: DuelDerivedMetrics) async {
-        guard let uid = configuredUID else { return }
-        let challengeRef = db.collection("duelChallenges").document(challengeID)
-        let derivedScore = metrics.derivedScore
+        guard configuredUID != nil else { return }
         guard metrics.noteCount > 0, metrics.beatsAnalyzed > 0 else {
             statusMessage = "Metrics are incomplete."
             return
         }
 
         do {
-            _ = try await runTransaction { txn in
-                let challengeSnap = try txn.getDocument(challengeRef)
-                guard let data = challengeSnap.data(),
-                      let statusRaw = data["status"] as? String,
-                      statusRaw == DuelChallengeStatus.active.rawValue,
-                      let createdByUID = data["createdByUid"] as? String,
-                      let participants = data["participants"] as? [String],
-                      participants.contains(uid),
-                      participants.count == 2 else {
-                    return false
-                }
-
-                let opponentUID = participants.first(where: { $0 != uid }) ?? ""
-                guard !opponentUID.isEmpty else { return false }
-
-                let attemptRef = challengeRef.collection("attempts").document(uid)
-                txn.setData([
-                    "uid": uid,
-                    "intonationScore": metrics.intonationScore,
-                    "rhythmScore": metrics.rhythmScore,
-                    "consistencyScore": metrics.consistencyScore,
-                    "noteCount": metrics.noteCount,
-                    "beatsAnalyzed": metrics.beatsAnalyzed,
-                    "derivedScore": derivedScore,
-                    "submittedAt": FieldValue.serverTimestamp()
-                ], forDocument: attemptRef, merge: true)
-
-                var creatorScore = data["creatorScore"] as? Int
-                var opponentScore = data["opponentScore"] as? Int
-                if uid == createdByUID {
-                    creatorScore = derivedScore
-                    txn.updateData(["creatorScore": derivedScore], forDocument: challengeRef)
-                } else {
-                    opponentScore = derivedScore
-                    txn.updateData(["opponentScore": derivedScore], forDocument: challengeRef)
-                }
-
-                guard let finalCreator = creatorScore, let finalOpponent = opponentScore else {
-                    txn.updateData(["updatedAt": FieldValue.serverTimestamp()], forDocument: challengeRef)
-                    return true
-                }
-
-                let creatorUserRef = self.db.collection("users").document(createdByUID)
-                let opponentUserRef = self.db.collection("users").document(opponentUID)
-                let creatorSnap = try txn.getDocument(creatorUserRef)
-                let opponentSnap = try txn.getDocument(opponentUserRef)
-
-                let creatorRating = max(800, (creatorSnap.data()?["duelRating"] as? Int) ?? 1000)
-                let opponentRating = max(800, (opponentSnap.data()?["duelRating"] as? Int) ?? 1000)
-
-                let (creatorOutcome, opponentOutcome): (Double, Double)
-                let winnerUID: String?
-                if finalCreator > finalOpponent {
-                    creatorOutcome = 1
-                    opponentOutcome = 0
-                    winnerUID = createdByUID
-                } else if finalCreator < finalOpponent {
-                    creatorOutcome = 0
-                    opponentOutcome = 1
-                    winnerUID = opponentUID
-                } else {
-                    creatorOutcome = 0.5
-                    opponentOutcome = 0.5
-                    winnerUID = nil
-                }
-
-                let creatorExpected = 1 / (1 + pow(10, Double(opponentRating - creatorRating) / 400))
-                let opponentExpected = 1 / (1 + pow(10, Double(creatorRating - opponentRating) / 400))
-                let k = 24.0
-                let creatorDelta = Int((k * (creatorOutcome - creatorExpected)).rounded())
-                let opponentDelta = Int((k * (opponentOutcome - opponentExpected)).rounded())
-                let creatorNewRating = max(800, creatorRating + creatorDelta)
-                let opponentNewRating = max(800, opponentRating + opponentDelta)
-                let season = self.currentSeasonKey()
-
-                txn.updateData([
-                    "status": DuelChallengeStatus.completed.rawValue,
-                    "winnerUid": winnerUID as Any,
-                    "creatorScore": finalCreator,
-                    "opponentScore": finalOpponent,
-                    "creatorRatingDelta": creatorDelta,
-                    "opponentRatingDelta": opponentDelta,
-                    "completedAt": FieldValue.serverTimestamp(),
-                    "updatedAt": FieldValue.serverTimestamp()
-                ], forDocument: challengeRef)
-
-                self.applyUserResult(
-                    txn: txn,
-                    ref: creatorUserRef,
-                    current: creatorSnap.data() ?? [:],
-                    outcome: creatorOutcome,
-                    newRating: creatorNewRating,
-                    ratingDelta: creatorDelta,
-                    seasonKey: season
-                )
-                self.applyUserResult(
-                    txn: txn,
-                    ref: opponentUserRef,
-                    current: opponentSnap.data() ?? [:],
-                    outcome: opponentOutcome,
-                    newRating: opponentNewRating,
-                    ratingDelta: opponentDelta,
-                    seasonKey: season
-                )
-                return true
-            }
+            _ = try await callDuelEndpoint(
+                name: "duelSubmitAttempt",
+                body: [
+                    "challengeId": challengeID,
+                    "metrics": [
+                        "intonationScore": metrics.intonationScore,
+                        "rhythmScore": metrics.rhythmScore,
+                        "consistencyScore": metrics.consistencyScore,
+                        "noteCount": metrics.noteCount,
+                        "beatsAnalyzed": metrics.beatsAnalyzed
+                    ]
+                ]
+            )
             statusMessage = "Attempt submitted."
         } catch {
             statusMessage = error.localizedDescription
@@ -924,7 +833,7 @@ final class DuelLeagueManager: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 let data = snap?.data() ?? [:]
-                self.duelRating = max(800, (data["duelRating"] as? Int) ?? 1000)
+                self.duelRating = max(0, (data["duelRating"] as? Int) ?? 0)
                 self.duelWins = max(0, (data["duelWins"] as? Int) ?? 0)
                 self.duelLosses = max(0, (data["duelLosses"] as? Int) ?? 0)
                 self.duelDraws = max(0, (data["duelDraws"] as? Int) ?? 0)
@@ -972,11 +881,12 @@ final class DuelLeagueManager: ObservableObject {
         let key = currentSeasonKey()
         do {
             try await db.collection("users").document(uid).setData([
-                "duelRating": 1000,
+                "duelRating": 0,
                 "duelLeague": DuelLeagueTier.bronze.rawValue,
                 "duelWins": 0,
                 "duelLosses": 0,
                 "duelDraws": 0,
+                "duelTokens": 0,
                 "duelSeasonKey": key,
                 "duelSeasonPoints": 0,
                 "duelSeasonMatches": 0,
@@ -986,63 +896,6 @@ final class DuelLeagueManager: ObservableObject {
         } catch {
             statusMessage = error.localizedDescription
         }
-    }
-
-    private func tryJoinOpenChallenge(uid: String) async throws -> Bool {
-        let openRows = try await db.collection("duelChallenges")
-            .whereField("status", isEqualTo: DuelChallengeStatus.open.rawValue)
-            .limit(to: 40)
-            .getDocuments()
-
-        let candidates = openRows.documents.filter { doc in
-            let creator = (doc.data()["createdByUid"] as? String) ?? ""
-            return !creator.isEmpty && creator != uid
-        }
-        guard !candidates.isEmpty else { return false }
-
-        let creatorUIDs = Array(Set(candidates.compactMap { $0.data()["createdByUid"] as? String }))
-        let ratings = try await fetchUserRatings(uids: creatorUIDs + [uid])
-        let myRating = ratings[uid] ?? duelRating
-        let myTier = DuelLeagueTier.forRating(myRating)
-
-        let ordered = candidates.sorted { lhs, rhs in
-            let lUid = (lhs.data()["createdByUid"] as? String) ?? ""
-            let rUid = (rhs.data()["createdByUid"] as? String) ?? ""
-            let lRating = ratings[lUid] ?? 1000
-            let rRating = ratings[rUid] ?? 1000
-            let lTier = DuelLeagueTier.forRating(lRating)
-            let rTier = DuelLeagueTier.forRating(rRating)
-            let lPenalty = (lTier == myTier) ? 0 : 1000
-            let rPenalty = (rTier == myTier) ? 0 : 1000
-            let lDiff = abs(lRating - myRating)
-            let rDiff = abs(rRating - myRating)
-            return (lPenalty + lDiff) < (rPenalty + rDiff)
-        }
-
-        for candidate in ordered {
-            let joined = try await runTransaction { txn in
-                let ref = self.db.collection("duelChallenges").document(candidate.documentID)
-                let snap = try txn.getDocument(ref)
-                guard let data = snap.data(),
-                      (data["status"] as? String) == DuelChallengeStatus.open.rawValue,
-                      let creatorUID = data["createdByUid"] as? String,
-                      creatorUID != uid else {
-                    return false
-                }
-
-                txn.updateData([
-                    "status": DuelChallengeStatus.active.rawValue,
-                    "opponentUid": uid,
-                    "participants": [creatorUID, uid],
-                    "startedAt": FieldValue.serverTimestamp(),
-                    "updatedAt": FieldValue.serverTimestamp()
-                ], forDocument: ref)
-                return true
-            }
-            if joined { return true }
-        }
-
-        return false
     }
 
     private func fetchFriendCandidates(for uid: String) async throws -> [DuelTargetCandidate] {
@@ -1197,7 +1050,7 @@ final class DuelLeagueManager: ObservableObject {
             id: documentID,
             displayName: displayName,
             points: max(0, (data["duelSeasonPoints"] as? Int) ?? 0),
-            rating: max(800, (data["duelRating"] as? Int) ?? 1000),
+            rating: max(0, (data["duelRating"] as? Int) ?? 0),
             wins: max(0, (data["duelSeasonWins"] as? Int) ?? 0),
             matches: max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
         )
@@ -1218,10 +1071,57 @@ final class DuelLeagueManager: ObservableObject {
                 .whereField(FieldPath.documentID(), in: chunk)
                 .getDocuments()
             for doc in snap.documents {
-                output[doc.documentID] = max(800, (doc.data()["duelRating"] as? Int) ?? 1000)
+                output[doc.documentID] = max(0, (doc.data()["duelRating"] as? Int) ?? 0)
             }
         }
         return output
+    }
+
+    private func callDuelEndpoint(name: String, body: [String: Any]) async throws -> [String: Any] {
+        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
+            throw NSError(
+                domain: "PracticeBuddy.Duel",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
+            )
+        }
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(
+                domain: "PracticeBuddy.Duel",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "No authenticated user."]
+            )
+        }
+        let idToken = try await user.getIDToken()
+        let endpoint = baseURL.appendingPathComponent(name)
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(
+                domain: "PracticeBuddy.Duel",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid server response."]
+            )
+        }
+
+        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
+        if (200..<300).contains(http.statusCode) {
+            return json ?? [:]
+        }
+
+        let errorMessage = (json?["error"] as? String) ?? "Request failed (\(http.statusCode))."
+        throw NSError(
+            domain: "PracticeBuddy.Duel",
+            code: http.statusCode,
+            userInfo: [NSLocalizedDescriptionKey: errorMessage]
+        )
     }
 
     private func currentSeasonKey() -> String {
@@ -1231,41 +1131,6 @@ final class DuelLeagueManager: ObservableObject {
         let year = calendar.component(.yearForWeekOfYear, from: now)
         let week = calendar.component(.weekOfYear, from: now)
         return "\(year)-W\(week)"
-    }
-
-    private func applyUserResult(
-        txn: Transaction,
-        ref: DocumentReference,
-        current: [String: Any],
-        outcome: Double,
-        newRating: Int,
-        ratingDelta: Int,
-        seasonKey: String
-    ) {
-        let wins = max(0, (current["duelWins"] as? Int) ?? 0) + (outcome == 1 ? 1 : 0)
-        let losses = max(0, (current["duelLosses"] as? Int) ?? 0) + (outcome == 0 ? 1 : 0)
-        let draws = max(0, (current["duelDraws"] as? Int) ?? 0) + (outcome == 0.5 ? 1 : 0)
-
-        let currentSeason = (current["duelSeasonKey"] as? String) ?? ""
-        let reset = currentSeason != seasonKey
-        let oldPoints = reset ? 0 : max(0, (current["duelSeasonPoints"] as? Int) ?? 0)
-        let oldMatches = reset ? 0 : max(0, (current["duelSeasonMatches"] as? Int) ?? 0)
-        let oldSeasonWins = reset ? 0 : max(0, (current["duelSeasonWins"] as? Int) ?? 0)
-        let oldSeasonDelta = reset ? 0 : ((current["duelSeasonRatingDelta"] as? Int) ?? 0)
-
-        txn.setData([
-            "duelRating": newRating,
-            "duelLeague": DuelLeagueTier.forRating(newRating).rawValue,
-            "duelWins": wins,
-            "duelLosses": losses,
-            "duelDraws": draws,
-            "duelSeasonKey": seasonKey,
-            "duelSeasonPoints": oldPoints + (outcome == 1 ? 3 : (outcome == 0.5 ? 1 : 0)),
-            "duelSeasonMatches": oldMatches + 1,
-            "duelSeasonWins": oldSeasonWins + (outcome == 1 ? 1 : 0),
-            "duelSeasonRatingDelta": oldSeasonDelta + ratingDelta,
-            "updatedAt": FieldValue.serverTimestamp()
-        ], forDocument: ref, merge: true)
     }
 
     private func parseChallenge(_ doc: DocumentSnapshot) -> DuelChallenge? {
@@ -1280,7 +1145,9 @@ final class DuelLeagueManager: ObservableObject {
 
         let participants = (data["participants"] as? [String]) ?? [createdByUID]
         let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        let acceptByAt = (data["acceptByAt"] as? Timestamp)?.dateValue()
         let startedAt = (data["startedAt"] as? Timestamp)?.dateValue()
+        let deadlineAt = (data["submissionDeadlineAt"] as? Timestamp)?.dateValue()
         let completedAt = (data["completedAt"] as? Timestamp)?.dateValue()
 
         return DuelChallenge(
@@ -1291,8 +1158,15 @@ final class DuelLeagueManager: ObservableObject {
             status: status,
             queueType: queueType,
             objective: (data["objective"] as? String) ?? "Random scale challenge",
+            scaleName: data["scaleName"] as? String,
+            octaveCount: min(max((data["octaveCount"] as? Int) ?? 1, 1), 3),
+            creatorAccepted: (data["creatorAccepted"] as? Bool) ?? true,
+            opponentAccepted: (data["opponentAccepted"] as? Bool) ?? false,
+            opponentRequestedOctaves: data["opponentRequestedOctaves"] as? Int,
             createdAt: createdAt,
+            acceptByAt: acceptByAt,
             startedAt: startedAt,
+            submissionDeadlineAt: deadlineAt,
             completedAt: completedAt,
             creatorScore: data["creatorScore"] as? Int,
             opponentScore: data["opponentScore"] as? Int,
@@ -1302,34 +1176,6 @@ final class DuelLeagueManager: ObservableObject {
         )
     }
 
-    private func runTransaction<T>(
-        _ body: @escaping (Transaction) throws -> T
-    ) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            db.runTransaction({ txn, errorPointer in
-                do {
-                    return try body(txn)
-                } catch {
-                    errorPointer?.pointee = error as NSError
-                    return nil
-                }
-            }) { value, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                guard let typed = value as? T else {
-                    continuation.resume(throwing: NSError(
-                        domain: "PracticeBuddy.DuelLeagueManager",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "Transaction returned invalid value."]
-                    ))
-                    return
-                }
-                continuation.resume(returning: typed)
-            }
-        }
-    }
 }
 
 private extension Array {

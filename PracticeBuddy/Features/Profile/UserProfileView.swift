@@ -1,23 +1,32 @@
 import SwiftUI
 
 struct UserProfileView: View {
+    private enum ProfileField {
+        case instrument
+        case bio
+    }
+
     @ObservedObject var buddiesVM: BuddiesViewModel
 
     @EnvironmentObject private var journey: JourneyProgressManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("pb.tab.selection") private var selectedTab: Int = 3
 
     @State private var avatarID: String = "avatar_note"
     @State private var bio: String = ""
     @State private var instrument: String = ""
     @State private var animateHeader = false
+    @State private var showShopSheet = false
+    @FocusState private var focusedField: ProfileField?
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
 
     var body: some View {
         VStack(spacing: 0) {
+            profileShortcutRow
             topProfileCard
 
             List {
@@ -31,9 +40,7 @@ struct UserProfileView: View {
         .background {
             PBBackdropView(palette: palette)
         }
-        .toolbarBackground(chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -47,6 +54,20 @@ struct UserProfileView: View {
             bio = profile.bio
             instrument = profile.instrument
         }
+        .sheet(isPresented: $showShopSheet) {
+            NavigationStack {
+                ShopView()
+            }
+        }
+    }
+
+    private var profileShortcutRow: some View {
+        PBShortcutBar(items: profileShortcutItems, palette: palette)
+            .padding(.horizontal, PBLayout.padSM)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .offset(y: animateHeader ? 0 : 10)
+            .opacity(animateHeader ? 1 : 0)
     }
 
     private var topProfileCard: some View {
@@ -77,16 +98,6 @@ struct UserProfileView: View {
                     Spacer()
                 }
 
-                HStack {
-                    Text("Friend code")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(profile.friendCode)
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
             } else {
                 Text("Loading profile…")
                     .font(type.footnote)
@@ -100,6 +111,31 @@ struct UserProfileView: View {
         .padding(.bottom, 4)
         .offset(y: animateHeader ? 0 : 12)
         .opacity(animateHeader ? 1 : 0)
+    }
+
+    private var profileShortcutItems: [PBShortcutItem] {
+        [
+            PBShortcutItem(
+                id: "profile_save",
+                title: "Save",
+                systemImage: "square.and.arrow.down.fill",
+                action: {
+                    saveProfile()
+                }
+            ),
+            PBShortcutItem(
+                id: "profile_journey",
+                title: "Play",
+                systemImage: "gamecontroller.fill",
+                action: { selectedTab = 1 }
+            ),
+            PBShortcutItem(
+                id: "profile_store",
+                title: "Shop",
+                systemImage: "bag.fill",
+                action: { showShopSheet = true }
+            )
+        ]
     }
 
     private var progressSection: some View {
@@ -135,10 +171,12 @@ struct UserProfileView: View {
         Section("Personalize") {
             TextField("Instrument", text: $instrument)
                 .font(type.body)
+                .focused($focusedField, equals: .instrument)
 
             TextField("Short bio", text: $bio, axis: .vertical)
                 .font(type.body)
                 .lineLimit(2...4)
+                .focused($focusedField, equals: .bio)
 
             Text("Bio can be up to 160 characters.")
                 .font(type.footnote)
@@ -170,10 +208,7 @@ struct UserProfileView: View {
             }
 
             Button {
-                Task {
-                    await buddiesVM.updateProfile(avatarID: avatarID, bio: bio, instrument: instrument)
-                    await buddiesVM.syncPublicLevel(journey.level)
-                }
+                saveProfile()
             } label: {
                 Text("Save Profile")
                     .font(type.button)
@@ -189,5 +224,163 @@ struct UserProfileView: View {
             }
         }
         .listRowBackground(palette.surface)
+    }
+
+    private func saveProfile() {
+        focusedField = nil
+        Task {
+            await buddiesVM.updateProfile(avatarID: avatarID, bio: bio, instrument: instrument)
+            await buddiesVM.syncPublicLevel(journey.level)
+        }
+    }
+}
+
+struct PublicUserProfileView: View {
+    let userID: String
+    let fallbackDisplayName: String
+
+    @EnvironmentObject private var firebase: FirebaseBootstrap
+    @Environment(\.pbTheme) private var theme
+    @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
+
+    @StateObject private var buddiesVM = BuddiesViewModel()
+    @State private var profile: FirebaseUserProfile?
+    @State private var isLoadingProfile = false
+
+    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+
+    var body: some View {
+        List {
+            profileSection
+            friendRequestSection
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background {
+            PBBackdropView(palette: palette)
+        }
+        .toolbarBackground(chrome, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: firebase.currentUserID) {
+            guard let uid = firebase.currentUserID else { return }
+            await buddiesVM.start(for: uid)
+            await loadProfile()
+        }
+        .task(id: userID) {
+            await loadProfile()
+        }
+    }
+
+    private var profileSection: some View {
+        Section("Public Profile") {
+            if isLoadingProfile && profile == nil {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading profile…")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            } else if let profile {
+                HStack(spacing: 10) {
+                    PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 48)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(profile.displayName)
+                            .font(type.sectionTitle)
+                            .foregroundStyle(palette.textPrimary)
+                        HStack(spacing: 8) {
+                            PBLevelBadgeView(level: profile.publicLevel)
+                            if !profile.instrument.isEmpty {
+                                Text(profile.instrument)
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+
+                if !profile.bio.isEmpty {
+                    Text(profile.bio)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                }
+            } else {
+                Text(fallbackDisplayName)
+                    .font(type.body)
+                    .foregroundStyle(palette.textPrimary)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    @ViewBuilder
+    private var friendRequestSection: some View {
+        Section("Friend") {
+            switch buddiesVM.relationshipState(with: userID) {
+            case .me:
+                Text("This is your profile.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+
+            case .friends:
+                Label("You are friends", systemImage: "checkmark.circle.fill")
+                    .font(type.body)
+                    .foregroundStyle(palette.accent)
+
+            case .incoming(let invite):
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("This user sent you a friend request.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    HStack {
+                        Button("Accept") {
+                            Task { await buddiesVM.acceptInvite(invite) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(palette.accent)
+
+                        Button("Reject", role: .destructive) {
+                            Task { await buddiesVM.declineInvite(invite) }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+            case .outgoing:
+                Text("Friend request pending.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+
+            case .notFriends:
+                Button {
+                    Task { await buddiesVM.sendInvite(to: userID) }
+                } label: {
+                    Label("Add Friend", systemImage: "person.badge.plus")
+                        .font(type.button)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
+            }
+
+            if let message = buddiesVM.statusMessage, !message.isEmpty {
+                Text(LocalizedStringKey(message))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private func loadProfile() async {
+        guard !userID.isEmpty else { return }
+        isLoadingProfile = true
+        defer { isLoadingProfile = false }
+        profile = await buddiesVM.loadUserProfile(uid: userID)
     }
 }

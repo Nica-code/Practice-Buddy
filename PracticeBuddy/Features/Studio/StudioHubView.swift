@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct StudioHubView: View {
+    private enum SocialJumpTarget: String {
+        case pendingRequests
+        case leaderboard
+    }
+
     private enum StudioSection: String, CaseIterable, Identifiable {
         case friends
         case chat
@@ -18,7 +23,9 @@ struct StudioHubView: View {
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("pb.studio.hub.section") private var sectionRawValue: String = StudioSection.friends.rawValue
+    @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
     @State private var animateHeader = false
+    @State private var showShopSheet = false
 
     private var sectionBinding: Binding<StudioSection> {
         Binding(
@@ -32,6 +39,7 @@ struct StudioHubView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            socialShortcutRow
             headerCard
 
             switch StudioSection(rawValue: sectionRawValue) ?? .friends {
@@ -44,9 +52,7 @@ struct StudioHubView: View {
         .background {
             PBBackdropView(palette: palette)
         }
-        .toolbarBackground(chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -56,6 +62,20 @@ struct StudioHubView: View {
                 }
             }
         }
+        .sheet(isPresented: $showShopSheet) {
+            NavigationStack {
+                ShopView()
+            }
+        }
+    }
+
+    private var socialShortcutRow: some View {
+        PBShortcutBar(items: socialShortcutItems, palette: palette)
+            .padding(.horizontal, PBLayout.padSM)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .offset(y: animateHeader ? 0 : 10)
+            .opacity(animateHeader ? 1 : 0)
     }
 
     private var headerCard: some View {
@@ -87,5 +107,34 @@ struct StudioHubView: View {
         .padding(.bottom, 4)
         .offset(y: animateHeader ? 0 : 12)
         .opacity(animateHeader ? 1 : 0)
+    }
+
+    private var socialShortcutItems: [PBShortcutItem] {
+        [
+            PBShortcutItem(
+                id: "social_requests",
+                title: "Requests",
+                systemImage: "person.badge.plus",
+                action: {
+                    sectionRawValue = StudioSection.friends.rawValue
+                    socialJumpTargetRaw = "\(SocialJumpTarget.pendingRequests.rawValue):\(Date().timeIntervalSince1970)"
+                }
+            ),
+            PBShortcutItem(
+                id: "social_leaderboard",
+                title: "Leaderboard",
+                systemImage: "list.number",
+                action: {
+                    sectionRawValue = StudioSection.friends.rawValue
+                    socialJumpTargetRaw = "\(SocialJumpTarget.leaderboard.rawValue):\(Date().timeIntervalSince1970)"
+                }
+            ),
+            PBShortcutItem(
+                id: "social_store",
+                title: "Shop",
+                systemImage: "bag.fill",
+                action: { showShopSheet = true }
+            )
+        ]
     }
 }

@@ -47,16 +47,20 @@ service cloud.firestore {
           || request.auth.uid in resource.data.participants
         );
 
-      allow create: if isSignedIn()
-        && request.resource.data.createdByUid == request.auth.uid
-        && (request.resource.data.status == "open" || request.resource.data.status == "invited");
+      // Server-authoritative duel state: only Cloud Functions writes duel docs.
+      allow create, update, delete: if false;
+    }
 
-      allow update: if isSignedIn() &&
-        (
-          request.auth.uid in resource.data.participants
-          || (resource.data.status == "open" && request.auth.uid != resource.data.createdByUid)
-        );
+    match /duelChallenges/{challengeId}/attempts/{uid} {
+      allow read: if isSignedIn() &&
+        exists(/databases/$(database)/documents/duelChallenges/$(challengeId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/duelChallenges/$(challengeId)).data.participants;
+      // Attempt writes are server-authoritative via Cloud Functions.
+      allow create, update, delete: if false;
+    }
 
+    match /duelQueue/{uid} {
+      allow read: if isSelf(uid);
       allow delete: if false;
     }
 
@@ -122,6 +126,16 @@ service cloud.firestore {
     }
 
     match /studios/{studioId}/warmups/{warmupId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
+
+    match /studios/{studioId}/events/{eventId} {
+      allow read: if isStudioMember(studioId);
+      allow create, update, delete: if isStudioOwner(studioId);
+    }
+
+    match /studios/{studioId}/lessonTemplates/{templateId} {
       allow read: if isStudioMember(studioId);
       allow create, update, delete: if isStudioOwner(studioId);
     }

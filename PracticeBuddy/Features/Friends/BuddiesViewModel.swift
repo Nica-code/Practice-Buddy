@@ -2,6 +2,14 @@ import Foundation
 import Combine
 import FirebaseFirestore
 
+enum BuddyRelationshipState: Equatable {
+    case me
+    case friends
+    case incoming(BuddyInvite)
+    case outgoing(BuddyInvite)
+    case notFriends
+}
+
 struct StudioLeaderboardRow: Identifiable, Equatable {
     let id: String
     let name: String
@@ -83,12 +91,51 @@ final class BuddiesViewModel: ObservableObject {
 
         do {
             let newBuddyUID = try await repository.sendInvite(from: myProfile, friendCode: friendCode)
-            statusMessage = "Buddy added."
+            statusMessage = "Friend request sent."
             return newBuddyUID
         } catch {
             statusMessage = error.localizedDescription
             return nil
         }
+    }
+
+    func sendInvite(to targetUID: String) async {
+        guard let myProfile else {
+            statusMessage = "Profile is not ready yet."
+            return
+        }
+
+        do {
+            try await repository.sendInvite(from: myProfile, to: targetUID)
+            statusMessage = "Friend request sent."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func loadUserProfile(uid: String) async -> FirebaseUserProfile? {
+        do {
+            return try await repository.fetchUserProfile(uid: uid)
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func relationshipState(with targetUID: String) -> BuddyRelationshipState {
+        guard let myUID = configuredUID else { return .notFriends }
+        if myUID == targetUID { return .me }
+
+        if buddies.contains(where: { $0.id == targetUID }) {
+            return .friends
+        }
+        if let incoming = incomingInvites.first(where: { $0.fromUid == targetUID && $0.toUid == myUID }) {
+            return .incoming(incoming)
+        }
+        if let outgoing = outgoingInvites.first(where: { $0.toUid == targetUID && $0.fromUid == myUID }) {
+            return .outgoing(outgoing)
+        }
+        return .notFriends
     }
 
     func saveDisplayName(_ rawName: String) async {

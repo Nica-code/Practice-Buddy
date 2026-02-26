@@ -212,45 +212,32 @@ final class FirebaseBuddiesRepository {
             throw FirebaseBuddiesError.missingInviteTarget
         }
 
-        let buddyDoc = try await db.collection(friendshipsCollection)
-            .document(myProfile.uid)
-            .collection("buddies")
-            .document(targetUid)
-            .getDocument()
-        if buddyDoc.exists {
-            throw FirebaseBuddiesError.alreadyBuddies
+        try await createPendingInvite(from: myProfile, to: targetProfile)
+        return targetUid
+    }
+
+    func sendInvite(from myProfile: FirebaseUserProfile, to targetUID: String) async throws {
+        let cleanedUID = targetUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedUID.isEmpty else { throw FirebaseBuddiesError.missingInviteTarget }
+        guard cleanedUID != myProfile.uid else { throw FirebaseBuddiesError.cannotInviteSelf }
+
+        let targetDoc = try await db.collection(usersCollection).document(cleanedUID).getDocument()
+        guard targetDoc.exists else { throw FirebaseBuddiesError.userNotFound }
+        guard let targetProfile = parseUserProfile(uid: cleanedUID, data: targetDoc.data()) else {
+            throw FirebaseBuddiesError.missingInviteTarget
         }
 
-        let now = FieldValue.serverTimestamp()
-        let myBuddyRef = db.collection(friendshipsCollection)
-            .document(myProfile.uid)
-            .collection("buddies")
-            .document(targetUid)
-        let theirBuddyRef = db.collection(friendshipsCollection)
-            .document(targetUid)
-            .collection("buddies")
-            .document(myProfile.uid)
+        try await createPendingInvite(from: myProfile, to: targetProfile)
+    }
 
-        let batch = db.batch()
-        batch.setData([
-            "buddyUid": targetUid,
-            "displayName": targetProfile.displayName,
-            "friendCode": targetProfile.friendCode,
-            "avatarID": targetProfile.avatarID,
-            "publicLevel": targetProfile.publicLevel,
-            "sinceAt": now
-        ], forDocument: myBuddyRef, merge: true)
-        batch.setData([
-            "buddyUid": myProfile.uid,
-            "displayName": myProfile.displayName,
-            "friendCode": myProfile.friendCode,
-            "avatarID": myProfile.avatarID,
-            "publicLevel": myProfile.publicLevel,
-            "sinceAt": now
-        ], forDocument: theirBuddyRef, merge: true)
-
-        try await batch.commit()
-        return targetUid
+    func fetchUserProfile(uid: String) async throws -> FirebaseUserProfile {
+        let cleanedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedUID.isEmpty else { throw FirebaseBuddiesError.userNotFound }
+        let doc = try await db.collection(usersCollection).document(cleanedUID).getDocument()
+        guard let profile = parseUserProfile(uid: cleanedUID, data: doc.data()) else {
+            throw FirebaseBuddiesError.profileNotFound
+        }
+        return profile
     }
 
     func updateDisplayName(uid: String, rawDisplayName: String) async throws {
@@ -402,6 +389,52 @@ final class FirebaseBuddiesRepository {
             "status": BuddyInviteStatus.declined.rawValue,
             "updatedAt": FieldValue.serverTimestamp()
         ])
+    }
+
+    private func createPendingInvite(from myProfile: FirebaseUserProfile, to targetProfile: FirebaseUserProfile) async throws {
+        let myUID = myProfile.uid
+        let targetUID = targetProfile.uid
+
+        let buddyDoc = try await db.collection(friendshipsCollection)
+            .document(myUID)
+            .collection("buddies")
+            .document(targetUID)
+            .getDocument()
+        if buddyDoc.exists {
+            throw FirebaseBuddiesError.alreadyBuddies
+        }
+
+        let outboundPending = try await db.collection(invitesCollection)
+            .whereField("fromUid", isEqualTo: myUID)
+            .whereField("toUid", isEqualTo: targetUID)
+            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
+            .limit(to: 1)
+            .getDocuments()
+        if !outboundPending.documents.isEmpty {
+            throw FirebaseBuddiesError.inviteAlreadySent
+        }
+
+        let inboundPending = try await db.collection(invitesCollection)
+            .whereField("fromUid", isEqualTo: targetUID)
+            .whereField("toUid", isEqualTo: myUID)
+            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
+            .limit(to: 1)
+            .getDocuments()
+        if !inboundPending.documents.isEmpty {
+            throw FirebaseBuddiesError.inviteAlreadyReceived
+        }
+
+        try await db.collection(invitesCollection).document().setData([
+            "fromUid": myUID,
+            "toUid": targetUID,
+            "fromDisplayName": myProfile.displayName,
+            "fromFriendCode": myProfile.friendCode,
+            "toDisplayName": targetProfile.displayName,
+            "toFriendCode": targetProfile.friendCode,
+            "status": BuddyInviteStatus.pending.rawValue,
+            "createdAt": FieldValue.serverTimestamp(),
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: false)
     }
 
     private func parseUserProfile(uid: String, data: [String: Any]?) -> FirebaseUserProfile? {

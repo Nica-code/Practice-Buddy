@@ -85,6 +85,58 @@ struct StudioChatMessage: Identifiable, Equatable {
     let createdAt: Date
 }
 
+enum StudioPlannerEventType: String, CaseIterable, Identifiable {
+    case lesson
+    case studioClass = "studio_class"
+    case recital
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .lesson: return "Lesson"
+        case .studioClass: return "Studio Class"
+        case .recital: return "Recital"
+        }
+    }
+}
+
+struct StudioPlannerParticipant: Identifiable, Equatable {
+    let id: String
+    let displayName: String
+    let pieceTitle: String
+    let durationMinutes: Int
+}
+
+struct StudioPlannerEvent: Identifiable, Equatable {
+    let id: String
+    let type: StudioPlannerEventType
+    let title: String
+    let notes: String
+    let location: String
+    let startAt: Date
+    let endAt: Date
+    let createdByUID: String
+    let participants: [StudioPlannerParticipant]
+    let calendarSyncEnabled: Bool
+    let calendarProvider: String?
+    let externalEventID: String?
+    let updatedAt: Date
+}
+
+struct StudioLessonTemplate: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let notes: String
+    let location: String
+    let weekday: Int // 1...7, Gregorian Sunday-based
+    let startHour: Int
+    let startMinute: Int
+    let durationMinutes: Int
+    let participants: [StudioPlannerParticipant]
+    let updatedAt: Date
+}
+
 enum FirebaseStudiosError: LocalizedError {
     case missingOwner
     case invalidStudioName
@@ -95,6 +147,9 @@ enum FirebaseStudiosError: LocalizedError {
     case invalidTemplateTitle
     case missingTargetStudent
     case invalidWarmupTitle
+    case invalidPlannerTitle
+    case invalidPlannerDateRange
+    case invalidLessonTemplate
 
     var errorDescription: String? {
         switch self {
@@ -107,6 +162,9 @@ enum FirebaseStudiosError: LocalizedError {
         case .invalidTemplateTitle: return "Template title must be 2-80 characters."
         case .missingTargetStudent: return "Select a student for individual assignment."
         case .invalidWarmupTitle: return "Warm-up title must be 2-80 characters."
+        case .invalidPlannerTitle: return "Event title must be 2-80 characters."
+        case .invalidPlannerDateRange: return "End time must be after start time."
+        case .invalidLessonTemplate: return "Lesson template is invalid."
         }
     }
 }
@@ -535,6 +593,242 @@ final class FirebaseStudiosRepository {
         try await ref.delete()
     }
 
+    func listenToPlannerEvents(
+        studioID: String,
+        onChange: @escaping @MainActor ([StudioPlannerEvent]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("events")
+            .order(by: "startAt", descending: false)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap(self.parsePlannerEvent)
+                    onChange(rows)
+                }
+            }
+    }
+
+    func createPlannerEvent(
+        studioID: String,
+        teacherUID: String,
+        type: StudioPlannerEventType,
+        rawTitle: String,
+        rawNotes: String,
+        rawLocation: String,
+        startAt: Date,
+        endAt: Date,
+        participants: [StudioPlannerParticipant],
+        calendarSyncEnabled: Bool,
+        calendarProvider: String? = nil,
+        externalEventID: String? = nil
+    ) async throws -> StudioPlannerEvent {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = rawNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = rawLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...80).contains(title.count) else {
+            throw FirebaseStudiosError.invalidPlannerTitle
+        }
+        guard endAt > startAt else {
+            throw FirebaseStudiosError.invalidPlannerDateRange
+        }
+
+        let participantPayload: [[String: Any]] = participants.map {
+            [
+                "uid": $0.id,
+                "displayName": $0.displayName,
+                "pieceTitle": $0.pieceTitle,
+                "durationMinutes": max(0, $0.durationMinutes)
+            ]
+        }
+
+        let now = Date()
+        let ref = db.collection("studios")
+            .document(studioID)
+            .collection("events")
+            .document()
+
+        try await ref.setData([
+            "type": type.rawValue,
+            "title": title,
+            "notes": notes,
+            "location": location,
+            "startAt": Timestamp(date: startAt),
+            "endAt": Timestamp(date: endAt),
+            "createdByUid": teacherUID,
+            "participants": participantPayload,
+            "calendarSyncEnabled": calendarSyncEnabled,
+            "calendarProvider": calendarProvider as Any,
+            "externalEventId": externalEventID as Any,
+            "createdAt": FieldValue.serverTimestamp(),
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+
+        return StudioPlannerEvent(
+            id: ref.documentID,
+            type: type,
+            title: title,
+            notes: notes,
+            location: location,
+            startAt: startAt,
+            endAt: endAt,
+            createdByUID: teacherUID,
+            participants: participants,
+            calendarSyncEnabled: calendarSyncEnabled,
+            calendarProvider: calendarProvider,
+            externalEventID: externalEventID,
+            updatedAt: now
+        )
+    }
+
+    func updatePlannerEventExternalID(
+        studioID: String,
+        eventID: String,
+        externalEventID: String?
+    ) async throws {
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("events")
+            .document(eventID)
+            .setData([
+                "externalEventId": externalEventID as Any,
+                "calendarProvider": externalEventID == nil ? NSNull() : "apple_calendar",
+                "calendarSyncEnabled": externalEventID != nil,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+    }
+
+    func updatePlannerEvent(
+        studioID: String,
+        eventID: String,
+        type: StudioPlannerEventType,
+        rawTitle: String,
+        rawNotes: String,
+        rawLocation: String,
+        startAt: Date,
+        endAt: Date,
+        participants: [StudioPlannerParticipant],
+        calendarSyncEnabled: Bool
+    ) async throws {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = rawNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = rawLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...80).contains(title.count) else {
+            throw FirebaseStudiosError.invalidPlannerTitle
+        }
+        guard endAt > startAt else {
+            throw FirebaseStudiosError.invalidPlannerDateRange
+        }
+
+        let participantPayload: [[String: Any]] = participants.map {
+            [
+                "uid": $0.id,
+                "displayName": $0.displayName,
+                "pieceTitle": $0.pieceTitle,
+                "durationMinutes": max(0, $0.durationMinutes)
+            ]
+        }
+
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("events")
+            .document(eventID)
+            .setData([
+                "type": type.rawValue,
+                "title": title,
+                "notes": notes,
+                "location": location,
+                "startAt": Timestamp(date: startAt),
+                "endAt": Timestamp(date: endAt),
+                "participants": participantPayload,
+                "calendarSyncEnabled": calendarSyncEnabled,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+    }
+
+    func listenToLessonTemplates(
+        studioID: String,
+        onChange: @escaping @MainActor ([StudioLessonTemplate]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("lessonTemplates")
+            .order(by: "updatedAt", descending: true)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap(self.parseLessonTemplate)
+                    onChange(rows)
+                }
+            }
+    }
+
+    func createLessonTemplate(
+        studioID: String,
+        teacherUID: String,
+        rawTitle: String,
+        rawNotes: String,
+        rawLocation: String,
+        weekday: Int,
+        startHour: Int,
+        startMinute: Int,
+        durationMinutes: Int,
+        participants: [StudioPlannerParticipant]
+    ) async throws {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = rawNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let location = rawLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...80).contains(title.count),
+              (1...7).contains(weekday),
+              (0...23).contains(startHour),
+              (0...59).contains(startMinute),
+              durationMinutes > 0 else {
+            throw FirebaseStudiosError.invalidLessonTemplate
+        }
+
+        let participantPayload: [[String: Any]] = participants.map {
+            [
+                "uid": $0.id,
+                "displayName": $0.displayName,
+                "pieceTitle": $0.pieceTitle,
+                "durationMinutes": max(0, $0.durationMinutes)
+            ]
+        }
+
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("lessonTemplates")
+            .document()
+            .setData([
+                "title": title,
+                "notes": notes,
+                "location": location,
+                "weekday": weekday,
+                "startHour": startHour,
+                "startMinute": startMinute,
+                "durationMinutes": durationMinutes,
+                "participants": participantPayload,
+                "createdByUid": teacherUID,
+                "updatedAt": FieldValue.serverTimestamp(),
+                "createdAt": FieldValue.serverTimestamp()
+            ], merge: true)
+    }
+
+    func deleteLessonTemplate(studioID: String, templateID: String) async throws {
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("lessonTemplates")
+            .document(templateID)
+            .delete()
+    }
+
+    func deletePlannerEvent(studioID: String, eventID: String) async throws {
+        try await db.collection("studios")
+            .document(studioID)
+            .collection("events")
+            .document(eventID)
+            .delete()
+    }
+
     func listenToStudioMessages(
         studioID: String,
         limit: Int = 250,
@@ -764,6 +1058,98 @@ final class FirebaseStudiosRepository {
             target: target,
             targetStudentUID: targetStudentUID,
             targetStudentName: targetStudentName,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func parsePlannerEvent(_ doc: QueryDocumentSnapshot) -> StudioPlannerEvent? {
+        let data = doc.data()
+        guard
+            let typeRaw = data["type"] as? String,
+            let type = StudioPlannerEventType(rawValue: typeRaw),
+            let title = data["title"] as? String,
+            let startAt = (data["startAt"] as? Timestamp)?.dateValue(),
+            let endAt = (data["endAt"] as? Timestamp)?.dateValue(),
+            let createdByUID = data["createdByUid"] as? String
+        else {
+            return nil
+        }
+
+        let notes = (data["notes"] as? String) ?? ""
+        let location = (data["location"] as? String) ?? ""
+        let rawParticipants = (data["participants"] as? [[String: Any]]) ?? []
+        let participants: [StudioPlannerParticipant] = rawParticipants.compactMap { row in
+            guard let uid = row["uid"] as? String,
+                  let displayName = row["displayName"] as? String else {
+                return nil
+            }
+            return StudioPlannerParticipant(
+                id: uid,
+                displayName: displayName,
+                pieceTitle: (row["pieceTitle"] as? String) ?? "",
+                durationMinutes: max(0, (row["durationMinutes"] as? Int) ?? 0)
+            )
+        }
+        let calendarSyncEnabled = (data["calendarSyncEnabled"] as? Bool) ?? false
+        let calendarProvider = data["calendarProvider"] as? String
+        let externalEventID = data["externalEventId"] as? String
+        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+
+        return StudioPlannerEvent(
+            id: doc.documentID,
+            type: type,
+            title: title,
+            notes: notes,
+            location: location,
+            startAt: startAt,
+            endAt: endAt,
+            createdByUID: createdByUID,
+            participants: participants,
+            calendarSyncEnabled: calendarSyncEnabled,
+            calendarProvider: calendarProvider,
+            externalEventID: externalEventID,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func parseLessonTemplate(_ doc: QueryDocumentSnapshot) -> StudioLessonTemplate? {
+        let data = doc.data()
+        guard
+            let title = data["title"] as? String,
+            let weekday = data["weekday"] as? Int,
+            let startHour = data["startHour"] as? Int,
+            let startMinute = data["startMinute"] as? Int,
+            let durationMinutes = data["durationMinutes"] as? Int
+        else {
+            return nil
+        }
+
+        let notes = (data["notes"] as? String) ?? ""
+        let location = (data["location"] as? String) ?? ""
+        let rawParticipants = (data["participants"] as? [[String: Any]]) ?? []
+        let participants: [StudioPlannerParticipant] = rawParticipants.compactMap { row in
+            guard let uid = row["uid"] as? String,
+                  let displayName = row["displayName"] as? String else {
+                return nil
+            }
+            return StudioPlannerParticipant(
+                id: uid,
+                displayName: displayName,
+                pieceTitle: (row["pieceTitle"] as? String) ?? "",
+                durationMinutes: max(0, (row["durationMinutes"] as? Int) ?? 0)
+            )
+        }
+        let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        return StudioLessonTemplate(
+            id: doc.documentID,
+            title: title,
+            notes: notes,
+            location: location,
+            weekday: weekday,
+            startHour: startHour,
+            startMinute: startMinute,
+            durationMinutes: durationMinutes,
+            participants: participants,
             updatedAt: updatedAt
         )
     }

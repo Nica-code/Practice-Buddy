@@ -2,6 +2,11 @@ import SwiftUI
 import UIKit
 
 struct StudioManagerView: View {
+    enum EntryMode {
+        case teacher
+        case student
+    }
+
     private enum AssignmentQuickFilter: String, CaseIterable, Identifiable {
         case active = "Active"
         case dueSoon = "Due Soon"
@@ -102,6 +107,17 @@ struct StudioManagerView: View {
     @State private var studentAssignmentQuickFilter: AssignmentQuickFilter = .active
     @State private var showOlderTeacherAssignments: Bool = false
     @State private var showOlderStudentAssignments: Bool = false
+    private let entryMode: EntryMode?
+
+    init(entryMode: EntryMode? = nil) {
+        self.entryMode = entryMode
+        switch entryMode {
+        case .student:
+            _studioToolMode = State(initialValue: .student)
+        case .teacher, .none:
+            _studioToolMode = State(initialValue: .teacher)
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -163,13 +179,16 @@ struct StudioManagerView: View {
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    private var showsRoleModePicker: Bool { entryMode == nil }
 
     @ViewBuilder
     private var mainContent: some View {
         if !purchaseManager.isPro {
             lockedCard
         } else {
-            roleModePicker
+            if showsRoleModePicker {
+                roleModePicker
+            }
             if studioToolMode == .teacher {
                 teacherContentCard
             } else {

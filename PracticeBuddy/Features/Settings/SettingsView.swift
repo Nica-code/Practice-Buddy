@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct SettingsView: View {
+    private enum SettingsAnchor: String {
+        case goals
+        case appearance
+        case notifications
+    }
+
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.pbTheme) private var theme
@@ -18,6 +24,7 @@ struct SettingsView: View {
 
     @State private var pendingRetentionTask: Task<Void, Never>?
     @State private var animateHeader = false
+    @State private var scrollAnchorTarget: SettingsAnchor?
 
     private var goalScopeBinding: Binding<GoalScope> {
         Binding(
@@ -45,10 +52,12 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            settingsShortcutRow
             headerCard
 
-            Form {
-                Section("Goals") {
+            ScrollViewReader { proxy in
+                Form {
+                    Section("Goals") {
                     Picker("Goal period", selection: goalScopeBinding) {
                         ForEach(GoalScope.allCases) { scope in
                             Text(LocalizedStringKey(scope.title)).tag(scope)
@@ -84,10 +93,11 @@ struct SettingsView: View {
                     Text(goalMinutes == 0 ? "Turn this on to track progress." : "Progress is tracked for the selected period.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
+                    }
+                    .listRowBackground(palette.surface)
+                    .id(SettingsAnchor.goals)
 
-                Section("Appearance") {
+                    Section("Appearance") {
                     NavigationLink { PBLazyView(ThemePickerView()) } label: {
                         settingsLabel("Themes", systemImage: "paintpalette")
                     }
@@ -105,24 +115,40 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(lang.titleKey)).tag(lang)
                         }
                     }
-                }
-                .listRowBackground(palette.surface)
-
-                Section("Store") {
-                    NavigationLink { PBLazyView(StoreView()) } label: {
-                        settingsLabel(
-                            purchaseManager.isPro ? "Practice Buddy Pro (Unlocked)" : "Practice Buddy Pro",
-                            systemImage: purchaseManager.isPro ? "sparkles" : "bag"
-                        )
                     }
+                    .listRowBackground(palette.surface)
+                    .id(SettingsAnchor.appearance)
 
-                    Text("One-time unlock. Includes core Pro tools plus account-type extras for Teacher or Student.")
+                    Section("Tool Access") {
+                    Picker("Primary focus", selection: Binding(
+                        get: { purchaseManager.primaryFocus },
+                        set: { purchaseManager.setPrimaryFocus($0) }
+                    )) {
+                        ForEach(PBPrimaryFocus.allCases) { focus in
+                            Text(LocalizedStringKey(focus.title)).tag(focus)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Toggle("Student Tools", isOn: Binding(
+                        get: { purchaseManager.canAccessStudentTools },
+                        set: { purchaseManager.setShowStudentTools($0) }
+                    ))
+                    .font(type.body)
+
+                    Toggle("Teacher Tools", isOn: Binding(
+                        get: { purchaseManager.canAccessTeacherTools },
+                        set: { purchaseManager.setShowTeacherTools($0) }
+                    ))
+                    .font(type.body)
+
+                    Text("Studio Manager is a Pro feature under Teacher Tools.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
+                    }
+                    .listRowBackground(palette.surface)
 
-                Section("Notifications") {
+                    Section("Notifications") {
                     Toggle("Assignments", isOn: $notifyAssignments)
                         .font(type.body)
                     Toggle("Buddies", isOn: $notifyBuddies)
@@ -131,10 +157,11 @@ struct SettingsView: View {
                     Text("Controls push notifications for assignment and buddy activity updates.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
+                    }
+                    .listRowBackground(palette.surface)
+                    .id(SettingsAnchor.notifications)
 
-                Section("Practice Verification") {
+                    Section("Practice Verification") {
                     Toggle("Practice Check-ins (Gentle Mode)", isOn: $practiceCheckInsEnabled)
                         .font(type.body)
 
@@ -143,10 +170,10 @@ struct SettingsView: View {
                          : "Practice check-ins are off. All active timer minutes count as verified.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
+                    }
+                    .listRowBackground(palette.surface)
 
-                Section("History") {
+                    Section("History") {
                     NavigationLink {
                         PBLazyView(HistoryRetentionPickerView(selection: $historyRetention))
                     } label: {
@@ -169,11 +196,18 @@ struct SettingsView: View {
                          : "Older sessions are automatically deleted after you exceed \(historyRetention) sessions.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
-
-                AboutSectionView()
+                    }
                     .listRowBackground(palette.surface)
+
+                    AboutSectionView()
+                        .listRowBackground(palette.surface)
+                }
+                .onChange(of: scrollAnchorTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation(.snappy(duration: 0.25, extraBounce: 0)) {
+                        proxy.scrollTo(target, anchor: .top)
+                    }
+                }
             }
             .scrollContentBackground(.hidden)
             .background(.clear)
@@ -181,9 +215,7 @@ struct SettingsView: View {
         .background {
             PBBackdropView(palette: palette)
         }
-        .toolbarBackground(chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -212,6 +244,15 @@ struct SettingsView: View {
         }
     }
 
+    private var settingsShortcutRow: some View {
+        PBShortcutBar(items: settingsShortcutItems, palette: palette)
+            .padding(.horizontal, PBLayout.padSM)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .offset(y: animateHeader ? 0 : 10)
+            .opacity(animateHeader ? 1 : 0)
+    }
+
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Settings")
@@ -222,6 +263,7 @@ struct SettingsView: View {
             Text("Personalize your practice flow, notifications, and app experience.")
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padLG)
@@ -231,6 +273,29 @@ struct SettingsView: View {
         .padding(.bottom, 4)
         .offset(y: animateHeader ? 0 : 12)
         .opacity(animateHeader ? 1 : 0)
+    }
+
+    private var settingsShortcutItems: [PBShortcutItem] {
+        [
+            PBShortcutItem(
+                id: "settings_goals",
+                title: "Goals",
+                systemImage: "target",
+                action: { scrollAnchorTarget = .goals }
+            ),
+            PBShortcutItem(
+                id: "settings_appearance",
+                title: "Appearance",
+                systemImage: "paintbrush.fill",
+                action: { scrollAnchorTarget = .appearance }
+            ),
+            PBShortcutItem(
+                id: "settings_notifications",
+                title: "Notifications",
+                systemImage: "bell.fill",
+                action: { scrollAnchorTarget = .notifications }
+            )
+        ]
     }
 
     private func syncNotificationPrefs() async {

@@ -70,7 +70,7 @@ struct HomeView: View {
     }
 
     private enum HomeArea: String, CaseIterable, Identifiable {
-        case today = "Today"
+        case dashboard = "Dashboard"
         case practice = "Practice"
         case studio = "Studio"
 
@@ -178,8 +178,9 @@ struct HomeView: View {
     @State private var editableTemplates: [EditableSessionTemplate] = []
     @State private var activeTemplateSessionPlan: GuidedTemplateSessionPlan?
     @State private var showAppSelectionPicker = false
-    @State private var selectedHomeArea: HomeArea = .today
+    @State private var selectedHomeArea: HomeArea = .dashboard
     @State private var activePracticeToolSheet: PracticeToolSheet?
+    @State private var showShopSheet = false
 
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
@@ -310,15 +311,21 @@ struct HomeView: View {
                 checkInOverlay
             }
         }
+        .sheet(isPresented: $showShopSheet) {
+            NavigationStack {
+                ShopView()
+            }
+        }
     }
 
     private var mainScaffold: some View {
         VStack(spacing: 0) {
+            homeShortcutRow
             homeHeader
 
             List {
                 switch selectedHomeArea {
-                case .today:
+                case .dashboard:
                     sessionControlSection
                     goalSection
                     practiceTimeSection
@@ -328,9 +335,17 @@ struct HomeView: View {
                     practiceToolsSection
                     practiceLabSection
                 case .studio:
-                    teacherToolsSection
-                    linkedAssignmentsSection
-                    warmupOfWeekSection
+                    if purchaseManager.canAccessTeacherTools {
+                        teacherToolsSection
+                    }
+                    if purchaseManager.canAccessStudentTools {
+                        linkedAssignmentsSection
+                        warmupOfWeekSection
+                        studentToolsSection
+                    }
+                    if !purchaseManager.canAccessTeacherTools && !purchaseManager.canAccessStudentTools {
+                        studioToolsOffSection
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -340,11 +355,18 @@ struct HomeView: View {
         .background {
             PBBackdropView(palette: palette)
         }
-        .toolbarBackground(chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var homeShortcutRow: some View {
+        PBShortcutBar(items: homeShortcutItems, palette: palette)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .offset(y: animateHeader ? 0 : 10)
+            .opacity(animateHeader ? 1 : 0)
     }
 
     private var lifecycleScaffold: some View {
@@ -925,6 +947,35 @@ struct HomeView: View {
         .opacity(animateHeader ? 1 : 0)
     }
 
+    private var homeShortcutItems: [PBShortcutItem] {
+        [
+            PBShortcutItem(
+                id: "home_timer",
+                title: isRunning ? "Pause Timer" : (hasAnyTime ? "Resume Timer" : "Start Timer"),
+                systemImage: isRunning ? "pause.circle.fill" : "play.circle.fill",
+                action: {
+                    hapticSoftTap()
+                    toggleStartPauseOrStart()
+                }
+            ),
+            PBShortcutItem(
+                id: "home_save",
+                title: "Save Session",
+                systemImage: "square.and.arrow.down.fill",
+                isDisabled: !hasAnyTime,
+                action: {
+                    if hasAnyTime { showSaveSheet = true }
+                }
+            ),
+            PBShortcutItem(
+                id: "home_store",
+                title: "Shop",
+                systemImage: "bag.fill",
+                action: { showShopSheet = true }
+            )
+        ]
+    }
+
     private var levelChip: some View {
         Button {
             selectedTab = 1
@@ -1213,16 +1264,31 @@ struct HomeView: View {
     private var teacherToolsSection: some View {
         Section("Teacher Tools") {
             if purchaseManager.isPro {
-                NavigationLink {
-                    PBLazyView(StudioManagerView())
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Studio Manager")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("Create your studio, manage roster, and publish assignments.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    NavigationLink {
+                        PBLazyView(StudioManagerView(entryMode: .teacher))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Studio Manager")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Create your studio, manage roster, and publish assignments.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+
+                    NavigationLink {
+                        PBLazyView(StudioPlannerView())
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Studio Planner")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Plan lessons, studio class, and recital events with calendar sync.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
                     }
                 }
             } else {
@@ -1237,6 +1303,46 @@ struct HomeView: View {
                     .font(type.footnote)
                 }
             }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var studentToolsSection: some View {
+        Section("Student Tools") {
+            if purchaseManager.isPro {
+                NavigationLink {
+                    PBLazyView(StudioManagerView(entryMode: .student))
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your Studio")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Join your teacher's studio, review roster, and track assignment progress.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Student studio tools are part of Practice Buddy Pro.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Button("Open Practice Buddy Pro") {
+                        selectedTab = 4
+                    }
+                    .buttonStyle(.bordered)
+                    .font(type.footnote)
+                }
+            }
+        }
+        .listRowBackground(palette.surface)
+    }
+
+    private var studioToolsOffSection: some View {
+        Section("Studio") {
+            Text("No studio tools are enabled. Update Tool Access in Settings.")
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
         }
         .listRowBackground(palette.surface)
     }

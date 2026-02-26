@@ -14,7 +14,7 @@ Environment
 Current Product Areas
 
 1) Core App Structure
-- Tab-based app: Home, History, Journey, Studio, Settings
+- Tab-based app: Home, Play, Social, Profile, Settings
 - NavigationStack per tab
 - Shared theme and typography systems via environment
 
@@ -550,6 +550,84 @@ MVP scope notes:
 - This is asynchronous challenge competition (not live realtime head-to-head).
 - Scoring is app-derived from analysis metrics; manual self-report slider is removed.
 - Matchmaking supports open queue + friend/studio invitations.
+
+23) Account/Role Model Simplification + Tool Access
+- Account type hard split was replaced by a single-account capability model.
+- Added `Primary Focus` in Settings:
+  - `Student`
+  - `Teacher`
+  - `Both`
+- Added explicit tool visibility toggles in Settings:
+  - `Student Tools`
+  - `Teacher Tools`
+- Home `Studio` section now renders based on enabled tool capabilities:
+  - Teacher-only users: teacher tools only
+  - Student-only users: student tools only
+  - Both: teacher + student blocks
+- `Studio Manager` remains Pro-gated and is now entered in explicit mode:
+  - teacher entry mode
+  - student entry mode
+
+24) Shop + Shortcut Navigation Pass
+- Added a reusable shortcut chip row component:
+  - `PracticeBuddy/SharedUI/PBShortcutBar.swift`
+- Added top shortcut rows on all root tabs:
+  - Home, Play, Social, Profile, Settings
+- Shortcut rows were moved out of header cards and placed above cards.
+- Shop routing updated:
+  - `Shop` shortcut now opens a dedicated modal Shop page (not Settings tab jump).
+  - new `PracticeBuddy/Features/Shop/ShopView.swift`
+  - Shop includes:
+    - Pro purchase/trial/restore section
+    - Cosmetics (Coming soon)
+    - Expressive (Coming soon)
+    - Bundles (Coming soon)
+- Social shortcut behavior updated:
+  - `Requests` scrolls to pending requests area
+  - `Leaderboard` shortcut scrolls to leaderboard area
+- Play shortcut behavior updated:
+  - `Leaderboard` shortcut scrolls directly to `Season Ladder`
+- Profile UX updated:
+  - save actions now dismiss keyboard reliably.
+
+25) Teacher Tools: Studio Planner (Phase 1 + Enhancements)
+- Added `Studio Planner` under Home -> Studio -> Teacher Tools.
+- New planner module:
+  - `PracticeBuddy/Features/Friends/StudioPlannerView.swift`
+  - supports event types:
+    - Lesson
+    - Studio Class
+    - Recital
+  - event create flow:
+    - title, notes, location, start/end
+    - roster student assignment with optional piece + duration
+    - optional Apple Calendar sync (EventKit)
+  - event list actions:
+    - Add to Calendar
+    - Edit
+    - Delete
+- Added planner filters:
+  - type filter (`All`, `Lesson`, `Studio Class`, `Recital`)
+  - date filter (`Upcoming`, `Next 7 Days`, `This Month`, `All Dates`)
+- Added recurring lesson templates:
+  - save template from composer
+  - use template to prefill composer
+  - schedule next lesson from template
+  - delete template
+- Firebase repository expanded for planner domain:
+  - planner events read/create/update/delete
+  - lesson template read/create/delete
+  - external calendar event ID persistence
+- Firestore rules extended:
+  - `studios/{studioId}/events/{eventId}`
+  - `studios/{studioId}/lessonTemplates/{templateId}`
+- iOS permissions updated:
+  - `NSCalendarsUsageDescription` added to `Info.plist`
+
+26) Top Safe Area Visual Fix
+- Root tab screens had a visible top-area mismatch near the Dynamic Island due to navigation bar background layering.
+- Updated root screens to hide navigation bar background so app backdrop visually fills to top safe area:
+  - Home, Play, Social, Profile, Settings root views.
 
 Included Local Font Files
 - PlayfairDisplay-Regular.ttf

@@ -24,6 +24,7 @@ struct ContentView: View {
     @StateObject private var duelLeagueManager = DuelLeagueManager()
     @StateObject private var assignmentLinkManager = AssignmentLinkManager()
     @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
+    @StateObject private var friendRequestBadgeManager = FriendRequestBadgeManager()
 
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
@@ -36,57 +37,7 @@ struct ContentView: View {
         let fontChoice = PBFontChoice.byID(selectedFontID)
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
-        Group {
-            if !firebase.isReady {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(theme.background.ignoresSafeArea())
-            } else if needsAccountSetup {
-                AccountSetupView()
-            } else {
-                TabView(selection: $selectedTab) {
-                    NavigationStack {
-                        PBLazyView(HomeView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Home", systemImage: "house") }
-                    .tag(0)
-
-                    NavigationStack {
-                        PBLazyView(JourneyView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Play", systemImage: "gamecontroller") }
-                    .tag(1)
-
-                    NavigationStack {
-                        PBLazyView(StudioHubView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Social", systemImage: "person.2") }
-                    .tag(2)
-
-                    NavigationStack {
-                        PBLazyView(ProfileTabView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
-                    .tag(3)
-
-                    NavigationStack {
-                        PBLazyView(SettingsView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Settings", systemImage: "gearshape") }
-                    .tag(4)
-                }
-            }
-        }
+        rootContent
         .onAppear {
             migrateTabSelectionIfNeeded()
 
@@ -101,6 +52,7 @@ struct ContentView: View {
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
             syncUserPipelines(force: true)
+            syncFriendRequestBadge()
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
@@ -111,9 +63,11 @@ struct ContentView: View {
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID
             syncUserPipelines()
+            syncFriendRequestBadge()
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             syncUserPipelines()
+            syncFriendRequestBadge()
         }
         .onChange(of: purchaseManager.isPro) { _, isPro in
             guard scenePhase == .active, canRunRealtimePipelines else { return }
@@ -127,10 +81,12 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 syncUserPipelines(force: true)
+                syncFriendRequestBadge()
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
                 duelLeagueManager.pauseRealtime()
+                friendRequestBadgeManager.stop()
             }
         }
         .onOpenURL { url in
@@ -160,6 +116,75 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if !firebase.isReady {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(theme.background.ignoresSafeArea())
+        } else if needsAccountSetup {
+            AccountSetupView()
+        } else {
+            TabView(selection: $selectedTab) {
+                NavigationStack {
+                    PBLazyView(HomeView())
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .tabItem { Label("Home", systemImage: "house") }
+                .tag(0)
+
+                NavigationStack {
+                    PBLazyView(JourneyView())
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .tabItem { Label("Play", systemImage: "gamecontroller") }
+                .tag(1)
+
+                if let socialBadgeCount = socialTabBadgeCount {
+                    NavigationStack {
+                        PBLazyView(StudioHubView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Social", systemImage: "person.2") }
+                    .badge(socialBadgeCount)
+                    .tag(2)
+                } else {
+                    NavigationStack {
+                        PBLazyView(StudioHubView())
+                            .navigationTitle("")
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .tabItem { Label("Social", systemImage: "person.2") }
+                    .tag(2)
+                }
+
+                NavigationStack {
+                    PBLazyView(ProfileTabView())
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                .tag(3)
+
+                NavigationStack {
+                    PBLazyView(SettingsView())
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(4)
+            }
+        }
+    }
+
+    private var socialTabBadgeCount: Int? {
+        let count = friendRequestBadgeManager.incomingCount
+        return count > 0 ? count : nil
     }
 
     private var needsAccountSetup: Bool {
@@ -217,6 +242,22 @@ struct ContentView: View {
 
         resumeRealtimeManagers()
         duelLeagueManager.start(uid: firebase.currentUserID)
+    }
+
+    private func syncFriendRequestBadge() {
+        guard scenePhase == .active else {
+            friendRequestBadgeManager.stop()
+            return
+        }
+        guard let uid = firebase.currentUserID, !uid.isEmpty else {
+            friendRequestBadgeManager.stop()
+            return
+        }
+        guard !firebase.isAnonymousUser else {
+            friendRequestBadgeManager.stop()
+            return
+        }
+        friendRequestBadgeManager.start(uid: uid)
     }
 
     private func handleIncomingURL(_ url: URL) {
