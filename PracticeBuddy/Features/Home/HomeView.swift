@@ -1266,7 +1266,7 @@ struct HomeView: View {
             if purchaseManager.isPro {
                 VStack(alignment: .leading, spacing: 10) {
                     NavigationLink {
-                        PBLazyView(StudioManagerView(entryMode: .teacher))
+                        PBLazyView(StudioPlannerView())
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Studio Manager")

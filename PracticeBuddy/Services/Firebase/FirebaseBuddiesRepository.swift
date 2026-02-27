@@ -22,6 +22,22 @@ struct BuddySummary: Identifiable, Equatable {
     let publicLevel: Int
 }
 
+enum BuddyPresenceValue: String {
+    case online
+    case offline
+}
+
+struct BuddyPresenceState: Equatable {
+    let state: BuddyPresenceValue
+    let lastChanged: Date
+}
+
+struct BuddyPublicStats: Equatable {
+    let publicLevel: Int
+    let duelLeague: String
+    let duelRating: Int
+}
+
 enum BuddyInviteStatus: String {
     case pending
     case accepted
@@ -188,6 +204,58 @@ final class FirebaseBuddiesRepository {
                     onChange(rows)
                 }
             }
+    }
+
+    func listenToPresence(
+        uid: String,
+        onChange: @escaping @MainActor (BuddyPresenceState) -> Void
+    ) -> ListenerRegistration {
+        db.collection(usersCollection).document(uid).addSnapshotListener { snap, _ in
+            Task { @MainActor in
+                let data = snap?.data()
+                let stateRaw = (data?["presenceState"] as? String) ?? BuddyPresenceValue.offline.rawValue
+                let state = BuddyPresenceValue(rawValue: stateRaw) ?? .offline
+                let lastChanged = (data?["presenceLastChanged"] as? Timestamp)?.dateValue() ?? .distantPast
+                onChange(BuddyPresenceState(state: state, lastChanged: lastChanged))
+            }
+        }
+    }
+
+    func listenToPublicStats(
+        uid: String,
+        onChange: @escaping @MainActor (BuddyPublicStats) -> Void
+    ) -> ListenerRegistration {
+        db.collection(usersCollection).document(uid).addSnapshotListener { snap, _ in
+            Task { @MainActor in
+                let data = snap?.data()
+                let level = max(1, (data?["publicLevel"] as? Int) ?? 1)
+                let leagueRaw = ((data?["duelLeague"] as? String) ?? "bronze").trimmingCharacters(in: .whitespacesAndNewlines)
+                let league = leagueRaw.isEmpty ? "Bronze" : leagueRaw.capitalized
+                let rating = max(0, (data?["duelRating"] as? Int) ?? 0)
+                onChange(BuddyPublicStats(publicLevel: level, duelLeague: league, duelRating: rating))
+            }
+        }
+    }
+
+    func fetchPublicStats(forUIDs uids: [String]) async throws -> [String: BuddyPublicStats] {
+        let unique = Array(Set(uids))
+        guard !unique.isEmpty else { return [:] }
+
+        var output: [String: BuddyPublicStats] = [:]
+        for chunk in unique.chunked(into: 10) {
+            let snapshot = try await db.collection(usersCollection)
+                .whereField(FieldPath.documentID(), in: chunk)
+                .getDocuments()
+            for doc in snapshot.documents {
+                let data = doc.data()
+                let level = max(1, (data["publicLevel"] as? Int) ?? 1)
+                let leagueRaw = ((data["duelLeague"] as? String) ?? "bronze").trimmingCharacters(in: .whitespacesAndNewlines)
+                let league = leagueRaw.isEmpty ? "Bronze" : leagueRaw.capitalized
+                let rating = max(0, (data["duelRating"] as? Int) ?? 0)
+                output[doc.documentID] = BuddyPublicStats(publicLevel: level, duelLeague: league, duelRating: rating)
+            }
+        }
+        return output
     }
 
     func sendInvite(from myProfile: FirebaseUserProfile, friendCode rawCode: String) async throws -> String {

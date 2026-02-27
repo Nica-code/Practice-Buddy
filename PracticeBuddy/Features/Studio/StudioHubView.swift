@@ -11,17 +11,12 @@ struct StudioHubView: View {
         case chat
 
         var id: String { rawValue }
-        var titleKey: String {
-            switch self {
-            case .friends: return "Friends"
-            case .chat: return "Chat"
-            }
-        }
     }
 
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var socialChatManager: StudioChatViewModel
     @AppStorage("pb.studio.hub.section") private var sectionRawValue: String = StudioSection.friends.rawValue
     @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
     @State private var animateHeader = false
@@ -87,7 +82,7 @@ struct StudioHubView: View {
 
             Text(
                 StudioSection(rawValue: sectionRawValue) == .chat
-                ? "Studio conversations in one place."
+                ? "Studio and friend conversations in one place."
                 : "Manage friends and studio connections."
             )
             .font(type.footnote)
@@ -95,7 +90,7 @@ struct StudioHubView: View {
 
             Picker("Social", selection: sectionBinding) {
                 ForEach(StudioSection.allCases) { section in
-                    Text(LocalizedStringKey(section.titleKey)).tag(section)
+                    Text(sectionTitle(for: section)).tag(section)
                 }
             }
             .pickerStyle(.segmented)
@@ -136,5 +131,17 @@ struct StudioHubView: View {
                 action: { showShopSheet = true }
             )
         ]
+    }
+
+    private func sectionTitle(for section: StudioSection) -> String {
+        switch section {
+        case .friends:
+            return "Friends"
+        case .chat:
+            if socialChatManager.unreadCount > 0 {
+                return "Chat (\(socialChatManager.unreadCount))"
+            }
+            return "Chat"
+        }
     }
 }

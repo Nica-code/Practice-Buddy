@@ -25,6 +25,8 @@ struct ContentView: View {
     @StateObject private var assignmentLinkManager = AssignmentLinkManager()
     @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
     @StateObject private var friendRequestBadgeManager = FriendRequestBadgeManager()
+    @StateObject private var presenceManager = FirebasePresenceManager()
+    @StateObject private var socialChatManager = StudioChatViewModel()
 
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
@@ -53,6 +55,8 @@ struct ContentView: View {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
             syncUserPipelines(force: true)
             syncFriendRequestBadge()
+            syncPresence()
+            syncSocialChatBadge()
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
@@ -64,10 +68,14 @@ struct ContentView: View {
             _ = newUID
             syncUserPipelines()
             syncFriendRequestBadge()
+            syncPresence()
+            syncSocialChatBadge()
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             syncUserPipelines()
             syncFriendRequestBadge()
+            syncPresence()
+            syncSocialChatBadge()
         }
         .onChange(of: purchaseManager.isPro) { _, isPro in
             guard scenePhase == .active, canRunRealtimePipelines else { return }
@@ -82,11 +90,15 @@ struct ContentView: View {
             if phase == .active {
                 syncUserPipelines(force: true)
                 syncFriendRequestBadge()
+                syncPresence()
+                syncSocialChatBadge()
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
                 duelLeagueManager.pauseRealtime()
                 friendRequestBadgeManager.stop()
+                presenceManager.stop()
+                socialChatManager.stop()
             }
         }
         .onOpenURL { url in
@@ -98,6 +110,7 @@ struct ContentView: View {
         .environmentObject(duelLeagueManager)
         .environmentObject(assignmentLinkManager)
         .environmentObject(warmupOfWeekManager)
+        .environmentObject(socialChatManager)
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
         .pbGlobalFontDesign(fontChoice)
@@ -183,7 +196,7 @@ struct ContentView: View {
     }
 
     private var socialTabBadgeCount: Int? {
-        let count = friendRequestBadgeManager.incomingCount
+        let count = friendRequestBadgeManager.incomingCount + socialChatManager.unreadCount
         return count > 0 ? count : nil
     }
 
@@ -258,6 +271,38 @@ struct ContentView: View {
             return
         }
         friendRequestBadgeManager.start(uid: uid)
+    }
+
+    private func syncPresence() {
+        guard scenePhase == .active else {
+            presenceManager.stop()
+            return
+        }
+        guard let uid = firebase.currentUserID, !uid.isEmpty else {
+            presenceManager.stop()
+            return
+        }
+        guard !firebase.isAnonymousUser else {
+            presenceManager.stop()
+            return
+        }
+        presenceManager.start(uid: uid)
+    }
+
+    private func syncSocialChatBadge() {
+        guard scenePhase == .active else {
+            socialChatManager.stop()
+            return
+        }
+        guard let uid = firebase.currentUserID, !uid.isEmpty else {
+            socialChatManager.stop()
+            return
+        }
+        guard !firebase.isAnonymousUser else {
+            socialChatManager.stop()
+            return
+        }
+        socialChatManager.start(uid: uid)
     }
 
     private func handleIncomingURL(_ url: URL) {

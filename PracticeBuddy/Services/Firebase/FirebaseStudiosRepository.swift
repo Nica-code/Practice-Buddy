@@ -85,6 +85,25 @@ struct StudioChatMessage: Identifiable, Equatable {
     let createdAt: Date
 }
 
+struct FriendChatThread: Identifiable, Equatable {
+    let id: String
+    let participants: [String]
+    let lastMessageText: String
+    let lastMessageAt: Date
+    let lastMessageSenderUID: String
+}
+
+struct FriendChatMessage: Identifiable, Equatable {
+    let id: String
+    let threadID: String
+    let senderUID: String
+    let senderName: String
+    let senderAvatarID: String
+    let senderLevel: Int
+    let text: String
+    let createdAt: Date
+}
+
 enum StudioPlannerEventType: String, CaseIterable, Identifiable {
     case lesson
     case studioClass = "studio_class"
@@ -150,6 +169,7 @@ enum FirebaseStudiosError: LocalizedError {
     case invalidPlannerTitle
     case invalidPlannerDateRange
     case invalidLessonTemplate
+    case chatRequiresFriendship
 
     var errorDescription: String? {
         switch self {
@@ -165,6 +185,7 @@ enum FirebaseStudiosError: LocalizedError {
         case .invalidPlannerTitle: return "Event title must be 2-80 characters."
         case .invalidPlannerDateRange: return "End time must be after start time."
         case .invalidLessonTemplate: return "Lesson template is invalid."
+        case .chatRequiresFriendship: return "You can only chat with friends."
         }
     }
 }
@@ -872,6 +893,154 @@ final class FirebaseStudiosRepository {
             ])
     }
 
+    func listenToStudioLatestMessage(
+        studioID: String,
+        onChange: @escaping @MainActor (StudioChatMessage?) -> Void
+    ) -> ListenerRegistration {
+        db.collection("studios")
+            .document(studioID)
+            .collection("messages")
+            .order(by: "createdAt", descending: true)
+            .limit(to: 1)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let message = snap?.documents.first.flatMap { self.parseChatMessage(studioID: studioID, document: $0) }
+                    onChange(message)
+                }
+            }
+    }
+
+    func listenToBuddyDirectory(
+        uid: String,
+        onChange: @escaping @MainActor ([StudioMemberSummary]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("friendships")
+            .document(uid)
+            .collection("buddies")
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows: [StudioMemberSummary] = (snap?.documents ?? []).compactMap { doc in
+                        let data = doc.data()
+                        guard let displayName = data["displayName"] as? String else { return nil }
+                        let avatarID = (data["avatarID"] as? String) ?? "avatar_note"
+                        let level = max(1, (data["publicLevel"] as? Int) ?? 1)
+                        let joinedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+                        return StudioMemberSummary(
+                            id: doc.documentID,
+                            displayName: displayName,
+                            role: .student,
+                            joinedAt: joinedAt,
+                            avatarID: avatarID,
+                            publicLevel: level
+                        )
+                    }
+                    onChange(rows.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending })
+                }
+            }
+    }
+
+    func listenToFriendChatThreads(
+        uid: String,
+        onChange: @escaping @MainActor ([FriendChatThread]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("friendChats")
+            .whereField("participants", arrayContains: uid)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap(self.parseFriendChatThread)
+                        .sorted { $0.lastMessageAt > $1.lastMessageAt }
+                    onChange(rows)
+                }
+            }
+    }
+
+    func listenToFriendMessages(
+        threadID: String,
+        limit: Int = 250,
+        onChange: @escaping @MainActor ([FriendChatMessage]) -> Void
+    ) -> ListenerRegistration {
+        db.collection("friendChats")
+            .document(threadID)
+            .collection("messages")
+            .order(by: "createdAt", descending: false)
+            .limit(to: max(20, min(limit, 500)))
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap { self.parseFriendMessage(threadID: threadID, document: $0) }
+                    onChange(rows)
+                }
+            }
+    }
+
+    func ensureFriendThread(currentUID: String, friendUID: String) async throws {
+        guard currentUID != friendUID else { return }
+        let friendship = try await db.collection("friendships")
+            .document(currentUID)
+            .collection("buddies")
+            .document(friendUID)
+            .getDocument()
+        guard friendship.exists else {
+            throw FirebaseStudiosError.chatRequiresFriendship
+        }
+
+        let threadID = friendThreadID(uidA: currentUID, uidB: friendUID)
+        try await db.collection("friendChats")
+            .document(threadID)
+            .setData([
+                "participants": [currentUID, friendUID].sorted(),
+                "lastMessageText": "",
+                "lastMessageAt": FieldValue.serverTimestamp(),
+                "lastMessageSenderUid": "",
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+    }
+
+    func sendFriendMessage(
+        senderUID: String,
+        recipientUID: String,
+        senderName: String,
+        senderAvatarID: String,
+        senderLevel: Int,
+        rawText: String
+    ) async throws {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard senderUID != recipientUID else { return }
+
+        let friendshipA = try await db.collection("friendships")
+            .document(senderUID)
+            .collection("buddies")
+            .document(recipientUID)
+            .getDocument()
+        guard friendshipA.exists else {
+            throw FirebaseStudiosError.chatRequiresFriendship
+        }
+
+        let threadID = friendThreadID(uidA: senderUID, uidB: recipientUID)
+        let threadRef = db.collection("friendChats").document(threadID)
+        let messageRef = threadRef.collection("messages").document()
+        let now = FieldValue.serverTimestamp()
+        let participants = [senderUID, recipientUID].sorted()
+
+        let batch = db.batch()
+        batch.setData([
+            "participants": participants,
+            "lastMessageText": String(text.prefix(700)),
+            "lastMessageAt": now,
+            "lastMessageSenderUid": senderUID,
+            "updatedAt": now
+        ], forDocument: threadRef, merge: true)
+        batch.setData([
+            "senderUid": senderUID,
+            "senderName": senderName,
+            "senderAvatarID": senderAvatarID,
+            "senderLevel": max(1, senderLevel),
+            "text": String(text.prefix(700)),
+            "createdAt": now
+        ], forDocument: messageRef, merge: true)
+        try await batch.commit()
+    }
+
     func joinStudio(studentUID: String, rawInviteCode: String) async throws {
         let inviteCode = rawInviteCode
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1175,6 +1344,49 @@ final class FirebaseStudiosRepository {
             text: text,
             createdAt: createdAt
         )
+    }
+
+    private func parseFriendChatThread(_ document: QueryDocumentSnapshot) -> FriendChatThread? {
+        let data = document.data()
+        guard let participants = data["participants"] as? [String],
+              participants.count == 2 else {
+            return nil
+        }
+        let lastMessageText = (data["lastMessageText"] as? String) ?? ""
+        let lastMessageAt = (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        let lastMessageSenderUID = (data["lastMessageSenderUid"] as? String) ?? ""
+        return FriendChatThread(
+            id: document.documentID,
+            participants: participants,
+            lastMessageText: lastMessageText,
+            lastMessageAt: lastMessageAt,
+            lastMessageSenderUID: lastMessageSenderUID
+        )
+    }
+
+    private func parseFriendMessage(threadID: String, document: QueryDocumentSnapshot) -> FriendChatMessage? {
+        let data = document.data()
+        guard let senderUID = data["senderUid"] as? String,
+              let senderName = data["senderName"] as? String,
+              let text = data["text"] as? String else {
+            return nil
+        }
+
+        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        return FriendChatMessage(
+            id: document.documentID,
+            threadID: threadID,
+            senderUID: senderUID,
+            senderName: senderName,
+            senderAvatarID: (data["senderAvatarID"] as? String) ?? "avatar_note",
+            senderLevel: max(1, (data["senderLevel"] as? Int) ?? 1),
+            text: text,
+            createdAt: createdAt
+        )
+    }
+
+    func friendThreadID(uidA: String, uidB: String) -> String {
+        [uidA, uidB].sorted().joined(separator: "__")
     }
 
     private func makeInviteCode() -> String {

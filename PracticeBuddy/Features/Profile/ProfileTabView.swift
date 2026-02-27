@@ -3,7 +3,6 @@ import AuthenticationServices
 
 struct ProfileTabView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
-    @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var journey: JourneyProgressManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
@@ -12,10 +11,6 @@ struct ProfileTabView: View {
     @StateObject private var buddiesVM = BuddiesViewModel()
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var myTotalMinutes: Int {
-        store.totalAllMinutes
-    }
-
     var body: some View {
         Group {
             if firebase.currentUserID == nil {
@@ -43,12 +38,7 @@ struct ProfileTabView: View {
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
-            await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
             await buddiesVM.syncPublicLevel(journey.level)
-        }
-        .task(id: myTotalMinutes) {
-            guard firebase.currentUserID != nil else { return }
-            await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
         }
         .task(id: journey.level) {
             guard firebase.currentUserID != nil else { return }

@@ -512,6 +512,13 @@ struct DuelDerivedMetrics {
     }
 }
 
+struct DuelParticipantCard: Identifiable, Equatable {
+    let id: String
+    let displayName: String
+    let publicLevel: Int
+    let duelRating: Int
+}
+
 struct DuelChallenge: Identifiable, Equatable {
     let id: String
     let createdByUID: String
@@ -560,6 +567,7 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var outgoingInvites: [DuelChallenge] = []
     @Published private(set) var activeChallenges: [DuelChallenge] = []
     @Published private(set) var recentCompleted: [DuelChallenge] = []
+    @Published private(set) var userDisplayNames: [String: String] = [:]
     @Published private(set) var friendCandidates: [DuelTargetCandidate] = []
     @Published private(set) var studioCandidates: [DuelTargetCandidate] = []
     @Published private(set) var seasonKey: String = ""
@@ -571,6 +579,7 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var duelWins: Int = 0
     @Published private(set) var duelLosses: Int = 0
     @Published private(set) var duelDraws: Int = 0
+    @Published private(set) var readyChallengeID: String?
     @Published private(set) var isLoading = false
     @Published var statusMessage: String?
 
@@ -584,8 +593,10 @@ final class DuelLeagueManager: ObservableObject {
     private var studioCandidatesCache: [DuelTargetCandidate] = []
     private var leaderboardCache: [DuelLeaderboardScope: (seasonKey: String, rows: [DuelLeaderboardRow], fetchedAt: Date)] = [:]
     private let targetCandidatesRefreshCooldown: TimeInterval = 30
-    private let leaderboardRefreshCooldown: TimeInterval = 30
+    private let leaderboardRefreshCooldown: TimeInterval = 60 * 60 * 24
     private let urlSession = URLSession.shared
+    private var didReceiveInitialChallengeSnapshot = false
+    private var priorChallengeStatusByID: [String: DuelChallengeStatus] = [:]
 
     func start(uid: String?) {
         guard let uid, !uid.isEmpty else {
@@ -612,6 +623,7 @@ final class DuelLeagueManager: ObservableObject {
         outgoingInvites = []
         activeChallenges = []
         recentCompleted = []
+        userDisplayNames = [:]
         friendCandidates = []
         studioCandidates = []
         seasonKey = ""
@@ -623,12 +635,15 @@ final class DuelLeagueManager: ObservableObject {
         duelWins = 0
         duelLosses = 0
         duelDraws = 0
+        readyChallengeID = nil
         isLoading = false
         statusMessage = nil
         lastTargetCandidatesRefreshAt = nil
         friendCandidatesCache = []
         studioCandidatesCache = []
         leaderboardCache = [:]
+        didReceiveInitialChallengeSnapshot = false
+        priorChallengeStatusByID = [:]
     }
 
     func queueAsyncScaleDuel(octaves: DuelOctaveCount = .one) async {
@@ -762,6 +777,8 @@ final class DuelLeagueManager: ObservableObject {
 
     func cancelInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
+        let priorOutgoing = outgoingInvites
+        outgoingInvites.removeAll { $0.id == challengeID }
         do {
             _ = try await callDuelEndpoint(
                 name: "duelRespond",
@@ -769,6 +786,7 @@ final class DuelLeagueManager: ObservableObject {
             )
             statusMessage = "Invite canceled."
         } catch {
+            outgoingInvites = priorOutgoing
             statusMessage = error.localizedDescription
         }
     }
@@ -828,6 +846,37 @@ final class DuelLeagueManager: ObservableObject {
         }
     }
 
+    func fetchParticipantCards(for challenge: DuelChallenge) async -> [String: DuelParticipantCard] {
+        let unique = Array(Set(challenge.participants))
+        guard !unique.isEmpty else { return [:] }
+        var output: [String: DuelParticipantCard] = [:]
+        for chunk in unique.chunked(into: 10) {
+            do {
+                let snap = try await db.collection("users")
+                    .whereField(FieldPath.documentID(), in: chunk)
+                    .getDocuments()
+                for doc in snap.documents {
+                    let data = doc.data()
+                    let displayName = ((data["displayName"] as? String) ?? "Player")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    output[doc.documentID] = DuelParticipantCard(
+                        id: doc.documentID,
+                        displayName: displayName.isEmpty ? "Player" : displayName,
+                        publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1),
+                        duelRating: max(0, (data["duelRating"] as? Int) ?? 0)
+                    )
+                }
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        }
+        return output
+    }
+
+    func clearReadyChallenge() {
+        readyChallengeID = nil
+    }
+
     private func attachRealtime(for uid: String) {
         let userListener = db.collection("users").document(uid).addSnapshotListener { [weak self] snap, _ in
             guard let self else { return }
@@ -871,6 +920,21 @@ final class DuelLeagueManager: ObservableObject {
                     }
                     self.activeChallenges = rows.filter { $0.status == .active }
                     self.recentCompleted = rows.filter { $0.status == .completed }.prefix(8).map { $0 }
+                    self.prefetchDisplayNames(for: rows)
+
+                    let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
+                    if self.didReceiveInitialChallengeSnapshot {
+                        let newlyActive = rows.first {
+                            let previous = self.priorChallengeStatusByID[$0.id]
+                            return $0.status == .active && previous == .invited
+                        }
+                        if let newlyActive {
+                            self.readyChallengeID = newlyActive.id
+                            self.statusMessage = "Duel accepted. Tap Enter."
+                        }
+                    }
+                    self.priorChallengeStatusByID = statusByID
+                    self.didReceiveInitialChallengeSnapshot = true
                 }
             }
 
@@ -1174,6 +1238,36 @@ final class DuelLeagueManager: ObservableObject {
             creatorRatingDelta: data["creatorRatingDelta"] as? Int ?? 0,
             opponentRatingDelta: data["opponentRatingDelta"] as? Int ?? 0
         )
+    }
+
+    private func prefetchDisplayNames(for rows: [DuelChallenge]) {
+        let uids = Array(Set(rows.flatMap(\.participants)))
+        guard !uids.isEmpty else { return }
+        let missing = uids.filter { userDisplayNames[$0] == nil }
+        guard !missing.isEmpty else { return }
+
+        Task {
+            var fetched: [String: String] = [:]
+            for chunk in missing.chunked(into: 10) {
+                do {
+                    let snap = try await db.collection("users")
+                        .whereField(FieldPath.documentID(), in: chunk)
+                        .getDocuments()
+                    for doc in snap.documents {
+                        let displayName = ((doc.data()["displayName"] as? String) ?? "")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !displayName.isEmpty {
+                            fetched[doc.documentID] = displayName
+                        }
+                    }
+                } catch {
+                    statusMessage = error.localizedDescription
+                }
+            }
+            if !fetched.isEmpty {
+                userDisplayNames.merge(fetched) { _, new in new }
+            }
+        }
     }
 
 }

@@ -14,7 +14,6 @@ struct FriendsView: View {
         case leaderboard = "social.leaderboard"
     }
 
-    @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var duelLeague: DuelLeagueManager
     @Environment(\.pbTheme) private var theme
@@ -26,7 +25,6 @@ struct FriendsView: View {
 
     @State private var inviteCodeInput: String = ""
     @State private var displayNameInput: String = ""
-    @State private var selectedDuelOctaves: DuelOctaveCount = .one
     @State private var expandedLeaderboardUserID: String?
     @State private var profileTarget: LeaderboardActionUser?
 
@@ -69,22 +67,15 @@ struct FriendsView: View {
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
-            await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
             await buddiesVM.syncPublicLevel(journey.level)
-            await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes)
-        }
-        .task(id: myTotalMinutes) {
-            guard firebase.currentUserID != nil else { return }
-            await buddiesVM.syncPracticeTotal(minutes: myTotalMinutes)
-            await buddiesVM.syncPublicLevel(journey.level)
-            await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes)
+            await buddiesVM.refreshLeaderboard()
         }
         .task(id: journey.level) {
             guard firebase.currentUserID != nil else { return }
             await buddiesVM.syncPublicLevel(journey.level)
         }
         .onChange(of: buddiesVM.buddies) { _, _ in
-            Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes) }
+            Task { await buddiesVM.refreshLeaderboard() }
         }
         .onChange(of: buddiesVM.myProfile?.displayName) { _, newValue in
             guard let newValue, !newValue.isEmpty else { return }
@@ -102,10 +93,6 @@ struct FriendsView: View {
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-
-    private var myTotalMinutes: Int {
-        store.totalAllMinutes
-    }
 
     private func socialSection<Content: View>(
         _ title: LocalizedStringKey,
@@ -258,7 +245,7 @@ struct FriendsView: View {
                 inviteCodeInput = ""
                 Task {
                     _ = await buddiesVM.sendInvite(friendCode: code)
-                    await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true)
+                    await buddiesVM.refreshLeaderboard()
                 }
             }
             .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
@@ -319,8 +306,15 @@ struct FriendsView: View {
                                 .foregroundStyle(theme.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "clock")
-                            .foregroundStyle(theme.textSecondary)
+                        HStack(spacing: 8) {
+                            Image(systemName: "clock")
+                                .foregroundStyle(theme.textSecondary)
+                            Button("Cancel", role: .destructive) {
+                                Task { await buddiesVM.cancelOutgoingInvite(invite) }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
                     }
                     .padding(10)
                     .pbSurfaceCard(palette: palette)
@@ -351,14 +345,38 @@ struct FriendsView: View {
                                 .font(type.body)
                                 .foregroundStyle(theme.textPrimary)
                             HStack(spacing: 6) {
-                                Text(buddy.friendCode)
+                                Circle()
+                                    .fill(buddiesVM.isBuddyOnline(buddy.id) ? Color.green : theme.textSecondary.opacity(0.45))
+                                    .frame(width: 7, height: 7)
+                                Text(buddiesVM.isBuddyOnline(buddy.id) ? "Online" : "Offline")
+                                    .font(type.body)
+                                    .foregroundStyle(theme.textSecondary)
+                            }
+                            HStack(spacing: 8) {
+                                Text(L10n.f("Level %@", "\(buddiesVM.buddyDisplayLevel(buddy.id))"))
                                     .font(type.footnote)
                                     .foregroundStyle(theme.textSecondary)
                                     .monospacedDigit()
-                                PBLevelBadgeView(level: buddy.publicLevel)
+                                Text("•")
+                                    .font(type.footnote)
+                                    .foregroundStyle(theme.textSecondary)
+                                let league = buddiesVM.buddyDisplayLeague(buddy.id)
+                                Text(league)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(leagueChipTextColor(for: league))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(leagueChipColor(for: league).opacity(0.18))
+                                    .clipShape(Capsule())
                             }
                         }
                         Spacer()
+                        Button("Visit Profile") {
+                            profileTarget = LeaderboardActionUser(id: buddy.id, displayName: buddy.displayName)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .font(type.footnote)
                     }
                     .padding(10)
                     .pbSurfaceCard(palette: palette)
@@ -369,24 +387,6 @@ struct FriendsView: View {
 
     private var leaderboardCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Picker("Octaves", selection: $selectedDuelOctaves) {
-                    ForEach(DuelOctaveCount.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Spacer()
-                Button {
-                    Task { await buddiesVM.refreshLeaderboard(myTotalMinutes: myTotalMinutes, force: true) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .foregroundStyle(theme.textSecondary)
-                }
-                .buttonStyle(.plain)
-            }
-
             if buddiesVM.leaderboardRows.isEmpty {
                 Text("Add buddies to see ranking.")
                     .font(type.footnote)
@@ -419,9 +419,9 @@ struct FriendsView: View {
 
                                 PBLevelBadgeView(level: row.publicLevel)
 
-                                Text(L10n.f("%@ min", "\(row.minutes)"))
-                                    .font(type.number)
-                                    .foregroundStyle(theme.accent)
+                                Text(L10n.f("Rating %@", "\(row.duelRating)"))
+                                    .font(type.footnote)
+                                    .foregroundStyle(theme.textSecondary)
                                     .monospacedDigit()
                             }
                         }
@@ -437,7 +437,7 @@ struct FriendsView: View {
 
                                 Button("Duel Challenge") {
                                     Task {
-                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: selectedDuelOctaves)
+                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: .one)
                                     }
                                     expandedLeaderboardUserID = nil
                                 }
@@ -456,5 +456,27 @@ struct FriendsView: View {
         .padding(PBLayout.padMD)
         .pbModernCard(palette: palette)
         .id(SocialScrollAnchor.leaderboard.rawValue)
+    }
+
+    private func leagueChipColor(for league: String) -> Color {
+        switch league.lowercased() {
+        case "gold":
+            return .yellow
+        case "silver":
+            return .gray
+        default:
+            return .brown
+        }
+    }
+
+    private func leagueChipTextColor(for league: String) -> Color {
+        switch league.lowercased() {
+        case "gold":
+            return .yellow
+        case "silver":
+            return .gray
+        default:
+            return .brown
+        }
     }
 }

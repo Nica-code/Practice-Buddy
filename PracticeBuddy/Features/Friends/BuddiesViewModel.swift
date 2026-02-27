@@ -13,7 +13,7 @@ enum BuddyRelationshipState: Equatable {
 struct StudioLeaderboardRow: Identifiable, Equatable {
     let id: String
     let name: String
-    let minutes: Int
+    let duelRating: Int
     let isMe: Bool
     let avatarID: String
     let publicLevel: Int
@@ -25,18 +25,22 @@ final class BuddiesViewModel: ObservableObject {
     @Published private(set) var incomingInvites: [BuddyInvite] = []
     @Published private(set) var outgoingInvites: [BuddyInvite] = []
     @Published private(set) var buddies: [BuddySummary] = []
+    @Published private(set) var presenceByUID: [String: BuddyPresenceState] = [:]
+    @Published private(set) var buddyStatsByUID: [String: BuddyPublicStats] = [:]
     @Published private(set) var leaderboardRows: [StudioLeaderboardRow] = []
     @Published private(set) var isLoading = false
     @Published var statusMessage: String?
 
     private let repository: FirebaseBuddiesRepository
     private var listeners: [ListenerRegistration] = []
+    private var presenceListeners: [ListenerRegistration] = []
+    private var buddyStatsListeners: [ListenerRegistration] = []
+    private var presenceClockCancellable: AnyCancellable?
     private var configuredUID: String?
-    private var lastSyncedPracticeMinutes: Int?
     private var lastSyncedPublicLevel: Int?
     private var lastLeaderboardKey: String?
     private var lastLeaderboardRefreshAt: Date?
-    private let leaderboardRefreshCooldown: TimeInterval = 15
+    private let leaderboardRefreshCooldown: TimeInterval = 60 * 60 * 24
 
     init(repository: FirebaseBuddiesRepository? = nil) {
         self.repository = repository ?? FirebaseBuddiesRepository()
@@ -48,6 +52,9 @@ final class BuddiesViewModel: ObservableObject {
 
     deinit {
         listeners.forEach { $0.remove() }
+        presenceListeners.forEach { $0.remove() }
+        buddyStatsListeners.forEach { $0.remove() }
+        presenceClockCancellable?.cancel()
     }
 
     func start(for uid: String) async {
@@ -57,6 +64,7 @@ final class BuddiesViewModel: ObservableObject {
         configuredUID = uid
         isLoading = true
         statusMessage = nil
+        startPresenceClock()
 
         do {
             myProfile = try await repository.ensureCurrentUserProfile()
@@ -70,14 +78,21 @@ final class BuddiesViewModel: ObservableObject {
 
     func stop() {
         listeners.forEach { $0.remove() }
+        presenceListeners.forEach { $0.remove() }
+        buddyStatsListeners.forEach { $0.remove() }
         listeners = []
+        presenceListeners = []
+        buddyStatsListeners = []
+        presenceClockCancellable?.cancel()
+        presenceClockCancellable = nil
         configuredUID = nil
         myProfile = nil
         incomingInvites = []
         outgoingInvites = []
         buddies = []
+        presenceByUID = [:]
+        buddyStatsByUID = [:]
         leaderboardRows = []
-        lastSyncedPracticeMinutes = nil
         lastSyncedPublicLevel = nil
         lastLeaderboardKey = nil
         lastLeaderboardRefreshAt = nil
@@ -194,6 +209,15 @@ final class BuddiesViewModel: ObservableObject {
         }
     }
 
+    func cancelOutgoingInvite(_ invite: BuddyInvite) async {
+        do {
+            try await repository.declineInvite(invite)
+            statusMessage = "Request canceled."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func removeBuddy(_ buddy: BuddySummary) async {
         guard let uid = configuredUID else { return }
         do {
@@ -204,22 +228,10 @@ final class BuddiesViewModel: ObservableObject {
         }
     }
 
-    func syncPracticeTotal(minutes: Int) async {
-        guard let uid = configuredUID else { return }
-        let safeMinutes = max(0, minutes)
-        if lastSyncedPracticeMinutes == safeMinutes { return }
-        do {
-            try await repository.updatePracticeTotalMinutes(uid: uid, minutes: safeMinutes)
-            lastSyncedPracticeMinutes = safeMinutes
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-    }
-
-    func refreshLeaderboard(myTotalMinutes: Int, force: Bool = false) async {
+    func refreshLeaderboard(force: Bool = false) async {
         guard let profile = myProfile else { return }
         let buddyIDs = buddies.map(\.id)
-        let key = [profile.uid, "\(max(0, myTotalMinutes))", buddyIDs.sorted().joined(separator: ",")].joined(separator: "|")
+        let key = [profile.uid, buddyIDs.sorted().joined(separator: ",")].joined(separator: "|")
         if !force,
            lastLeaderboardKey == key,
            let lastLeaderboardRefreshAt,
@@ -228,38 +240,55 @@ final class BuddiesViewModel: ObservableObject {
         }
 
         do {
-            let totals = try await repository.fetchPracticeMinutes(forUIDs: [profile.uid] + buddyIDs)
+            let stats = try await repository.fetchPublicStats(forUIDs: [profile.uid] + buddyIDs)
+            let myStats = stats[profile.uid] ?? BuddyPublicStats(publicLevel: profile.publicLevel, duelLeague: "Bronze", duelRating: 0)
             var rows: [StudioLeaderboardRow] = [
                 StudioLeaderboardRow(
                     id: profile.uid,
                     name: "\(profile.displayName) (You)",
-                    minutes: max(myTotalMinutes, totals[profile.uid] ?? 0),
+                    duelRating: myStats.duelRating,
                     isMe: true,
                     avatarID: profile.avatarID,
-                    publicLevel: profile.publicLevel
+                    publicLevel: myStats.publicLevel
                 )
             ]
 
             rows += buddies.map { buddy in
-                StudioLeaderboardRow(
+                let buddyStats = stats[buddy.id] ?? BuddyPublicStats(publicLevel: buddy.publicLevel, duelLeague: "Bronze", duelRating: 0)
+                return StudioLeaderboardRow(
                     id: buddy.id,
                     name: buddy.displayName,
-                    minutes: totals[buddy.id] ?? 0,
+                    duelRating: buddyStats.duelRating,
                     isMe: false,
                     avatarID: buddy.avatarID,
-                    publicLevel: buddy.publicLevel
+                    publicLevel: buddyStats.publicLevel
                 )
             }
 
             leaderboardRows = rows.sorted {
-                if $0.minutes == $1.minutes { return $0.name < $1.name }
-                return $0.minutes > $1.minutes
+                if $0.publicLevel != $1.publicLevel { return $0.publicLevel > $1.publicLevel }
+                if $0.duelRating != $1.duelRating { return $0.duelRating > $1.duelRating }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
             lastLeaderboardKey = key
             lastLeaderboardRefreshAt = Date()
         } catch {
             statusMessage = error.localizedDescription
         }
+    }
+
+    func isBuddyOnline(_ uid: String) -> Bool {
+        guard let presence = presenceByUID[uid] else { return false }
+        guard presence.state == .online else { return false }
+        return Date().timeIntervalSince(presence.lastChanged) <= 120
+    }
+
+    func buddyDisplayLevel(_ uid: String) -> Int {
+        buddyStatsByUID[uid]?.publicLevel ?? 1
+    }
+
+    func buddyDisplayLeague(_ uid: String) -> String {
+        buddyStatsByUID[uid]?.duelLeague ?? "Bronze"
     }
 
     private func attachListeners(uid: String) {
@@ -277,8 +306,52 @@ final class BuddiesViewModel: ObservableObject {
 
         let buddiesListener = repository.listenToBuddies(uid: uid) { [weak self] rows in
             self?.buddies = rows
+            self?.attachPresenceListeners(for: rows.map(\.id))
+            self?.attachBuddyStatsListeners(for: rows.map(\.id))
         }
 
         listeners = [profileListener, incomingListener, outgoingListener, buddiesListener]
+    }
+
+    private func attachPresenceListeners(for uids: [String]) {
+        presenceListeners.forEach { $0.remove() }
+        presenceListeners = []
+        presenceByUID = [:]
+
+        let uniqueUIDs = Array(Set(uids))
+        guard !uniqueUIDs.isEmpty else { return }
+
+        for uid in uniqueUIDs {
+            let listener = repository.listenToPresence(uid: uid) { [weak self] state in
+                self?.presenceByUID[uid] = state
+            }
+            presenceListeners.append(listener)
+        }
+    }
+
+    private func attachBuddyStatsListeners(for uids: [String]) {
+        buddyStatsListeners.forEach { $0.remove() }
+        buddyStatsListeners = []
+        buddyStatsByUID = [:]
+
+        let uniqueUIDs = Array(Set(uids))
+        guard !uniqueUIDs.isEmpty else { return }
+
+        for uid in uniqueUIDs {
+            let listener = repository.listenToPublicStats(uid: uid) { [weak self] stats in
+                self?.buddyStatsByUID[uid] = stats
+            }
+            buddyStatsListeners.append(listener)
+        }
+    }
+
+    private func startPresenceClock() {
+        presenceClockCancellable?.cancel()
+        presenceClockCancellable = Timer.publish(every: 30, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                // Trigger lightweight UI refresh so stale "online" states age out.
+                self?.objectWillChange.send()
+            }
     }
 }

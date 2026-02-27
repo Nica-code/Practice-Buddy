@@ -33,9 +33,12 @@ struct JourneyView: View {
     @State private var animateHeader = false
     @State private var expandedLadderUserID: String?
     @State private var profileTarget: LadderActionUser?
-    @State private var selectedDuelOctaves: DuelOctaveCount = .one
     @State private var journeyScrollTarget: JourneyScrollTarget?
     @State private var showShopSheet = false
+    @State private var selectedDuelEntryChallenge: DuelChallenge?
+    @State private var duelEntryParticipantCards: [String: DuelParticipantCard] = [:]
+    @State private var showDuelReadyAlert = false
+    @State private var showDuelRecorderSheet = false
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -87,6 +90,22 @@ struct JourneyView: View {
         } message: {
             Text(rewardsMessage ?? "")
         }
+        .alert("Duel Ready", isPresented: $showDuelReadyAlert) {
+            Button("Enter") {
+                guard let readyID = duelLeague.readyChallengeID,
+                      let challenge = duelLeague.activeChallenges.first(where: { $0.id == readyID }) else {
+                    duelLeague.clearReadyChallenge()
+                    return
+                }
+                selectedDuelEntryChallenge = challenge
+                duelLeague.clearReadyChallenge()
+            }
+            Button("Later", role: .cancel) {
+                duelLeague.clearReadyChallenge()
+            }
+        } message: {
+            Text("A duel was accepted. Enter when you are ready to record your take.")
+        }
         .onAppear {
             if !animateHeader {
                 withAnimation(.spring(response: 0.52, dampingFraction: 0.86)) {
@@ -97,8 +116,12 @@ struct JourneyView: View {
             didLoadDuelTargets = true
             Task {
                 await duelLeague.refreshTargetCandidates(force: true)
-                await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope, force: true)
+                await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
             }
+        }
+        .onChange(of: duelLeague.readyChallengeID) { _, newValue in
+            guard newValue != nil else { return }
+            showDuelReadyAlert = true
         }
         .navigationDestination(item: $profileTarget) { target in
             PublicUserProfileView(
@@ -109,6 +132,20 @@ struct JourneyView: View {
         .sheet(isPresented: $showShopSheet) {
             NavigationStack {
                 ShopView()
+            }
+        }
+        .sheet(item: $selectedDuelEntryChallenge) { challenge in
+            NavigationStack {
+                duelEntrySheet(challenge: challenge)
+            }
+            .presentationDetents([.medium, .large])
+            .task(id: challenge.id) {
+                duelEntryParticipantCards = await duelLeague.fetchParticipantCards(for: challenge)
+            }
+        }
+        .sheet(isPresented: $showDuelRecorderSheet) {
+            NavigationStack {
+                ScaleIntonationView()
             }
         }
     }
@@ -166,7 +203,7 @@ struct JourneyView: View {
                         if isQueuedForOpenDuel {
                             await duelLeague.cancelOpenChallenge()
                         } else {
-                            await duelLeague.queueAsyncScaleDuel(octaves: selectedDuelOctaves)
+                            await duelLeague.queueAsyncScaleDuel(octaves: .one)
                         }
                     }
                 }
@@ -180,7 +217,7 @@ struct JourneyView: View {
                     duelLeaderboardScope = .global
                     journeyScrollTarget = .seasonLadder
                     Task {
-                        await duelLeague.refreshSeasonLeaderboard(scope: .global, force: true)
+                        await duelLeague.refreshSeasonLeaderboard(scope: .global)
                     }
                 }
             ),
@@ -240,8 +277,12 @@ struct JourneyView: View {
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
                     Text(duelLeague.leagueTier.title)
-                        .font(type.number)
-                        .foregroundStyle(palette.accent)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(leagueChipTextColor(for: duelLeague.leagueTier))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(leagueChipColor(for: duelLeague.leagueTier).opacity(0.2))
+                        .clipShape(Capsule())
                 }
 
                 HStack {
@@ -294,19 +335,12 @@ struct JourneyView: View {
 
             let isQueuedForOpenDuel = duelLeague.myOpenChallenge != nil
 
-            Picker("Octaves", selection: $selectedDuelOctaves) {
-                ForEach(DuelOctaveCount.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-
             Button {
                 Task {
                     if isQueuedForOpenDuel {
                         await duelLeague.cancelOpenChallenge()
                     } else {
-                        await duelLeague.queueAsyncScaleDuel(octaves: selectedDuelOctaves)
+                        await duelLeague.queueAsyncScaleDuel(octaves: .one)
                     }
                 }
             } label: {
@@ -332,7 +366,7 @@ struct JourneyView: View {
                     } else {
                         ForEach(duelLeague.friendCandidates) { candidate in
                             Button(candidate.displayName) {
-                                Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .friend, octaves: selectedDuelOctaves) }
+                                Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .friend, octaves: .one) }
                             }
                         }
                     }
@@ -347,7 +381,7 @@ struct JourneyView: View {
                     } else {
                         ForEach(duelLeague.studioCandidates) { candidate in
                             Button(candidate.displayName) {
-                                Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .studio, octaves: selectedDuelOctaves) }
+                                Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .studio, octaves: .one) }
                             }
                         }
                     }
@@ -355,15 +389,6 @@ struct JourneyView: View {
                     Label("Invite Studio", systemImage: "person.3")
                 }
                 .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
-
-                Spacer()
-                Button {
-                    Task { await duelLeague.refreshTargetCandidates(force: true) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh duel targets")
             }
 
             if !duelLeague.incomingInvites.isEmpty {
@@ -421,7 +446,7 @@ struct JourneyView: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: duelLeaderboardScope) { _, newValue in
-                    Task { await duelLeague.refreshSeasonLeaderboard(scope: newValue, force: true) }
+                    Task { await duelLeague.refreshSeasonLeaderboard(scope: newValue) }
                 }
 
                 if duelLeague.leaderboardRows.isEmpty {
@@ -446,7 +471,7 @@ struct JourneyView: View {
                                         .font(type.footnote)
                                         .foregroundStyle(palette.textPrimary)
                                     Spacer()
-                                    Text(L10n.f("%@ pts", "\(row.points)"))
+                                    Text(L10n.f("Rating %@", "\(row.rating)"))
                                         .font(type.footnote)
                                         .foregroundStyle(palette.textSecondary)
                                         .monospacedDigit()
@@ -465,8 +490,8 @@ struct JourneyView: View {
                                     Button("Duel Challenge") {
                                         Task {
                                             let source: DuelInviteSource = duelLeaderboardScope == .studio ? .studio : .friend
-                                            await duelLeague.inviteTargetedDuel(targetUID: row.id, source: source, octaves: selectedDuelOctaves)
-                                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope, force: true)
+                                            await duelLeague.inviteTargetedDuel(targetUID: row.id, source: source, octaves: .one)
+                                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
                                         }
                                         expandedLadderUserID = nil
                                     }
@@ -510,6 +535,12 @@ struct JourneyView: View {
                     .foregroundStyle(palette.textSecondary)
             }
 
+            Button("Enter") {
+                selectedDuelEntryChallenge = challenge
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(palette.accent)
+
             if let deadline = challenge.submissionDeadlineAt {
                 statusBadge(
                     text: "Submission deadline: \(relativeTimeString(until: deadline))",
@@ -550,7 +581,7 @@ struct JourneyView: View {
                     Button("Submit Latest Analysis") {
                         Task {
                             await duelLeague.submitDerivedAttempt(challengeID: challenge.id, metrics: latest)
-                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope, force: true)
+                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -587,7 +618,8 @@ struct JourneyView: View {
 
     private func incomingInviteRow(_ challenge: DuelChallenge) -> some View {
         let uid = firebase.currentUserID ?? ""
-        let other = challenge.otherParticipant(for: uid) ?? "Unknown"
+        let otherUID = challenge.otherParticipant(for: uid) ?? ""
+        let other = duelLeague.userDisplayNames[otherUID] ?? shortUserLabel(otherUID)
         let queueLabel = challenge.queueType == .friend ? "Friend duel" : "Studio duel"
         return VStack(alignment: .leading, spacing: 6) {
             Text(L10n.f("%@ invite", queueLabel))
@@ -597,7 +629,7 @@ struct JourneyView: View {
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
             statusBadge(
-                text: challenge.acceptByAt.map { "Pending acceptance • Accept within \(relativeTimeString(until: $0))" } ?? "Pending acceptance",
+                text: "Pending acceptance",
                 style: .info
             )
             HStack {
@@ -618,29 +650,41 @@ struct JourneyView: View {
 
     private func outgoingInviteRow(_ challenge: DuelChallenge) -> some View {
         let uid = firebase.currentUserID ?? ""
-        let other = challenge.otherParticipant(for: uid) ?? "Unknown"
+        let otherUID = challenge.otherParticipant(for: uid) ?? ""
+        let other = duelLeague.userDisplayNames[otherUID] ?? shortUserLabel(otherUID)
         let queueLabel = challenge.queueType == .friend ? "Friend duel" : "Studio duel"
-        return HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.f("%@ invite", queueLabel))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textPrimary)
-                Text(L10n.f("To %@", other))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "paperplane.circle.fill")
+                    .foregroundStyle(palette.accent)
+                    .font(.system(size: 17, weight: .semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.f("%@ invite", queueLabel))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textPrimary)
+                    Text(L10n.f("To %@", other))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                }
+                Spacer()
                 statusBadge(
-                    text: challenge.acceptByAt.map { "Pending acceptance • Expires \(relativeTimeString(until: $0))" } ?? "Pending acceptance",
+                    text: "Pending",
                     style: .info
                 )
             }
-            Spacer()
-            Button("Cancel", role: .destructive) {
-                Task { await duelLeague.cancelInvite(challengeID: challenge.id) }
+            HStack {
+                Button("Cancel Request", role: .destructive) {
+                    Task { await duelLeague.cancelInvite(challengeID: challenge.id) }
+                }
+                .buttonStyle(.bordered)
+                .font(type.footnote)
+                Spacer()
             }
-            .buttonStyle(.bordered)
-            .font(type.footnote)
+            .padding(.top, 2)
         }
-        .padding(.vertical, 2)
+        .padding(10)
+        .background(palette.accent.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
     }
 
     private enum DuelStatusBadgeStyle {
@@ -681,6 +725,97 @@ struct JourneyView: View {
         return "\(mins)m"
     }
 
+    @ViewBuilder
+    private func duelEntrySheet(challenge: DuelChallenge) -> some View {
+        let uid = firebase.currentUserID ?? ""
+        let opponentUID = challenge.otherParticipant(for: uid) ?? ""
+        let userA = duelEntryParticipantCards[opponentUID]
+        let userB = duelEntryParticipantCards[uid]
+        let hasSubmitted = challenge.myScore(for: uid) != nil
+
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Duel Match")
+                .font(type.sectionTitle)
+                .foregroundStyle(palette.textPrimary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("User A")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                HStack {
+                    Text(userA?.displayName ?? "Opponent")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text("Lv \(userA?.publicLevel ?? 1) • Rating \(userA?.duelRating ?? 0)")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(10)
+            .pbSurfaceCard(palette: palette)
+
+            Text("vs")
+                .font(type.body.weight(.semibold))
+                .foregroundStyle(palette.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("User B")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                HStack {
+                    Text(userB?.displayName ?? "You")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text("Lv \(userB?.publicLevel ?? 1) • Rating \(userB?.duelRating ?? 0)")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(10)
+            .pbSurfaceCard(palette: palette)
+
+            Text(challenge.objective)
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+
+            HStack(spacing: 10) {
+                Button("Record your take") {
+                    showDuelRecorderSheet = true
+                }
+                .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+
+                Button(hasSubmitted ? "Done" : "Done (Submit Latest)") {
+                    Task {
+                        if !hasSubmitted, let latest = latestDuelMetricsCandidate {
+                            await duelLeague.submitDerivedAttempt(challengeID: challenge.id, metrics: latest)
+                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
+                        }
+                        selectedDuelEntryChallenge = nil
+                    }
+                }
+                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+                .disabled(!hasSubmitted && latestDuelMetricsCandidate == nil)
+            }
+
+            if !hasSubmitted && latestDuelMetricsCandidate == nil {
+                Text("After recording, this will submit your latest duel analysis.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(PBLayout.padLG)
+        .background(PBBackdropView(palette: palette))
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var latestDuelMetricsCandidate: DuelDerivedMetrics? {
         guard let intonation = intonationTakes.first, let rhythm = rhythmTakes.first else { return nil }
         let ageA = abs(intonation.date.timeIntervalSinceNow)
@@ -695,6 +830,33 @@ struct JourneyView: View {
             noteCount: max(0, intonation.noteCount),
             beatsAnalyzed: max(0, rhythm.beatsAnalyzed)
         )
+    }
+
+    private func shortUserLabel(_ uid: String) -> String {
+        guard !uid.isEmpty else { return "Unknown" }
+        return uid.count > 8 ? "\(uid.prefix(8))…" : uid
+    }
+
+    private func leagueChipColor(for tier: DuelLeagueTier) -> Color {
+        switch tier {
+        case .gold:
+            return .yellow
+        case .silver:
+            return .gray
+        case .bronze:
+            return .brown
+        }
+    }
+
+    private func leagueChipTextColor(for tier: DuelLeagueTier) -> Color {
+        switch tier {
+        case .gold:
+            return .yellow
+        case .silver:
+            return .gray
+        case .bronze:
+            return .brown
+        }
     }
 
     private var questsSection: some View {

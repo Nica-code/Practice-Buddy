@@ -629,6 +629,54 @@ MVP scope notes:
 - Updated root screens to hide navigation bar background so app backdrop visually fills to top safe area:
   - Home, Play, Social, Profile, Settings root views.
 
+27) Leaderboard Cost-Reduction + Ranking Model Update
+- Social leaderboard ranking was switched from minutes-based to:
+  - Level (desc)
+  - Duel Rating (desc)
+  - Name (asc)
+- Social leaderboard labels and chips were aligned to use `Level` wording consistently.
+- Play `Season Ladder` and Social leaderboard refresh logic now use long cache windows (24h) to minimize read volume.
+- Frequent force-refresh calls were removed in UI flows so cache is respected.
+- Social/Play duel leaderboard UI was simplified:
+  - removed octave segment controls from these list views
+  - removed manual refresh controls
+  - queue/invite actions use fixed one-octave default in current UX pass.
+
+28) Studio Manager + Teacher Navigation Adjustment
+- In Home -> Studio -> Teacher Tools, tapping `Studio Manager` now routes directly to `Studio Planner`.
+- In Studio Manager header, redundant `Copy Invite Link` was removed; `Share` remains as the single invite action.
+
+29) Social Chat System Overhaul (Studio + Friend DMs)
+- Replaced old studio-only chat surface with a conversation-thread model:
+  - Studio chat threads (supports multi-studio users cleanly)
+  - Friend 1:1 chat threads
+- Added new Firestore domain for friend DMs:
+  - `friendChats/{threadId}`
+  - `friendChats/{threadId}/messages/{messageId}`
+- Added repository support for:
+  - studio latest-message listener (for thread list previews)
+  - friend thread listeners
+  - friend message listeners
+  - friend thread bootstrap + send flow
+- Social badge behavior now composes:
+  - incoming friend requests + unread chat threads on bottom `Social` tab
+  - chat unread count badge text in Social segmented header (`Chat (N)`).
+
+30) Chat UX Pass (WhatsApp-style)
+- Chat screen now opens as a conversation list first (instead of inbox button flow).
+- Thread view opens on tap with message feed + composer.
+- Added `New Chat` action (top-right pencil icon) for starting friend DMs.
+- Added conversation list quality-of-life:
+  - search bar
+  - pinned threads
+  - mute/unmute
+  - mark read
+  - local hide/delete thread
+- Added swipe actions:
+  - leading: pin/unpin, mark read
+  - trailing: mute/unmute, delete local
+- Thread state is persisted per signed-in user (read, pinned, muted, hidden).
+
 Included Local Font Files
 - PlayfairDisplay-Regular.ttf
 - Lora-Regular.ttf
@@ -646,6 +694,7 @@ Supporting Docs
 - `PracticeBuddy/Docs/FIRESTORE_RULES_BUDDIES.md`
 - `PracticeBuddy/Docs/GOOGLE_FONTS_PALETTES.md`
 - `PracticeBuddy/Docs/LAUNCH_RESET.md`
+- `PracticeBuddy/Docs/AVATAR_ASSET_SPEC.md`
 - `firebase/functions/README.md`
 - `hosting/apple-app-site-association`
 - `hosting/.well-known/apple-app-site-association`
@@ -666,6 +715,8 @@ Known Notes
 - Launch reset tooling added:
   - Firestore reset script: `scripts/firestore_launch_reset.sh`
   - Auth user deletion remains a Firebase Console step.
+- After chat/rules changes, deploy latest Firestore rules before device testing:
+  - `firebase deploy --only firestore:rules`
 
 Where We Are Now
 - App is in a significantly more complete state than the older “Day 8” snapshot.
@@ -673,12 +724,17 @@ Where We Are Now
 - Pro model, StoreKit foundation, and first gated features are now implemented and compiling; ready for iterative expansion.
 - History now supports deletion across all Practice Lab log types shown in History (Loop Sessions, Guided Practice, Rhythm Accuracy, Run-throughs).
 - Pro Student roadmap phases requested for this sprint (A.1/A.2/B.3/B.4/C.5) are implemented in-app and compile successfully.
+- Avatar system Phase 1 is now expanded to character-style presets in Profile (male/female-themed instrument/persona options) with a stable shared avatar component.
 
 What Is Next
 - Expand A/B compare into waveform/timing drift visuals.
 - Add richer Skill Trends charts (weekly and monthly) behind Pro.
 - Finish live server push (FCM/Functions) path once Blaze is enabled, then remove local notification fallback.
-- Duel/League Phase 2:
-  - friend/studio-targeted matchmaking options
-  - anti-cheat server adjudication + audio-derived scoring
-  - league season resets + leaderboard/history views
+- Avatar customization roadmap:
+  - Phase 2: layered avatar builder (base, hair, outfit, accessory, instrument)
+  - Phase 3: unlock economy hooks (free, token unlocks, Pro-only, Shop bundles)
+  - Phase 4: seasonal cosmetics + limited drops
+- Duel roadmap:
+  - dedicated duel recording UI (record/done flow from duel entry sheet)
+  - push notification events for invite/accepted/ready states
+  - stronger anti-abuse and adjudication refinements

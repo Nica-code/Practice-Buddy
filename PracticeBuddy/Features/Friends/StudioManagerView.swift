@@ -435,14 +435,6 @@ struct StudioManagerView: View {
                     .monospacedDigit()
             }
             Spacer()
-            Button("Copy Invite Link") {
-                guard let inviteURL = inviteURLString(for: studio.inviteCode) else { return }
-                UIPasteboard.general.string = inviteURL
-                viewModel.statusMessage = "Invite link copied."
-            }
-            .buttonStyle(.bordered)
-            .tint(theme.accent)
-
             if let inviteURL = inviteURL(for: studio.inviteCode) {
                 ShareLink(item: inviteURL) {
                     Text("Share")
@@ -475,10 +467,6 @@ struct StudioManagerView: View {
         fallback.host = "join-studio"
         fallback.queryItems = [URLQueryItem(name: "code", value: code)]
         return fallback.url
-    }
-
-    private func inviteURLString(for code: String) -> String? {
-        inviteURL(for: code)?.absoluteString
     }
 
     private var memberList: some View {

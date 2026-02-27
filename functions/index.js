@@ -14,8 +14,9 @@ setGlobalOptions({maxInstances: 10});
 const db = admin.firestore();
 
 const OPEN_MATCH_FALLBACK_SECONDS = 30;
-const ACCEPT_WINDOW_SECONDS = 45;
+const ACCEPT_WINDOW_SECONDS = 24 * 60 * 60;
 const SUBMISSION_WINDOW_SECONDS = 24 * 60 * 60;
+const MAX_PENDING_INVITES_PER_USER = 5;
 
 exports.duelQueueJoin = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -181,6 +182,63 @@ exports.duelInvite = onRequest(async (req, res) => {
     }
 
     await settleExpiredForUser(uid);
+    await settleExpiredForUser(targetUID);
+
+    const pendingForPairOutbound = await db.collection("duelChallenges")
+        .where("createdByUid", "==", uid)
+        .where("opponentUid", "==", targetUID)
+        .where("status", "==", "invited")
+        .limit(1)
+        .get();
+    if (!pendingForPairOutbound.empty) {
+      throw new Error("You already have a pending duel with this user.");
+    }
+
+    const pendingForPairInbound = await db.collection("duelChallenges")
+        .where("createdByUid", "==", targetUID)
+        .where("opponentUid", "==", uid)
+        .where("status", "==", "invited")
+        .limit(1)
+        .get();
+    if (!pendingForPairInbound.empty) {
+      throw new Error("This user already has a pending duel with you.");
+    }
+
+    const senderPending = await db.collection("duelChallenges")
+        .where("participants", "array-contains", uid)
+        .where("status", "==", "invited")
+        .limit(MAX_PENDING_INVITES_PER_USER + 1)
+        .get();
+    if (senderPending.size >= MAX_PENDING_INVITES_PER_USER) {
+      throw new Error("You reached the pending duel limit. Resolve existing invites first.");
+    }
+
+    const targetPending = await db.collection("duelChallenges")
+        .where("participants", "array-contains", targetUID)
+        .where("status", "==", "invited")
+        .limit(MAX_PENDING_INVITES_PER_USER + 1)
+        .get();
+    if (targetPending.size >= MAX_PENDING_INVITES_PER_USER) {
+      throw new Error("Target user reached the pending duel limit.");
+    }
+
+    const senderActive = await db.collection("duelChallenges")
+        .where("participants", "array-contains", uid)
+        .where("status", "==", "active")
+        .limit(1)
+        .get();
+    if (!senderActive.empty) {
+      throw new Error("Finish your active duel before sending a new invitation.");
+    }
+
+    const targetActive = await db.collection("duelChallenges")
+        .where("participants", "array-contains", targetUID)
+        .where("status", "==", "active")
+        .limit(1)
+        .get();
+    if (!targetActive.empty) {
+      throw new Error("Target user is currently in an active duel.");
+    }
 
     const ref = db.collection("duelChallenges").doc();
     await ref.set({
