@@ -9,6 +9,8 @@ final class FriendRequestBadgeManager: ObservableObject {
     private let repository: FirebaseBuddiesRepository
     private var listener: ListenerRegistration?
     private var configuredUID: String?
+    private var didReceiveInitialSnapshot = false
+    private var previousInviteIDs: Set<String> = []
 
     init(repository: FirebaseBuddiesRepository? = nil) {
         self.repository = repository ?? FirebaseBuddiesRepository()
@@ -23,8 +25,24 @@ final class FriendRequestBadgeManager: ObservableObject {
 
         stop()
         configuredUID = uid
+        didReceiveInitialSnapshot = false
+        previousInviteIDs = []
         listener = repository.listenToIncomingInvites(uid: uid) { [weak self] invites in
-            self?.incomingCount = invites.count
+            guard let self else { return }
+            self.incomingCount = invites.count
+            let currentIDs = Set(invites.map(\.id))
+            if self.didReceiveInitialSnapshot {
+                let newIDs = currentIDs.subtracting(self.previousInviteIDs)
+                if let newInvite = invites.first(where: { newIDs.contains($0.id) }) {
+                    PBNotificationCenter.maybeScheduleFriendRequestNotification(
+                        fromDisplayName: newInvite.fromDisplayName,
+                        friendUID: newInvite.fromUid
+                    )
+                }
+            } else {
+                self.didReceiveInitialSnapshot = true
+            }
+            self.previousInviteIDs = currentIDs
         }
     }
 
@@ -33,5 +51,7 @@ final class FriendRequestBadgeManager: ObservableObject {
         listener = nil
         configuredUID = nil
         incomingCount = 0
+        didReceiveInitialSnapshot = false
+        previousInviteIDs = []
     }
 }

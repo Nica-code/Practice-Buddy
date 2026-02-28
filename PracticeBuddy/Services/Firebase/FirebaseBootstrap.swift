@@ -18,6 +18,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
     @Published private(set) var isReady = false
     @Published private(set) var currentUserID: String?
+    @Published private(set) var currentUserEmail: String?
     @Published private(set) var isAnonymousUser: Bool = true
     @Published private(set) var statusMessage: String?
 
@@ -292,6 +293,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
     private func refreshAuthState(user: User) {
         currentUserID = user.uid
+        currentUserEmail = user.email
         isAnonymousUser = user.isAnonymous
         Task {
             await PushTokenManager.shared.syncPendingTokenIfPossible()

@@ -428,6 +428,24 @@ Current V1 behavior notes:
   - used to localize formatted text keys safely (`L10n.f(...)`) instead of hardcoded English interpolation.
 - Ensured dynamic status/error strings use localized format keys where needed (especially interpolation-based messages), so Romanian now applies to runtime feedback as well.
 - Build validation:
+
+18) Launch Hardening + Notification Routing Pass
+- Added centralized notification routing (`PBNotificationCenter`) for:
+  - duel challenge taps
+  - friend request taps
+  - chat message taps
+  - studio invite taps
+  - goal reached taps
+- Added deep-link handoff keys in app state:
+  - Play can open a specific duel challenge by ID.
+  - Social Chat can open a friend thread by UID and/or thread ID.
+- Settings Notifications now include category toggles for:
+  - duels, messages, goals, friend requests, studio invites, assignments, buddies
+  - plus “Enable iOS Notifications” and “Open iOS Notification Settings”.
+- Added master-only in-app **Launch Prep** screen in Settings with reset/deploy checklist.
+- Firestore rules hardened for `/users/{uid}`:
+  - restricted privileged fields (`entitlementTier`, `isPro`, `hasLifetimePro`, `isMasterAccount`, etc.) are no longer client-writable.
+  - client now syncs only non-privileged role/tool-visibility fields.
   - iOS Simulator build succeeds after localization pass (`BUILD SUCCEEDED`).
 
 18) Korean Localization Deep Pass (Screen-by-Screen)

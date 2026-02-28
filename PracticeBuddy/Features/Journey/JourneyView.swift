@@ -39,6 +39,9 @@ struct JourneyView: View {
     @State private var duelEntryParticipantCards: [String: DuelParticipantCard] = [:]
     @State private var showDuelReadyAlert = false
     @State private var showDuelRecorderSheet = false
+    @StateObject private var playBuddiesVM = BuddiesViewModel()
+    @State private var dismissedPlayInviteIDs: Set<String> = []
+    @AppStorage("pb.play.openChallengeID") private var openChallengeID: String = ""
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -55,6 +58,9 @@ struct JourneyView: View {
             ScrollViewReader { proxy in
                 List {
                     if selectedSection == .overview {
+                        if !visiblePlayFriendInvites.isEmpty {
+                            playFriendRequestBannerSection
+                        }
                         levelSection
                         duelLeagueSection
                         questsSection
@@ -117,7 +123,24 @@ struct JourneyView: View {
             Task {
                 await duelLeague.refreshTargetCandidates(force: true)
                 await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
+                if let uid = firebase.currentUserID {
+                    await playBuddiesVM.start(for: uid)
+                }
             }
+        }
+        .task(id: firebase.currentUserID) {
+            guard let uid = firebase.currentUserID else { return }
+            await playBuddiesVM.start(for: uid)
+            consumePendingOpenChallengeID()
+        }
+        .onChange(of: openChallengeID) { _, _ in
+            consumePendingOpenChallengeID()
+        }
+        .onChange(of: playBuddiesVM.incomingInvites.map(\.id)) { _, ids in
+            dismissedPlayInviteIDs.formIntersection(Set(ids))
+        }
+        .onChange(of: duelLeague.activeChallenges.map(\.id)) { _, _ in
+            consumePendingOpenChallengeID()
         }
         .onChange(of: duelLeague.readyChallengeID) { _, newValue in
             guard newValue != nil else { return }
@@ -148,6 +171,64 @@ struct JourneyView: View {
                 ScaleIntonationView()
             }
         }
+    }
+
+    private var visiblePlayFriendInvites: [BuddyInvite] {
+        playBuddiesVM.incomingInvites.filter { !dismissedPlayInviteIDs.contains($0.id) }
+    }
+
+    private func consumePendingOpenChallengeID() {
+        let targetID = openChallengeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetID.isEmpty else { return }
+        guard let challenge = duelLeague.activeChallenges.first(where: { $0.id == targetID }) else { return }
+        openChallengeID = ""
+        selectedDuelEntryChallenge = challenge
+    }
+
+    private var playFriendRequestBannerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(visiblePlayFriendInvites) { invite in
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.badge.plus")
+                            .foregroundStyle(palette.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(invite.fromDisplayName) sent a friend request")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textPrimary)
+                            Text(invite.fromFriendCode)
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        Spacer()
+                        Button("Accept") {
+                            Task {
+                                await playBuddiesVM.acceptInvite(invite)
+                                dismissedPlayInviteIDs.insert(invite.id)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(palette.accent)
+                        .font(type.footnote)
+                        Button("Decline", role: .destructive) {
+                            Task {
+                                await playBuddiesVM.declineInvite(invite)
+                                dismissedPlayInviteIDs.insert(invite.id)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                    }
+                    .padding(10)
+                    .pbSurfaceCard(palette: palette)
+                }
+            }
+        } header: {
+            Text("Pending Friend Requests")
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+        }
+        .listRowBackground(palette.surface)
     }
 
     private var playShortcutRow: some View {

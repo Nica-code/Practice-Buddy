@@ -9,6 +9,8 @@ struct SocialView: View {
 
     @State private var showNewChatSheet = false
     @State private var searchText: String = ""
+    @AppStorage("pb.social.chat.openFriendUID") private var openFriendUID: String = ""
+    @AppStorage("pb.social.chat.openThreadID") private var openThreadID: String = ""
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -114,6 +116,14 @@ struct SocialView: View {
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             viewModel.start(uid: uid)
+            consumePendingOpenFriendUID()
+            consumePendingOpenThreadID()
+        }
+        .onChange(of: openFriendUID) { _, _ in
+            consumePendingOpenFriendUID()
+        }
+        .onChange(of: openThreadID) { _, _ in
+            consumePendingOpenThreadID()
         }
         .sheet(isPresented: $showNewChatSheet) {
             NavigationStack {
@@ -218,6 +228,20 @@ struct SocialView: View {
         }
         .navigationTitle("New Chat")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func consumePendingOpenFriendUID() {
+        let uid = openFriendUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !uid.isEmpty else { return }
+        openFriendUID = ""
+        viewModel.openFriendThread(friendUID: uid)
+    }
+
+    private func consumePendingOpenThreadID() {
+        let threadID = openThreadID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !threadID.isEmpty else { return }
+        openThreadID = ""
+        viewModel.openThread(threadID: threadID)
     }
 }
 

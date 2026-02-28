@@ -486,26 +486,13 @@ final class PurchaseManager: ObservableObject {
             return
         }
         do {
-            var payload: [String: Any] = [
-                "isPro": isPro,
-                "hasLifetimePro": hasLifetimePro,
-                "entitlementTier": entitlementTier.rawValue,
-                "trialUsed": hasUsedProTrial,
+            let payload: [String: Any] = [
                 "accountType": accountType.rawValue,
                 "primaryFocus": primaryFocus.rawValue,
                 "showStudentTools": showStudentTools,
                 "showTeacherTools": showTeacherTools,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
-            if hasLifetimePro {
-                payload["proSince"] = FieldValue.serverTimestamp()
-            }
-            if let proTrialStartedAt {
-                payload["trialStartedAt"] = Timestamp(date: proTrialStartedAt)
-            }
-            if let proTrialEndsAt {
-                payload["trialEndsAt"] = Timestamp(date: proTrialEndsAt)
-            }
             try await db.collection("users").document(uid).setData(payload, merge: true)
             lastSyncedUID = uid
             lastSyncedStateFingerprint = fingerprint
@@ -518,15 +505,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func localStateFingerprint() -> String {
-        let trialStart = proTrialStartedAt?.timeIntervalSince1970 ?? 0
-        let trialEnd = proTrialEndsAt?.timeIntervalSince1970 ?? 0
         return [
-            isPro ? "1" : "0",
-            hasLifetimePro ? "1" : "0",
-            entitlementTier.rawValue,
-            hasUsedProTrial ? "1" : "0",
-            "\(Int(trialStart))",
-            "\(Int(trialEnd))",
             accountType.rawValue,
             primaryFocus.rawValue,
             showStudentTools ? "1" : "0",

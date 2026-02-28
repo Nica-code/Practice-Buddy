@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     private enum SettingsAnchor: String {
@@ -9,6 +10,7 @@ struct SettingsView: View {
 
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
+    @EnvironmentObject private var firebase: FirebaseBootstrap
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -19,12 +21,18 @@ struct SettingsView: View {
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
     @AppStorage("pb.notifications.assignments") private var notifyAssignments: Bool = true
     @AppStorage("pb.notifications.buddies") private var notifyBuddies: Bool = true
+    @AppStorage("pb.notifications.duels") private var notifyDuels: Bool = true
+    @AppStorage("pb.notifications.messages") private var notifyMessages: Bool = true
+    @AppStorage("pb.notifications.goals") private var notifyGoals: Bool = true
+    @AppStorage("pb.notifications.friendRequests") private var notifyFriendRequests: Bool = true
+    @AppStorage("pb.notifications.studioInvites") private var notifyStudioInvites: Bool = true
     @AppStorage("pb.practice.checkins.enabled") private var practiceCheckInsEnabled: Bool = true
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
 
     @State private var pendingRetentionTask: Task<Void, Never>?
     @State private var animateHeader = false
     @State private var scrollAnchorTarget: SettingsAnchor?
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private var goalScopeBinding: Binding<GoalScope> {
         Binding(
@@ -148,15 +156,57 @@ struct SettingsView: View {
                     }
                     .listRowBackground(palette.surface)
 
+                    if isMasterAccount {
+                        Section("Launch Tools") {
+                            NavigationLink {
+                                PBLazyView(LaunchPrepView())
+                            } label: {
+                                settingsLabel("Launch Prep", systemImage: "rocket")
+                            }
+                            Text("Master-only checklist for pre-launch reset and entitlement rollout.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        .listRowBackground(palette.surface)
+                    }
+
                     Section("Notifications") {
+                    if notificationAuthorizationStatus != .authorized && notificationAuthorizationStatus != .provisional && notificationAuthorizationStatus != .ephemeral {
+                        Button("Enable iOS Notifications") {
+                            Task {
+                                _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
+                                await refreshNotificationAuthorizationStatus()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    Group {
+                        Toggle("Duel challenges", isOn: $notifyDuels)
+                            .font(type.body)
+                        Toggle("Messages", isOn: $notifyMessages)
+                            .font(type.body)
+                        Toggle("Goal reached", isOn: $notifyGoals)
+                            .font(type.body)
+                        Toggle("Friend requests", isOn: $notifyFriendRequests)
+                            .font(type.body)
+                        Toggle("Studio invites", isOn: $notifyStudioInvites)
+                            .font(type.body)
+                    }
+
                     Toggle("Assignments", isOn: $notifyAssignments)
                         .font(type.body)
                     Toggle("Buddies", isOn: $notifyBuddies)
                         .font(type.body)
 
-                    Text("Controls push notifications for assignment and buddy activity updates.")
+                    Text("Use iPhone Settings to control lock-screen/banner style. In-app toggles choose which categories you receive.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
+
+                    Button("Open iOS Notification Settings") {
+                        PBNotificationCenter.openSystemNotificationSettings()
+                    }
+                    .buttonStyle(.bordered)
                     }
                     .listRowBackground(palette.surface)
                     .id(SettingsAnchor.notifications)
@@ -235,11 +285,27 @@ struct SettingsView: View {
         }
         .task {
             await syncNotificationPrefs()
+            await refreshNotificationAuthorizationStatus()
         }
         .onChange(of: notifyAssignments) { _, _ in
             Task { await syncNotificationPrefs() }
         }
         .onChange(of: notifyBuddies) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyDuels) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyMessages) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyGoals) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyFriendRequests) { _, _ in
+            Task { await syncNotificationPrefs() }
+        }
+        .onChange(of: notifyStudioInvites) { _, _ in
             Task { await syncNotificationPrefs() }
         }
     }
@@ -299,10 +365,34 @@ struct SettingsView: View {
     }
 
     private func syncNotificationPrefs() async {
+        let anyCategoryEnabled =
+            notifyDuels
+            || notifyMessages
+            || notifyGoals
+            || notifyFriendRequests
+            || notifyStudioInvites
+            || notifyAssignments
+            || notifyBuddies
+        if anyCategoryEnabled {
+            _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
+        }
         await PushTokenManager.shared.updateNotificationPreferences(
+            duelsEnabled: notifyDuels,
+            messagesEnabled: notifyMessages,
+            goalsEnabled: notifyGoals,
+            friendRequestsEnabled: notifyFriendRequests,
+            studioInvitesEnabled: notifyStudioInvites,
             assignmentsEnabled: notifyAssignments,
             buddiesEnabled: notifyBuddies
         )
+    }
+
+    private func refreshNotificationAuthorizationStatus() async {
+        notificationAuthorizationStatus = await PBNotificationCenter.authorizationStatus()
+    }
+
+    private var isMasterAccount: Bool {
+        AppInfo.isMasterAccount(uid: firebase.currentUserID, email: firebase.currentUserEmail)
     }
 
     @ViewBuilder

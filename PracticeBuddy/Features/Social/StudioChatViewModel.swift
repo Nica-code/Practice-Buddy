@@ -59,6 +59,8 @@ final class StudioChatViewModel: ObservableObject {
     private var pinnedThreadIDs: Set<String> = []
     private var mutedThreadIDs: Set<String> = []
     private var hiddenThreadIDs: Set<String> = []
+    private var didReceiveInitialThreadSnapshot = false
+    private var previousUnreadByThreadID: [String: Int] = [:]
 
     init(repository: FirebaseStudiosRepository? = nil) {
         self.repository = repository ?? FirebaseStudiosRepository()
@@ -145,6 +147,8 @@ final class StudioChatViewModel: ObservableObject {
         pinnedThreadIDs = []
         mutedThreadIDs = []
         hiddenThreadIDs = []
+        didReceiveInitialThreadSnapshot = false
+        previousUnreadByThreadID = [:]
     }
 
     func selectThread(_ threadID: String) {
@@ -187,6 +191,24 @@ final class StudioChatViewModel: ObservableObject {
                 await MainActor.run {
                     self.statusMessage = error.localizedDescription
                 }
+            }
+        }
+    }
+
+    func openThread(threadID: String) {
+        let normalized = threadID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        if threads.contains(where: { $0.id == normalized }) {
+            selectedThreadID = normalized
+            attachMessagesListener()
+            return
+        }
+        if normalized.hasPrefix("friend:") {
+            let raw = String(normalized.dropFirst("friend:".count))
+            let parts = raw.split(separator: "__", maxSplits: 1).map(String.init)
+            if let uid = currentUID, parts.count == 2 {
+                let friendUID = parts[0] == uid ? parts[1] : parts[0]
+                openFriendThread(friendUID: friendUID)
             }
         }
     }
@@ -422,14 +444,32 @@ final class StudioChatViewModel: ObservableObject {
                 unreadCount: unread
             )
         }
-        threads = withUnread.sorted { lhs, rhs in
+        let sorted = withUnread.sorted { lhs, rhs in
             let leftPinned = pinnedThreadIDs.contains(lhs.id)
             let rightPinned = pinnedThreadIDs.contains(rhs.id)
             if leftPinned != rightPinned { return leftPinned && !rightPinned }
             if lhs.lastMessageAt != rhs.lastMessageAt { return lhs.lastMessageAt > rhs.lastMessageAt }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+        if didReceiveInitialThreadSnapshot {
+            if let newlyUnread = sorted.first(where: { thread in
+                let previous = previousUnreadByThreadID[thread.id] ?? 0
+                return thread.unreadCount > previous
+            }) {
+                PBNotificationCenter.maybeScheduleChatNotification(
+                    title: newlyUnread.title,
+                    body: newlyUnread.lastMessageText.isEmpty ? "New message" : newlyUnread.lastMessageText,
+                    threadID: newlyUnread.id,
+                    friendUID: newlyUnread.friendUID
+                )
+            }
+        } else {
+            didReceiveInitialThreadSnapshot = true
+        }
+
+        threads = sorted
         unreadCount = threads.reduce(0) { $0 + $1.unreadCount }
+        previousUnreadByThreadID = Dictionary(uniqueKeysWithValues: threads.map { ($0.id, $0.unreadCount) })
 
         if let selectedThreadID, threads.contains(where: { $0.id == selectedThreadID }) {
             // keep selection

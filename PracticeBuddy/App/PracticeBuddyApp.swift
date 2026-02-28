@@ -16,6 +16,7 @@ struct PracticeBuddyApp: App {
         _firebase = StateObject(wrappedValue: FirebaseBootstrap())
         _purchaseManager = StateObject(wrappedValue: PurchaseManager())
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
+        PBNotificationCenter.registerCategories()
     }
 
     var body: some Scene {
@@ -44,6 +45,20 @@ private final class PBNotificationDelegate: NSObject, UNUserNotificationCenterDe
     ) {
         completionHandler([.banner, .sound, .badge])
     }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if let route = PBNotificationCenter.route(for: response) {
+            NotificationCenter.default.post(
+                name: .pbNotificationRouteRequested,
+                object: route
+            )
+        }
+        completionHandler()
+    }
 }
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -54,6 +69,23 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         FirebaseApp.configure()
         FirebaseBootstrap.markConfiguredAtLaunch()
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Task { @MainActor in
+            await PushTokenManager.shared.upsertCurrentToken(token)
+        }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        // Non-fatal in dev and simulator contexts.
     }
 }
 

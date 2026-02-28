@@ -30,9 +30,38 @@ service cloud.firestore {
         || (assignment.target == "individual" && assignment.targetStudentUid == uid);
     }
 
+    function touchesRestrictedUserFieldsOnCreate() {
+      return request.resource.data.keys().hasAny([
+        "isPro",
+        "hasLifetimePro",
+        "entitlementTier",
+        "trialUsed",
+        "trialStartedAt",
+        "trialEndsAt",
+        "proSince",
+        "isMasterAccount",
+        "canSwitchRoleFreely"
+      ]);
+    }
+
+    function touchesRestrictedUserFieldsOnUpdate() {
+      return request.resource.data.diff(resource.data).changedKeys().hasAny([
+        "isPro",
+        "hasLifetimePro",
+        "entitlementTier",
+        "trialUsed",
+        "trialStartedAt",
+        "trialEndsAt",
+        "proSince",
+        "isMasterAccount",
+        "canSwitchRoleFreely"
+      ]);
+    }
+
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create, update: if isSelf(uid);
+      allow create: if isSelf(uid) && !touchesRestrictedUserFieldsOnCreate();
+      allow update: if isSelf(uid) && !touchesRestrictedUserFieldsOnUpdate();
       allow delete: if false;
     }
 

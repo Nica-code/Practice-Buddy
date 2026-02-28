@@ -72,3 +72,9 @@ Notes:
 
 Optional harden for master account
 - Add your final Firebase UID to Info.plist key PBMasterUIDs for strongest identification.
+
+In-app launch prep surface
+- Master accounts now see **Settings → Launch Prep** with:
+  - reset/deploy command checklist
+  - whitelist grant/revoke command templates
+  - reminder that entitlement fields are server-authoritative.

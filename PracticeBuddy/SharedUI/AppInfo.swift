@@ -77,4 +77,39 @@ enum AppInfo {
         }
         return nil
     }
+
+    static var masterEmails: Set<String> {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "PBMasterEmails") as? [String] else {
+            return []
+        }
+        return Set(
+            raw
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    static var masterUIDs: Set<String> {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "PBMasterUIDs") as? [String] else {
+            return []
+        }
+        return Set(
+            raw
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    static func isMasterAccount(uid: String?, email: String?) -> Bool {
+        if let uid, !uid.isEmpty, masterUIDs.contains(uid) {
+            return true
+        }
+        if let email {
+            let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !normalized.isEmpty, masterEmails.contains(normalized) {
+                return true
+            }
+        }
+        return false
+    }
 }

@@ -16,6 +16,11 @@ struct ContentView: View {
     @EnvironmentObject private var purchaseManager: PurchaseManager
 
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
+    @AppStorage("pb.studio.hub.section") private var socialSectionRawValue: String = "friends"
+    @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
+    @AppStorage("pb.social.chat.openFriendUID") private var socialOpenFriendUID: String = ""
+    @AppStorage("pb.social.chat.openThreadID") private var socialOpenThreadID: String = ""
+    @AppStorage("pb.play.openChallengeID") private var playOpenChallengeID: String = ""
     @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
 
     @StateObject private var themeManager = ThemeManager()
@@ -103,6 +108,10 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             handleIncomingURL(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pbNotificationRouteRequested)) { notification in
+            guard let route = notification.object as? PBNotificationRoute else { return }
+            applyNotificationRoute(route)
         }
         .environmentObject(store)
         .environmentObject(journeyManager)
@@ -363,6 +372,37 @@ struct ContentView: View {
             return code.uppercased()
         }
         return nil
+    }
+
+    private func applyNotificationRoute(_ route: PBNotificationRoute) {
+        switch route {
+        case .homeGoals:
+            selectedTab = 0
+        case .playDuel(let challengeID):
+            selectedTab = 1
+            if let challengeID, !challengeID.isEmpty {
+                playOpenChallengeID = challengeID
+            }
+        case .socialFriendRequests:
+            selectedTab = 2
+            socialSectionRawValue = "friends"
+            socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+        case .socialChat(let friendUID, let threadID):
+            selectedTab = 2
+            socialSectionRawValue = "chat"
+            if let threadID, !threadID.isEmpty {
+                socialOpenThreadID = threadID
+            }
+            if let friendUID, !friendUID.isEmpty {
+                socialOpenFriendUID = friendUID
+            }
+        case .socialStudioInvites(let studioID):
+            selectedTab = 2
+            socialSectionRawValue = "friends"
+            if let studioID, !studioID.isEmpty {
+                socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+            }
+        }
     }
 
     private func migrateTabSelectionIfNeeded() {

@@ -39,6 +39,7 @@ final class SessionStore: ObservableObject {
     func configure(context: ModelContext) {
         if modelContext != nil { return }
         modelContext = context
+        PBLog.sessionStore.info("configure(context:) attached")
         reload()
         pruneToRetentionIfNeeded()
     }
@@ -105,12 +106,14 @@ final class SessionStore: ObservableObject {
 
     func reload() {
         guard let modelContext else { return }
+        PBLog.sessionStore.info("reload() started")
 
         do {
             let descriptor = FetchDescriptor<PracticeSessionModel>(
                 sortBy: [SortDescriptor(\.date, order: .reverse)]
             )
             sessions = try modelContext.fetch(descriptor)
+            PBLog.sessionStore.info("reload() loaded \(self.sessions.count, privacy: .public) sessions")
         } catch {
             PBLog.sessionStore.error("SwiftData fetch failed: \(String(describing: error), privacy: .public)")
             sessions = []
@@ -138,7 +141,10 @@ final class SessionStore: ObservableObject {
         noteMoodRaw: String = "",
         noteStructuredJSON: String = ""
     ) -> Bool {
-        guard let modelContext else { return false }
+        guard let modelContext else {
+            PBLog.sessionStore.error("addSession failed: modelContext is nil")
+            return false
+        }
 
         let s = PracticeSessionModel(
             date: date,
@@ -155,11 +161,16 @@ final class SessionStore: ObservableObject {
             noteStructuredJSON: noteStructuredJSON
         )
         modelContext.insert(s)
+        PBLog.sessionStore.info("addSession() insert id=\(s.id.uuidString, privacy: .public) duration=\(s.durationSeconds, privacy: .public)")
 
         do {
             try modelContext.save()
-            sessions.insert(s, at: 0)
+            reload()
+            if !sessions.contains(where: { $0.id == s.id }) {
+                sessions.insert(s, at: 0)
+            }
             pruneToRetentionIfNeeded()
+            PBLog.sessionStore.info("addSession() committed id=\(s.id.uuidString, privacy: .public)")
             return true
         } catch {
             PBLog.sessionStore.error("SwiftData save failed (addSession): \(String(describing: error), privacy: .public)")

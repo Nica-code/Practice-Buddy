@@ -2,6 +2,8 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 import CryptoKit
+import UserNotifications
+import UIKit
 
 @MainActor
 final class PushTokenManager {
@@ -10,7 +12,7 @@ final class PushTokenManager {
     private var db: Firestore { Firestore.firestore() }
     private var pendingToken: String?
     private var lastPersistedTokenByUID: [String: String] = [:]
-    private var lastNotificationPrefsByUID: [String: (assignments: Bool, buddies: Bool)] = [:]
+    private var lastNotificationPrefsFingerprintByUID: [String: String] = [:]
 
     private init() {}
 
@@ -25,22 +27,65 @@ final class PushTokenManager {
         await persistToken(token, for: uid)
     }
 
-    func updateNotificationPreferences(assignmentsEnabled: Bool, buddiesEnabled: Bool) async {
+    func updateNotificationPreferences(
+        duelsEnabled: Bool,
+        messagesEnabled: Bool,
+        goalsEnabled: Bool,
+        friendRequestsEnabled: Bool,
+        studioInvitesEnabled: Bool,
+        assignmentsEnabled: Bool,
+        buddiesEnabled: Bool
+    ) async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        if let cached = lastNotificationPrefsByUID[uid],
-           cached.assignments == assignmentsEnabled,
-           cached.buddies == buddiesEnabled {
+        let fingerprint = [
+            duelsEnabled ? "1" : "0",
+            messagesEnabled ? "1" : "0",
+            goalsEnabled ? "1" : "0",
+            friendRequestsEnabled ? "1" : "0",
+            studioInvitesEnabled ? "1" : "0",
+            assignmentsEnabled ? "1" : "0",
+            buddiesEnabled ? "1" : "0"
+        ].joined(separator: "|")
+        if lastNotificationPrefsFingerprintByUID[uid] == fingerprint {
             return
         }
         do {
             try await db.collection("users").document(uid).setData([
+                "notificationDuels": duelsEnabled,
+                "notificationMessages": messagesEnabled,
+                "notificationGoals": goalsEnabled,
+                "notificationFriendRequests": friendRequestsEnabled,
+                "notificationStudioInvites": studioInvitesEnabled,
                 "notificationAssignments": assignmentsEnabled,
                 "notificationBuddies": buddiesEnabled,
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
-            lastNotificationPrefsByUID[uid] = (assignmentsEnabled, buddiesEnabled)
+            lastNotificationPrefsFingerprintByUID[uid] = fingerprint
         } catch {
             // no-op for now; UI doesn't need a blocking error here
+        }
+    }
+
+    func requestSystemNotificationPermissionIfNeeded() async -> Bool {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+            return true
+        case .denied:
+            return false
+        case .notDetermined:
+            do {
+                let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                return granted
+            } catch {
+                return false
+            }
+        @unknown default:
+            return false
         }
     }
 

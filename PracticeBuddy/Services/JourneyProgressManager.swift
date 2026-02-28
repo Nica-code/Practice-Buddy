@@ -859,11 +859,15 @@ final class DuelLeagueManager: ObservableObject {
                     let data = doc.data()
                     let displayName = ((data["displayName"] as? String) ?? "Player")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let lifetimeMatches = max(0, (data["duelWins"] as? Int) ?? 0)
+                        + max(0, (data["duelLosses"] as? Int) ?? 0)
+                        + max(0, (data["duelDraws"] as? Int) ?? 0)
+                    let rating = lifetimeMatches > 0 ? max(0, (data["duelRating"] as? Int) ?? 0) : 0
                     output[doc.documentID] = DuelParticipantCard(
                         id: doc.documentID,
                         displayName: displayName.isEmpty ? "Player" : displayName,
                         publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1),
-                        duelRating: max(0, (data["duelRating"] as? Int) ?? 0)
+                        duelRating: rating
                     )
                 }
             } catch {
@@ -896,49 +900,77 @@ final class DuelLeagueManager: ObservableObject {
             }
         }
 
-        let challengeListener = db.collection("duelChallenges")
+        let challengeQuery = db.collection("duelChallenges")
             .whereField("participants", arrayContains: uid)
-            .addSnapshotListener { [weak self] snap, _ in
-                guard let self else { return }
-                Task { @MainActor in
-                    let rows = (snap?.documents ?? [])
-                        .compactMap(self.parseChallenge)
-                        .sorted { lhs, rhs in
-                            let l = lhs.completedAt ?? lhs.startedAt ?? lhs.createdAt
-                            let r = rhs.completedAt ?? rhs.startedAt ?? rhs.createdAt
-                            return l > r
-                        }
-
-                    self.myOpenChallenge = rows.first {
-                        $0.status == .open && $0.createdByUID == uid
-                    }
-                    self.incomingInvites = rows.filter {
-                        $0.status == .invited && $0.opponentUID == uid
-                    }
-                    self.outgoingInvites = rows.filter {
-                        $0.status == .invited && $0.createdByUID == uid
-                    }
-                    self.activeChallenges = rows.filter { $0.status == .active }
-                    self.recentCompleted = rows.filter { $0.status == .completed }.prefix(8).map { $0 }
-                    self.prefetchDisplayNames(for: rows)
-
-                    let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
-                    if self.didReceiveInitialChallengeSnapshot {
-                        let newlyActive = rows.first {
-                            let previous = self.priorChallengeStatusByID[$0.id]
-                            return $0.status == .active && previous == .invited
-                        }
-                        if let newlyActive {
-                            self.readyChallengeID = newlyActive.id
-                            self.statusMessage = "Duel accepted. Tap Enter."
-                        }
-                    }
-                    self.priorChallengeStatusByID = statusByID
-                    self.didReceiveInitialChallengeSnapshot = true
-                }
+        let challengeListener = challengeQuery.addSnapshotListener { [weak self] snap, _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleChallengeSnapshot(uid: uid, snapshot: snap)
             }
+        }
 
         listeners = [userListener, challengeListener]
+    }
+
+    private func handleChallengeSnapshot(uid: String, snapshot: QuerySnapshot?) {
+        let rows = (snapshot?.documents ?? [])
+            .compactMap(parseChallenge)
+            .sorted { lhs, rhs in
+                let l = lhs.completedAt ?? lhs.startedAt ?? lhs.createdAt
+                let r = rhs.completedAt ?? rhs.startedAt ?? rhs.createdAt
+                return l > r
+            }
+
+        myOpenChallenge = rows.first {
+            $0.status == .open && $0.createdByUID == uid
+        }
+        incomingInvites = rows.filter {
+            $0.status == .invited && $0.opponentUID == uid
+        }
+        outgoingInvites = rows.filter {
+            $0.status == .invited && $0.createdByUID == uid
+        }
+        activeChallenges = rows.filter { $0.status == .active }
+        recentCompleted = rows.filter { $0.status == .completed }.prefix(8).map { $0 }
+        prefetchDisplayNames(for: rows)
+
+        let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
+        if didReceiveInitialChallengeSnapshot {
+            let newlyIncomingInvite = rows.first {
+                $0.status == .invited &&
+                $0.opponentUID == uid &&
+                priorChallengeStatusByID[$0.id] == nil
+            }
+            if let newlyIncomingInvite {
+                let challengerName = displayName(for: newlyIncomingInvite.createdByUID)
+                PBNotificationCenter.maybeScheduleDuelNotification(
+                    title: "Duel Challenge",
+                    body: "\(challengerName) challenged you.",
+                    challengeID: newlyIncomingInvite.id
+                )
+            }
+            let newlyActive = rows.first {
+                let previous = priorChallengeStatusByID[$0.id]
+                return $0.status == .active && previous == .invited
+            }
+            if let newlyActive {
+                readyChallengeID = newlyActive.id
+                statusMessage = "Duel accepted. Tap Enter."
+                PBNotificationCenter.maybeScheduleDuelNotification(
+                    title: "Duel Ready",
+                    body: "A duel is active. Tap to enter.",
+                    challengeID: newlyActive.id
+                )
+            }
+        }
+        priorChallengeStatusByID = statusByID
+        didReceiveInitialChallengeSnapshot = true
+    }
+
+    private func displayName(for uid: String) -> String {
+        let resolved = (userDisplayNames[uid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !resolved.isEmpty { return resolved }
+        return uid.count > 8 ? "Player \(uid.prefix(8))" : "Player"
     }
 
     private func ensureProfileDefaults(uid: String) async {
@@ -1110,13 +1142,19 @@ final class DuelLeagueManager: ObservableObject {
     private func parseLeaderboardRow(documentID: String, data: [String: Any]) -> DuelLeaderboardRow? {
         let displayName = ((data["displayName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !displayName.isEmpty else { return nil }
+        let seasonMatches = max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
+        let lifetimeMatches = max(0, (data["duelWins"] as? Int) ?? 0)
+            + max(0, (data["duelLosses"] as? Int) ?? 0)
+            + max(0, (data["duelDraws"] as? Int) ?? 0)
+        let hasAnyMatches = seasonMatches > 0 || lifetimeMatches > 0
+        let rating = hasAnyMatches ? max(0, (data["duelRating"] as? Int) ?? 0) : 0
         return DuelLeaderboardRow(
             id: documentID,
             displayName: displayName,
             points: max(0, (data["duelSeasonPoints"] as? Int) ?? 0),
-            rating: max(0, (data["duelRating"] as? Int) ?? 0),
+            rating: rating,
             wins: max(0, (data["duelSeasonWins"] as? Int) ?? 0),
-            matches: max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
+            matches: seasonMatches
         )
     }
 

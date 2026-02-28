@@ -26,6 +26,7 @@ struct HomeView: View {
     @AppStorage("pb.practice.startEpoch") private var startEpoch: Double = 0
     @AppStorage("pb.practice.isRunning") private var isRunning: Bool = false
     @AppStorage("pb.practice.distractionBlockEnabled") private var distractionBlockEnabled: Bool = false
+    @AppStorage("pb.practice.verifiedMode.enabled") private var verifiedModeEnabled: Bool = true
     @AppStorage("pb.practice.checkins.enabled") private var checkInsEnabled: Bool = true
     @AppStorage("pb.practice.checkins.intervalPreset") private var checkInIntervalPresetRaw: String = CheckInIntervalPreset.relaxed.rawValue
     @AppStorage("pb.practice.checkins.notifications") private var checkInNotificationsEnabled: Bool = true
@@ -38,6 +39,7 @@ struct HomeView: View {
     // Goal settings
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes: Int = 30
     @AppStorage("pb.settings.goalScope") private var goalScopeRaw: String = GoalScope.today.rawValue
+    @AppStorage("pb.goal.lastCompletionKey") private var lastGoalCompletionKey: String = ""
 
     // Home display settings
     @AppStorage("pb.tools.metronome.bpm") private var metronomeBPM: Int = 80
@@ -181,6 +183,8 @@ struct HomeView: View {
     @State private var selectedHomeArea: HomeArea = .dashboard
     @State private var activePracticeToolSheet: PracticeToolSheet?
     @State private var showShopSheet = false
+    @State private var showVerificationInfoSheet = false
+    @State private var showGoalReachedBanner = false
 
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
@@ -216,12 +220,7 @@ struct HomeView: View {
         )
     }
 
-    private var checkInIntervalPreset: Binding<CheckInIntervalPreset> {
-        Binding(
-            get: { CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed },
-            set: { checkInIntervalPresetRaw = $0.rawValue }
-        )
-    }
+    private var checkInRandomPromptRange: ClosedRange<Int> { 30 * 60...50 * 60 }
 
     // MARK: - Timer derived
 
@@ -240,12 +239,22 @@ struct HomeView: View {
 
     private var hasAnyTime: Bool { currentElapsedSeconds > 0 }
     private var canStop: Bool { hasAnyTime || isRunning }
-    private var verificationEnabledForSession: Bool { checkInsEnabled }
+    private var verificationEnabledForSession: Bool { verifiedModeEnabled }
+    private var verificationMechanismActive: Bool {
+        verificationEnabledForSession
+            && distractionBlockEnabled
+            && appShield.isShieldingActive
+            && appShield.isAuthorized
+            && appShield.selectedAppsCount > 0
+    }
+    private var checkInFlowEnabled: Bool {
+        verificationMechanismActive && checkInsEnabled
+    }
     private var effectiveVerifiedSeconds: Int {
-        verificationEnabledForSession ? max(0, verifiedSeconds) : max(0, currentElapsedSeconds)
+        verificationEnabledForSession ? max(0, verifiedSeconds) : 0
     }
     private var effectiveUnverifiedSeconds: Int {
-        verificationEnabledForSession ? max(0, unverifiedSeconds) : 0
+        verificationEnabledForSession ? max(0, unverifiedSeconds) : max(0, currentElapsedSeconds)
     }
 
     private var primaryButtonTitle: String {
@@ -269,6 +278,24 @@ struct HomeView: View {
     private var goalProgress: Double {
         guard goalSeconds > 0 else { return 0 }
         return min(1.0, Double(scopedSeconds) / Double(goalSeconds))
+    }
+
+    private var goalReached: Bool {
+        goalSeconds > 0 && scopedSeconds >= goalSeconds
+    }
+
+    private var goalCompletionEventKey: String {
+        let calendar = Calendar.current
+        let start: Date
+        switch GoalScope(rawValue: goalScopeRaw) ?? .today {
+        case .today:
+            start = calendar.startOfDay(for: Date())
+        case .week:
+            start = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
+        case .month:
+            start = calendar.dateInterval(of: .month, for: Date())?.start ?? calendar.startOfDay(for: Date())
+        }
+        return "\(goalScopeRaw)|\(goalMinutes)|\(Int(start.timeIntervalSince1970))"
     }
 
     private var streakDays: Int {
@@ -307,13 +334,68 @@ struct HomeView: View {
         }
         .practiceAppShieldPicker(isPresented: $showAppSelectionPicker, selection: appShield.selectionBinding)
         .overlay {
-            if isRunning && verificationEnabledForSession && checkInManager.isAwaitingResponse {
+            if isRunning && checkInFlowEnabled && checkInManager.isAwaitingResponse {
                 checkInOverlay
             }
         }
         .sheet(isPresented: $showShopSheet) {
             NavigationStack {
                 ShopView()
+            }
+        }
+        .sheet(isPresented: $showVerificationInfoSheet) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Verified Mode")
+                        .font(type.sectionTitle)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("XP, quests, and tokens are awarded from verified minutes only. Verification activates only while app blocking is actively running.")
+                        .font(type.body)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                }
+                .padding(PBLayout.padLG)
+                .background(PBBackdropView(palette: palette))
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            showVerificationInfoSheet = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.height(220)])
+        }
+        .overlay(alignment: .top) {
+            if showGoalReachedBanner {
+                HStack(spacing: 10) {
+                    Image(systemName: "flag.checkered.2.crossed")
+                        .foregroundStyle(palette.accent)
+                    Text("Daily goal reached.")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showGoalReachedBanner = false
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .pbModernCard(palette: palette)
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .onTapGesture {
+                    selectedHomeArea = .dashboard
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -371,166 +453,22 @@ struct HomeView: View {
 
     private var lifecycleScaffold: some View {
         mainScaffold
-            .onAppear {
-                if !animateHeader {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
-                        animateHeader = true
-                    }
-                }
-                impact.prepare()
-                notify.prepare()
-                sanitizeMetronomeSettings()
-                metronome.setBPM(metronomeBPM)
-                metronome.applyUpdatedConfiguration(
-                    beatsPerBar: metronomeBeatsPerBar,
-                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-                )
-
-                if isRunning {
-                    startTicker()
-                }
-                if !didRunInitialHomeBootstrap {
-                    didRunInitialHomeBootstrap = true
-                    if !templatesLoaded {
-                        templatesLoaded = true
-                        loadEditableTemplates()
-                    }
-                    Task { @MainActor in
-                        // Let tab transition complete before heavy setup runs.
-                        await Task.yield()
-                        social.configure(modelContext: modelContext)
-                        social.refresh()
-                        // Refresh shield state lazily unless user has the feature enabled.
-                        if distractionBlockEnabled {
-                            appShield.refreshState()
-                        }
-                        checkInManager.restoreCounters(
-                            checkInCount: checkInCountSaved,
-                            missedCheckInCount: missedCheckInCountSaved,
-                            events: decodedCheckInEvents(from: checkInEventsJSON)
-                        )
-                        checkInManager.updateConfiguration(
-                            promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                        )
-                    }
-                } else {
-                    checkInManager.updateConfiguration(
-                        promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                    )
-                }
-            }
-            .onChange(of: isRunning) { _, running in
-                if running {
-                    now = Date()
-                    startTicker()
-                } else {
-                    stopTicker()
-                }
-            }
-            .onChange(of: distractionBlockEnabled) { _, enabled in
-                if !enabled {
-                    appShield.stopShielding()
-                } else if isRunning {
-                    Task { await appShield.startShieldingIfPossible() }
-                }
-            }
-            .onChange(of: checkInsEnabled) { _, enabled in
-                if !enabled {
-                    checkInStatusMessage = nil
-                    unverifiedSeconds = 0
-                    checkInManager.reset()
-                    checkInEventsJSON = ""
-                    clearPendingCheckInNotifications()
-                } else if hasAnyTime {
-                    checkInManager.restoreCounters(
-                        checkInCount: checkInCountSaved,
-                        missedCheckInCount: missedCheckInCountSaved,
-                        events: decodedCheckInEvents(from: checkInEventsJSON)
-                    )
-                    checkInManager.updateConfiguration(
-                        promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                    )
-                    if scenePhase != .active {
-                        scheduleBackgroundCheckInNotification()
-                    }
-                }
-            }
-            .onChange(of: checkInIntervalPresetRaw) { _, _ in
-                checkInManager.updateConfiguration(
-                    promptRange: (CheckInIntervalPreset(rawValue: checkInIntervalPresetRaw) ?? .relaxed).rangeSeconds
-                )
-                if scenePhase != .active, isRunning, verificationEnabledForSession {
-                    scheduleBackgroundCheckInNotification()
-                }
-            }
-            .onChange(of: checkInNotificationsEnabled) { _, enabled in
-                if !enabled {
-                    clearPendingCheckInNotifications()
-                } else if scenePhase != .active, isRunning, verificationEnabledForSession {
-                    scheduleBackgroundCheckInNotification()
-                }
-            }
-            .onDisappear {
-                stopTicker()
-                // Keep metronome running across app/tab transitions.
-                // This allows continued playback when screen locks/backgrounds.
-                tuner.stopListening()
-                tuner.stopReferenceTone()
-                appShield.stopShielding()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    applyBackgroundElapsedCatchUp()
-                    clearPendingCheckInNotifications()
-                } else if isRunning {
-                    if backgroundEnteredAt == nil {
-                        backgroundEnteredAt = Date()
-                    }
-                    if verificationEnabledForSession {
-                        scheduleBackgroundCheckInNotification()
-                    }
-                }
-            }
-            .onChange(of: metronomeBPM) { _, newBPM in
-                let clamped = min(max(newBPM, 40), 220)
-                if clamped != metronomeBPM {
-                    metronomeBPM = clamped
-                    return
-                }
-                metronome.setBPM(clamped)
-                metronome.applyUpdatedConfiguration(
-                    beatsPerBar: metronomeBeatsPerBar,
-                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-                )
-            }
-            .onChange(of: metronomeBeatsPerBar) { _, newBeats in
-                let clamped = MetronomeEngine.clampBeatsPerBar(newBeats)
-                if clamped != metronomeBeatsPerBar {
-                    metronomeBeatsPerBar = clamped
-                    return
-                }
-                metronome.applyUpdatedConfiguration(
-                    beatsPerBar: clamped,
-                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-                )
-            }
-            .onChange(of: metronomeSubdivisionRaw) { _, _ in
-                metronome.applyUpdatedConfiguration(
-                    beatsPerBar: metronomeBeatsPerBar,
-                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-                )
-            }
-            .onChange(of: metronomeSoundStyleRaw) { _, _ in
-                metronome.applyUpdatedConfiguration(
-                    beatsPerBar: metronomeBeatsPerBar,
-                    subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                    soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
-                )
-            }
+            .onAppear(perform: handleLifecycleAppear)
+            .onChange(of: isRunning, handleIsRunningChange)
+            .onChange(of: distractionBlockEnabled, handleDistractionBlockChange)
+            .onChange(of: checkInsEnabled, handleCheckInsChange)
+            .onChange(of: verifiedModeEnabled, handleVerifiedModeChange)
+            .onChange(of: checkInIntervalPresetRaw, handleCheckInIntervalChange)
+            .onChange(of: checkInNotificationsEnabled, handleCheckInNotificationsChange)
+            .onDisappear(perform: handleLifecycleDisappear)
+            .onChange(of: scenePhase, handleScenePhaseChange)
+            .onChange(of: scopedSeconds) { _, _ in handleGoalReachedBannerIfNeeded() }
+            .onChange(of: goalScopeRaw) { _, _ in handleGoalReachedBannerIfNeeded() }
+            .onChange(of: goalMinutes) { _, _ in handleGoalReachedBannerIfNeeded() }
+            .onChange(of: metronomeBPM, handleMetronomeBPMChange)
+            .onChange(of: metronomeBeatsPerBar, handleMetronomeBeatsChange)
+            .onChange(of: metronomeSubdivisionRaw) { _, _ in applyMetronomeConfiguration() }
+            .onChange(of: metronomeSoundStyleRaw) { _, _ in applyMetronomeConfiguration() }
             .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
                 guard token > 0 else { return }
                 withAnimation(.easeOut(duration: 0.08)) {
@@ -550,6 +488,183 @@ struct HomeView: View {
             .onReceive(store.$sessions.dropFirst().map(\.count).removeDuplicates()) { _ in
                 social.refresh()
             }
+    }
+
+    private func handleLifecycleAppear() {
+        if !animateHeader {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
+                animateHeader = true
+            }
+        }
+        impact.prepare()
+        notify.prepare()
+        sanitizeMetronomeSettings()
+        metronome.setBPM(metronomeBPM)
+        applyMetronomeConfiguration()
+        if verifiedModeEnabled {
+            distractionBlockEnabled = true
+            checkInsEnabled = true
+            checkInNotificationsEnabled = true
+        }
+
+        if isRunning {
+            startTicker()
+        }
+        if !didRunInitialHomeBootstrap {
+            didRunInitialHomeBootstrap = true
+            if !templatesLoaded {
+                templatesLoaded = true
+                loadEditableTemplates()
+            }
+            Task { @MainActor in
+                await Task.yield()
+                social.configure(modelContext: modelContext)
+                social.refresh()
+                if distractionBlockEnabled {
+                    appShield.refreshState()
+                }
+                checkInManager.restoreCounters(
+                    checkInCount: checkInCountSaved,
+                    missedCheckInCount: missedCheckInCountSaved,
+                    events: decodedCheckInEvents(from: checkInEventsJSON)
+                )
+                checkInManager.updateConfiguration(
+                    promptRange: checkInRandomPromptRange
+                )
+            }
+        } else {
+            checkInManager.updateConfiguration(
+                promptRange: checkInRandomPromptRange
+            )
+        }
+        handleGoalReachedBannerIfNeeded()
+    }
+
+    private func handleLifecycleDisappear() {
+        stopTicker()
+        tuner.stopListening()
+        tuner.stopReferenceTone()
+        appShield.stopShielding()
+    }
+
+    private func handleIsRunningChange(_: Bool, running: Bool) {
+        if running {
+            now = Date()
+            startTicker()
+        } else {
+            stopTicker()
+        }
+    }
+
+    private func handleDistractionBlockChange(_: Bool, enabled: Bool) {
+        if !enabled {
+            appShield.stopShielding()
+        } else if isRunning {
+            Task { await appShield.startShieldingIfPossible() }
+        }
+    }
+
+    private func handleCheckInsChange(_: Bool, enabled: Bool) {
+        if !enabled {
+            checkInStatusMessage = nil
+            checkInManager.reset()
+            checkInEventsJSON = ""
+            clearPendingCheckInNotifications()
+        } else if hasAnyTime && verificationEnabledForSession {
+            checkInManager.restoreCounters(
+                checkInCount: checkInCountSaved,
+                missedCheckInCount: missedCheckInCountSaved,
+                events: decodedCheckInEvents(from: checkInEventsJSON)
+            )
+            checkInManager.updateConfiguration(
+                promptRange: checkInRandomPromptRange
+            )
+            if scenePhase != .active && checkInFlowEnabled {
+                scheduleBackgroundCheckInNotification()
+            }
+        }
+    }
+
+    private func handleVerifiedModeChange(_: Bool, enabled: Bool) {
+        if enabled {
+            distractionBlockEnabled = true
+            checkInsEnabled = true
+            checkInNotificationsEnabled = true
+            checkInIntervalPresetRaw = CheckInIntervalPreset.relaxed.rawValue
+            if isRunning {
+                Task { await appShield.startShieldingIfPossible() }
+            } else {
+                appShield.refreshState()
+            }
+        } else {
+            distractionBlockEnabled = false
+            checkInsEnabled = false
+            checkInNotificationsEnabled = false
+            checkInStatusMessage = nil
+            clearPendingCheckInNotifications()
+        }
+
+        if enabled && isRunning && checkInFlowEnabled && scenePhase != .active {
+            scheduleBackgroundCheckInNotification()
+        }
+    }
+
+    private func handleCheckInIntervalChange(_: String, _: String) {
+        checkInManager.updateConfiguration(
+            promptRange: checkInRandomPromptRange
+        )
+        if scenePhase != .active, isRunning, checkInFlowEnabled {
+            scheduleBackgroundCheckInNotification()
+        }
+    }
+
+    private func handleCheckInNotificationsChange(_: Bool, enabled: Bool) {
+        if !enabled {
+            clearPendingCheckInNotifications()
+        } else if scenePhase != .active, isRunning, checkInFlowEnabled {
+            scheduleBackgroundCheckInNotification()
+        }
+    }
+
+    private func handleScenePhaseChange(_: ScenePhase, phase: ScenePhase) {
+        if phase == .active {
+            applyBackgroundElapsedCatchUp()
+            clearPendingCheckInNotifications()
+        } else if isRunning {
+            if backgroundEnteredAt == nil {
+                backgroundEnteredAt = Date()
+            }
+            if checkInFlowEnabled {
+                scheduleBackgroundCheckInNotification()
+            }
+        }
+    }
+
+    private func handleMetronomeBPMChange(_: Int, newBPM: Int) {
+        let clamped = min(max(newBPM, 40), 220)
+        if clamped != metronomeBPM {
+            metronomeBPM = clamped
+            return
+        }
+        metronome.setBPM(clamped)
+        applyMetronomeConfiguration()
+    }
+
+    private func handleMetronomeBeatsChange(_: Int, newBeats: Int) {
+        let clamped = MetronomeEngine.clampBeatsPerBar(newBeats)
+        if clamped != metronomeBeatsPerBar {
+            metronomeBeatsPerBar = clamped
+            return
+        }
+        applyMetronomeConfiguration()
+    }
+
+    private func applyMetronomeConfiguration() {
+        metronome.applyUpdatedConfiguration(
+            beatsPerBar: metronomeBeatsPerBar,
+            subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
+            soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+        )
     }
 
     // MARK: - Ticker control
@@ -573,35 +688,40 @@ struct HomeView: View {
         guard isRunning else { return }
 
         if verificationEnabledForSession {
-            switch checkInManager.tick(now: Date(), enabled: true) {
-            case .none:
-                break
-            case .triggered:
-                checkInStatusMessage = "Check-in required."
-                selectedCheckInFocusTag = ""
-            case .missed:
-                checkInStatusMessage = "Missed check-in. Session paused."
-                accumulatedSeconds = currentElapsedSeconds
-                isRunning = false
-                startEpoch = 0
-                backgroundEnteredAt = nil
-                if distractionBlockEnabled {
-                    appShield.stopShielding()
+            if checkInFlowEnabled {
+                switch checkInManager.tick(now: Date(), enabled: true) {
+                case .none:
+                    break
+                case .triggered:
+                    checkInStatusMessage = "Check-in required."
+                    selectedCheckInFocusTag = ""
+                case .missed:
+                    checkInStatusMessage = "Missed check-in. Session paused."
+                    accumulatedSeconds = currentElapsedSeconds
+                    isRunning = false
+                    startEpoch = 0
+                    backgroundEnteredAt = nil
+                    if distractionBlockEnabled {
+                        appShield.stopShielding()
+                    }
+                    clearPendingCheckInNotifications()
                 }
-                clearPendingCheckInNotifications()
+            } else if !verificationMechanismActive {
+                checkInStatusMessage = nil
             }
 
-            if checkInManager.isAwaitingResponse {
+            if checkInFlowEnabled && checkInManager.isAwaitingResponse {
                 unverifiedSeconds += 1
-            } else {
+            } else if verificationMechanismActive {
                 verifiedSeconds += 1
+            } else {
+                unverifiedSeconds += 1
             }
             checkInCountSaved = checkInManager.checkInCount
             missedCheckInCountSaved = checkInManager.missedCheckInCount
             checkInEventsJSON = checkInManager.eventsJSON()
         } else {
-            verifiedSeconds += 1
-            unverifiedSeconds = 0
+            unverifiedSeconds += 1
             checkInStatusMessage = nil
         }
     }
@@ -614,16 +734,16 @@ struct HomeView: View {
         let delta = max(0, Int(Date().timeIntervalSince(started)))
         guard delta > 0 else { return }
 
-        if verificationEnabledForSession {
+        if verificationMechanismActive {
             unverifiedSeconds += delta
             checkInStatusMessage = "Background time counted as unverified."
         } else {
-            verifiedSeconds += delta
+            unverifiedSeconds += delta
         }
     }
 
     private func scheduleBackgroundCheckInNotification() {
-        guard checkInNotificationsEnabled, verificationEnabledForSession, isRunning else { return }
+        guard checkInNotificationsEnabled, checkInFlowEnabled, isRunning else { return }
 
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["pb.practice.checkin.prompt"])
@@ -646,6 +766,25 @@ struct HomeView: View {
 
     private func clearPendingCheckInNotifications() {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["pb.practice.checkin.prompt"])
+    }
+
+    private func handleGoalReachedBannerIfNeeded() {
+        guard goalReached else { return }
+        let key = goalCompletionEventKey
+        guard key != lastGoalCompletionKey else { return }
+        lastGoalCompletionKey = key
+        if scenePhase != .active {
+            PBNotificationCenter.maybeScheduleGoalReachedNotification(eventKey: key)
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+            showGoalReachedBanner = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            withAnimation(.easeOut(duration: 0.24)) {
+                showGoalReachedBanner = false
+            }
+        }
     }
 
     private func compactTimeStat(title: String, seconds: Int) -> some View {
@@ -1035,75 +1174,71 @@ struct HomeView: View {
                 .disabled(!canStop)
             }
 
-            if verificationEnabledForSession {
-                Text("XP, quests, and tokens are awarded from verified minutes only.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                HStack {
-                    Text("Verified")
+            HStack(spacing: 10) {
+                Toggle(isOn: $verifiedModeEnabled) {
+                    Text("Verified Mode")
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Spacer()
-                    Text(DurationFormatter.string(from: effectiveVerifiedSeconds))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
+                        .foregroundStyle(palette.textPrimary)
                 }
-            } else {
-                Text("Verification is OFF. This session will not award XP, quests, or tokens.")
-                    .font(type.footnote)
-                    .foregroundStyle(.orange)
+                .toggleStyle(.switch)
+                Button {
+                    showVerificationInfoSheet = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .buttonStyle(.plain)
             }
 
-            DisclosureGroup("Verification & Focus Settings") {
-                if verificationEnabledForSession {
-                    HStack {
-                        Text("Check-ins")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        Spacer()
-                        Text(
-                            L10n.f(
-                                "%@ responded • %@ missed",
-                                "\(max(0, checkInManager.checkInCount - checkInManager.missedCheckInCount))",
-                                "\(checkInManager.missedCheckInCount)"
-                            )
-                        )
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                    }
-                    Picker("Check-in interval", selection: checkInIntervalPreset) {
-                        ForEach(CheckInIntervalPreset.allCases) { preset in
-                            Text(LocalizedStringKey(preset.titleKey)).tag(preset)
-                        }
-                    }
-                    .pickerStyle(.menu)
+            HStack {
+                Text("Verified")
                     .font(type.footnote)
-                    Toggle("Lock-screen check-in alerts", isOn: $checkInNotificationsEnabled)
-                        .font(type.footnote)
-                }
+                    .foregroundStyle(palette.textSecondary)
+                Spacer()
+                Text(DurationFormatter.string(from: effectiveVerifiedSeconds))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
 
-                Toggle("Block Distracting Apps (Screen Time)", isOn: $distractionBlockEnabled)
-                    .font(type.body)
+            HStack {
+                Text("Unverified")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                Spacer()
+                Text(DurationFormatter.string(from: effectiveUnverifiedSeconds))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
 
-                if distractionBlockEnabled {
-                    HStack(spacing: 10) {
-                        Button("Select Apps") {
-                            showAppSelectionPicker = true
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!appShield.isAvailable)
-                        Button("Authorize") {
-                            Task { await appShield.requestAuthorization() }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!appShield.isAvailable)
+            if verificationEnabledForSession {
+                Text("Includes: Screen Time blocking, random check-ins (30–50 min), and lock-screen alerts.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+
+            if verificationEnabledForSession {
+                HStack(spacing: 10) {
+                    Button("Select Apps") {
+                        showAppSelectionPicker = true
                     }
-                    Text(LocalizedStringKey(appShield.statusLine))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                    .buttonStyle(.bordered)
+                    .disabled(!appShield.isAvailable)
+                    Button("Authorize") {
+                        Task { await appShield.requestAuthorization() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!appShield.isAvailable)
                 }
+                Text(LocalizedStringKey(appShield.statusLine))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            if verificationEnabledForSession && !verificationMechanismActive {
+                Text("Verification inactive")
+                    .font(type.footnote)
+                    .foregroundStyle(.orange)
             }
         }
         .listRowBackground(palette.surface)
@@ -1266,7 +1401,7 @@ struct HomeView: View {
             if purchaseManager.isPro {
                 VStack(alignment: .leading, spacing: 10) {
                     NavigationLink {
-                        PBLazyView(StudioPlannerView())
+                        PBLazyView(StudioManagerView(entryMode: .teacher))
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Studio Manager")
@@ -1796,7 +1931,7 @@ struct HomeView: View {
                                 tunerListening: tuner.isListening
                             )
                             : baseNotes
-                        if verificationEnabledForSession {
+                        if verificationEnabledForSession && verifiedToSave > 0 {
                             lastSaveMessage = "Your practice session was added to History. Verified \(DurationFormatter.string(from: verifiedToSave)) / \(DurationFormatter.string(from: currentElapsedSeconds)). +\(lastSavedXP) XP"
                         } else if lastSavedXP > 0 {
                             lastSaveMessage = "Your practice session was added to History. +\(lastSavedXP) XP"
@@ -2558,6 +2693,7 @@ final class PracticeAppShieldManager: ObservableObject {
     @Published private(set) var isAvailable: Bool = false
     @Published private(set) var isAuthorized: Bool = false
     @Published private(set) var selectedAppsCount: Int = 0
+    @Published private(set) var isShieldingActive: Bool = false
     @Published var statusMessage: String?
     private var hasFamilyControlsEntitlement: Bool {
         (Bundle.main.object(forInfoDictionaryKey: "PBEnableFamilyControls") as? Bool) == true
@@ -2599,6 +2735,7 @@ final class PracticeAppShieldManager: ObservableObject {
             isAvailable = false
             isAuthorized = false
             selectedAppsCount = 0
+            isShieldingActive = false
             return
         }
         if #available(iOS 16.0, *) {
@@ -2609,11 +2746,13 @@ final class PracticeAppShieldManager: ObservableObject {
             isAvailable = false
             isAuthorized = false
             selectedAppsCount = 0
+            isShieldingActive = false
         }
 #else
         isAvailable = false
         isAuthorized = false
         selectedAppsCount = 0
+        isShieldingActive = false
 #endif
     }
 
@@ -2672,18 +2811,23 @@ final class PracticeAppShieldManager: ObservableObject {
             ? nil
             : .specific(selection.categoryTokens)
         store.shield.webDomains = selection.webDomainTokens.isEmpty ? nil : selection.webDomainTokens
+        isShieldingActive = true
         statusMessage = "Distracting apps/categories are blocked while practice is running."
 #else
         statusMessage = "Screen Time blocking requires FamilyControls support."
+        isShieldingActive = false
 #endif
     }
 
     func stopShielding() {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
+        isShieldingActive = false
         guard let store = managedStore else { return }
         store.shield.applications = nil
         store.shield.applicationCategories = nil
         store.shield.webDomains = nil
+#else
+        isShieldingActive = false
 #endif
     }
 
