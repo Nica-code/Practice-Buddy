@@ -720,9 +720,9 @@ struct JourneyView: View {
 
                                     Button("Duel Challenge") {
                                         Task {
+                                            duelLeague.rememberDisplayName(uid: row.id, name: row.displayName)
                                             let source: DuelInviteSource = duelLeaderboardScope == .studio ? .studio : .friend
                                             await duelLeague.inviteTargetedDuel(targetUID: row.id, source: source, octaves: duelLeague.activeLeagueRequirement.octaves)
-                                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
                                         }
                                         expandedLadderUserID = nil
                                     }

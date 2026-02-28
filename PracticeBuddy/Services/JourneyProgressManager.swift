@@ -123,8 +123,6 @@ private final class DuelQuestTelemetryStore {
 
     func record(_ event: DuelQuestEvent, on dayKey: String, weekKey: String) {
         lock.lock()
-        defer { lock.unlock() }
-
         var dayMap = readMap(for: Keys.dayCounters)
         let dayCounterKey = "\(dayKey)|\(event.rawValue)"
         dayMap[dayCounterKey, default: 0] += 1
@@ -134,6 +132,7 @@ private final class DuelQuestTelemetryStore {
         let weekCounterKey = "\(weekKey)|\(event.rawValue)"
         weekMap[weekCounterKey, default: 0] += 1
         writeMap(weekMap, for: Keys.weekCounters)
+        lock.unlock()
 
         NotificationCenter.default.post(name: DuelQuestNotification.telemetryDidChange, object: nil)
     }
@@ -1661,6 +1660,8 @@ final class DuelLeagueManager: ObservableObject {
     private var priorChallengeStatusByID: [String: DuelChallengeStatus] = [:]
     private var inFlightActionKeys: Set<String> = []
     private var pendingRetryAction: DuelPendingRetryAction?
+    private var isPrefetchingDisplayNames = false
+    private var pendingDisplayNameUIDs: Set<String> = []
 
     private enum DuelPendingRetryAction {
         case acceptInvite(challengeID: String)
@@ -1723,6 +1724,13 @@ final class DuelLeagueManager: ObservableObject {
 
     func isActionInFlight(for key: String) -> Bool {
         inFlightActionKeys.contains(key)
+    }
+
+    func rememberDisplayName(uid: String, name: String) {
+        let normalizedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUID.isEmpty, !normalizedName.isEmpty else { return }
+        userDisplayNames[normalizedUID] = normalizedName
     }
 
     func clearRecoverableActionError() {
@@ -1849,6 +1857,16 @@ final class DuelLeagueManager: ObservableObject {
 
     func inviteTargetedDuel(targetUID: String, source: DuelInviteSource, octaves: DuelOctaveCount = .one) async {
         guard let uid = configuredUID, uid != targetUID else { return }
+        if userDisplayNames[targetUID] == nil {
+            let knownName =
+                friendCandidates.first(where: { $0.id == targetUID })?.displayName ??
+                studioCandidates.first(where: { $0.id == targetUID })?.displayName ??
+                friendCandidatesCache.first(where: { $0.id == targetUID })?.displayName ??
+                studioCandidatesCache.first(where: { $0.id == targetUID })?.displayName
+            if let knownName, !knownName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                userDisplayNames[targetUID] = knownName
+            }
+        }
         let required = activeLeagueRequirement
         let requestedOctaves = max(octaves.rawValue, required.octaves.rawValue)
         let normalizedOctaves = DuelOctaveCount(rawValue: requestedOctaves) ?? required.octaves
@@ -2125,7 +2143,6 @@ final class DuelLeagueManager: ObservableObject {
         }
         activeChallenges = rows.filter { $0.status == .active }
         recentCompleted = rows.filter { $0.status == .completed }.prefix(8).map { $0 }
-        prefetchDisplayNames(for: rows)
 
         let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
         if didReceiveInitialChallengeSnapshot {
@@ -2495,12 +2512,32 @@ final class DuelLeagueManager: ObservableObject {
         guard !uids.isEmpty else { return }
         let missing = uids.filter { userDisplayNames[$0] == nil }
         guard !missing.isEmpty else { return }
+        pendingDisplayNameUIDs.formUnion(missing)
+        guard !isPrefetchingDisplayNames else { return }
+        isPrefetchingDisplayNames = true
+        flushDisplayNamePrefetchQueue()
+    }
 
-        Task {
+    private func flushDisplayNamePrefetchQueue() {
+        let queued = pendingDisplayNameUIDs.filter { userDisplayNames[$0] == nil }
+        guard !queued.isEmpty else {
+            isPrefetchingDisplayNames = false
+            return
+        }
+        pendingDisplayNameUIDs = []
+
+        let ids = Array(queued)
+        Task.detached(priority: .utility) { [weak self] in
             var fetched: [String: String] = [:]
-            for chunk in missing.chunked(into: 10) {
+            var lastErrorMessage: String?
+            let store = Firestore.firestore()
+            var start = 0
+            while start < ids.count {
+                let end = Swift.min(start + 10, ids.count)
+                let chunk = Array(ids[start..<end])
+                start = end
                 do {
-                    let snap = try await db.collection("users")
+                    let snap = try await store.collection("users")
                         .whereField(FieldPath.documentID(), in: chunk)
                         .getDocuments()
                     for doc in snap.documents {
@@ -2511,11 +2548,22 @@ final class DuelLeagueManager: ObservableObject {
                         }
                     }
                 } catch {
-                    statusMessage = error.localizedDescription
+                    lastErrorMessage = error.localizedDescription
                 }
             }
-            if !fetched.isEmpty {
-                userDisplayNames.merge(fetched) { _, new in new }
+
+            guard let strongSelf = self else { return }
+            let fetchedResult = fetched
+            let errorMessage = lastErrorMessage
+            await MainActor.run {
+                if !fetchedResult.isEmpty {
+                    strongSelf.userDisplayNames.merge(fetchedResult) { _, new in new }
+                }
+                if let errorMessage, !errorMessage.isEmpty {
+                    strongSelf.statusMessage = errorMessage
+                }
+                strongSelf.isPrefetchingDisplayNames = false
+                strongSelf.flushDisplayNamePrefetchQueue()
             }
         }
     }
