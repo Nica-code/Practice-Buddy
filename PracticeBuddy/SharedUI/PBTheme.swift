@@ -137,19 +137,19 @@ extension PBTheme {
         id: "concert_hall",
         name: "Concert Hall",
         access: .free,
-        palette: classicBase(accent: Color(red: 0.82, green: 0.64, blue: 0.16)),
+        palette: classicBase(accent: Color(red: 250.0 / 255.0, green: 187.0 / 255.0, blue: 20.0 / 255.0)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 0.82, green: 0.64, blue: 0.16)
+            let accent = Color(red: 250.0 / 255.0, green: 187.0 / 255.0, blue: 20.0 / 255.0)
             if scheme == .dark {
                 return classicBase(accent: accent)
             }
             return themedLightBase(
-                background: Color(red: 248.0 / 255.0, green: 222.0 / 255.0, blue: 141.0 / 255.0), // Pantone 12-0825 TCX Popcorn
-                surface: Color(red: 252.0 / 255.0, green: 239.0 / 255.0, blue: 190.0 / 255.0),
-                surfaceAlt: Color(red: 244.0 / 255.0, green: 212.0 / 255.0, blue: 112.0 / 255.0),
+                background: Color(red: 255.0 / 255.0, green: 243.0 / 255.0, blue: 207.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 231.0 / 255.0, blue: 173.0 / 255.0),
+                surfaceAlt: Color(red: 255.0 / 255.0, green: 211.0 / 255.0, blue: 107.0 / 255.0),
                 accent: accent,
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.14, green: 0.14, blue: 0.14)
+                textSecondary: Color(red: 0.20, green: 0.15, blue: 0.07)
             )
         }
     )
@@ -160,19 +160,41 @@ extension PBTheme {
         id: "warm_maple",
         name: "Luthier",
         access: .free,
-        palette: classicBase(accent: Color(red: 0.63, green: 0.35, blue: 0.15)),
+        palette: classicBase(accent: Color(red: 242.0 / 255.0, green: 138.0 / 255.0, blue: 49.0 / 255.0)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 0.63, green: 0.35, blue: 0.15)
+            let accent = Color(red: 242.0 / 255.0, green: 138.0 / 255.0, blue: 49.0 / 255.0)
             if scheme == .dark {
                 return classicBase(accent: accent)
             }
             return themedLightBase(
-                background: Color(red: 227.0 / 255.0, green: 190.0 / 255.0, blue: 141.0 / 255.0), // Pantone-like 728 family
-                surface: Color(red: 241.0 / 255.0, green: 214.0 / 255.0, blue: 176.0 / 255.0),
-                surfaceAlt: Color(red: 214.0 / 255.0, green: 169.0 / 255.0, blue: 117.0 / 255.0),
+                background: Color(red: 255.0 / 255.0, green: 240.0 / 255.0, blue: 228.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 225.0 / 255.0, blue: 203.0 / 255.0),
+                surfaceAlt: Color(red: 255.0 / 255.0, green: 192.0 / 255.0, blue: 138.0 / 255.0),
                 accent: accent,
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.16, green: 0.13, blue: 0.10)
+                textSecondary: Color(red: 0.23, green: 0.14, blue: 0.08)
+            )
+        }
+    )
+
+    // MARK: - Appassionato
+    static let appassionato = PBTheme(
+        id: "appassionato",
+        name: "Appassionato",
+        access: .free,
+        palette: classicBase(accent: Color(red: 248.0 / 255.0, green: 11.0 / 255.0, blue: 4.0 / 255.0)),
+        dynamicPalette: { scheme in
+            let accent = Color(red: 248.0 / 255.0, green: 11.0 / 255.0, blue: 4.0 / 255.0)
+            if scheme == .dark {
+                return classicBase(accent: accent)
+            }
+            return themedLightBase(
+                background: Color(red: 255.0 / 255.0, green: 227.0 / 255.0, blue: 226.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 208.0 / 255.0, blue: 206.0 / 255.0),
+                surfaceAlt: Color(red: 255.0 / 255.0, green: 173.0 / 255.0, blue: 169.0 / 255.0),
+                accent: accent,
+                textPrimary: Color.black,
+                textSecondary: Color(red: 0.24, green: 0.07, blue: 0.06)
             )
         }
     )
@@ -212,7 +234,7 @@ extension PBTheme {
         }
     )
 
-    static let all: [PBTheme] = [pinkNeon, concertHall, midnight, warmMaple, classic]
+    static let all: [PBTheme] = [pinkNeon, concertHall, midnight, warmMaple, appassionato, classic]
 
     static func byID(_ id: String) -> PBTheme {
         all.first(where: { $0.id == id }) ?? classic

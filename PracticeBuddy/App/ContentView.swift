@@ -264,6 +264,7 @@ struct ContentView: View {
         lastPipelineSyncAt = now
 
         purchaseManager.linkToUser(uid: linkUID, email: firebase.currentUserEmail)
+        journeyManager.linkToUser(uid: linkUID)
 
         guard canRunRealtimePipelines else {
             assignmentLinkManager.pauseRealtime()

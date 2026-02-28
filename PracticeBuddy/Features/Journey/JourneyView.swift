@@ -36,6 +36,10 @@ struct JourneyView: View {
     @State private var showInventorySheet = false
     @State private var showRewardCelebration = false
     @State private var rewardCelebrationToken = 0
+    @State private var showDuelFinisherCelebration = false
+    @State private var duelFinisherToken = 0
+    @State private var didSeedCompletedChallengeIDs = false
+    @State private var seenCompletedChallengeIDs: Set<String> = []
     @State private var selectedDuelEntryChallenge: DuelChallenge?
     @State private var duelEntryParticipantCards: [String: DuelParticipantCard] = [:]
     @State private var showDuelReadyAlert = false
@@ -151,12 +155,21 @@ struct JourneyView: View {
                 .allowsHitTesting(false)
                 .transition(.opacity)
             }
+            if showDuelFinisherCelebration, let finisherStyle = journey.equippedRewardID(for: .duelFinisherFX) {
+                PBDuelFinisherOverlay(styleID: finisherStyle, token: duelFinisherToken)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .onAppear {
             if !animateHeader {
                 withAnimation(.spring(response: 0.52, dampingFraction: 0.86)) {
                     animateHeader = true
                 }
+            }
+            if !didSeedCompletedChallengeIDs {
+                seenCompletedChallengeIDs = Set(duelLeague.recentCompleted.map(\.id))
+                didSeedCompletedChallengeIDs = true
             }
             syncJourneyDuelSnapshot()
             guard !didLoadDuelTargets else { return }
@@ -182,6 +195,19 @@ struct JourneyView: View {
         }
         .onChange(of: duelLeague.activeChallenges.map(\.id)) { _, _ in
             consumePendingOpenChallengeID()
+        }
+        .onChange(of: duelLeague.recentCompleted.map(\.id)) { _, ids in
+            let current = Set(ids)
+            if !didSeedCompletedChallengeIDs {
+                seenCompletedChallengeIDs = current
+                didSeedCompletedChallengeIDs = true
+                return
+            }
+            let newlyCompleted = current.subtracting(seenCompletedChallengeIDs)
+            seenCompletedChallengeIDs = current
+            if !newlyCompleted.isEmpty {
+                triggerDuelFinisherCelebrationIfNeeded()
+            }
         }
         .onChange(of: duelLeague.readyChallengeID) { _, newValue in
             guard newValue != nil else { return }
@@ -245,6 +271,19 @@ struct JourneyView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) {
             withAnimation(.easeIn(duration: 0.18)) {
                 showRewardCelebration = false
+            }
+        }
+    }
+
+    private func triggerDuelFinisherCelebrationIfNeeded() {
+        guard journey.equippedRewardID(for: .duelFinisherFX) != nil else { return }
+        duelFinisherToken += 1
+        withAnimation(.easeOut(duration: 0.18)) {
+            showDuelFinisherCelebration = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+            withAnimation(.easeIn(duration: 0.18)) {
+                showDuelFinisherCelebration = false
             }
         }
     }
@@ -530,7 +569,7 @@ struct JourneyView: View {
                     palette: palette
                 )
             )
-            .disabled(duelLeague.isLoading || firebase.currentUserID == nil || firebase.isAnonymousUser)
+            .disabled(duelLeague.isLoading || duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser)
 
             HStack {
                 Menu {
@@ -548,6 +587,7 @@ struct JourneyView: View {
                     Label("Invite Friend", systemImage: "person.badge.plus")
                 }
                 .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+                .disabled(duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser)
 
                 Menu {
                     if duelLeague.studioCandidates.isEmpty {
@@ -564,6 +604,7 @@ struct JourneyView: View {
                     Label("Invite Studio", systemImage: "person.3")
                 }
                 .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+                .disabled(duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser)
             }
 
             if !duelLeague.incomingInvites.isEmpty {
@@ -706,6 +747,30 @@ struct JourneyView: View {
                 }
                 .padding(.top, 4)
             }
+
+            if let recoverable = duelLeague.recoverableActionError {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.trianglehead.clockwise")
+                        .foregroundStyle(palette.accent)
+                    Text(LocalizedStringKey(recoverable.message))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Button(recoverable.retryTitle) {
+                        Task { await duelLeague.retryRecoverableAction() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
+                    .disabled(duelLeague.isActionBusy)
+
+                    Button("Dismiss") {
+                        duelLeague.clearRecoverableActionError()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(duelLeague.isActionBusy)
+                }
+                .padding(.top, 4)
+            }
             }
         } header: {
             PBSectionHeaderLabel(title: "Duels & League")
@@ -720,77 +785,97 @@ struct JourneyView: View {
         let otherRaw = challenge.otherParticipant(for: uid) ?? "pending"
         let other = otherRaw.count > 6 ? "\(otherRaw.prefix(6))..." : otherRaw
         let recorded = duelRecordedMetricsByChallengeID[challenge.id]
+        let submitActionKey = "submitAttempt:\(challenge.id)"
+        let isSubmitting = duelLeague.isActionInFlight(for: submitActionKey)
 
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(L10n.f("vs %@", other))
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(challenge.objective)
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-
-            Button("Enter") {
-                selectedDuelEntryChallenge = challenge
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
-
-            if let deadline = challenge.submissionDeadlineAt {
-                statusBadge(
-                    text: "Submission deadline: \(relativeTimeString(until: deadline))",
-                    style: .warning
-                )
-            }
-
-            if let myScore {
-                Text(L10n.f("Your score: %@", "\(myScore)"))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-                if let oppScore {
-                    Text(L10n.f("Opponent score: %@", "\(oppScore)"))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                } else {
-                    Text("Waiting for opponent submission.")
+        sessionCardSkinContainer {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(L10n.f("vs %@", other))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(challenge.objective)
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
-            } else {
-                if let recorded {
-                    Text(
-                        L10n.f(
-                            "Derived score %@ (I %@ • R %@ • C %@)",
-                            "\(recorded.derivedScore)",
-                            "\(recorded.intonationScore)",
-                            "\(recorded.rhythmScore)",
-                            "\(recorded.consistencyScore)"
-                        )
-                    )
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
 
-                    Button("Submit Recorded Take") {
-                        Task {
-                            await duelLeague.submitDerivedAttempt(
-                                challengeID: challenge.id,
-                                metrics: recorded,
-                                requiredMinTempoBPM: challenge.requiredMinTempoBPM
-                            )
-                            await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.footnote)
-                } else {
-                    Text("Record a dedicated duel take to submit.")
+                statusBadge(
+                    text: duelStateLabel(for: challenge, viewerUID: uid),
+                    style: .info
+                )
+
+                Button("Enter") {
+                    selectedDuelEntryChallenge = challenge
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
+                .disabled(duelLeague.isActionBusy)
+
+                if let deadline = challenge.submissionDeadlineAt {
+                    statusBadge(
+                        text: "Submission deadline: \(relativeTimeString(until: deadline))",
+                        style: .warning
+                    )
+                }
+
+                if let myScore {
+                    Text(L10n.f("Your score: %@", "\(myScore)"))
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                    if let oppScore {
+                        Text(L10n.f("Opponent score: %@", "\(oppScore)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
+                    } else {
+                        Text("Waiting for opponent submission.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                } else {
+                    if let recorded {
+                        Text(
+                            L10n.f(
+                                "Derived score %@ (I %@ • R %@ • C %@)",
+                                "\(recorded.derivedScore)",
+                                "\(recorded.intonationScore)",
+                                "\(recorded.rhythmScore)",
+                                "\(recorded.consistencyScore)"
+                            )
+                        )
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+
+                        Button("Submit Recorded Take") {
+                            Task {
+                                await duelLeague.submitDerivedAttempt(
+                                    challengeID: challenge.id,
+                                    metrics: recorded,
+                                    requiredMinTempoBPM: challenge.requiredMinTempoBPM
+                                )
+                                await duelLeague.refreshSeasonLeaderboard(scope: duelLeaderboardScope)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                        .disabled(isSubmitting || duelLeague.isActionBusy)
+                        if isSubmitting {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Submitting...")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                    } else {
+                        Text("Record a dedicated duel take to submit.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
                 }
             }
         }
@@ -803,18 +888,21 @@ struct JourneyView: View {
         let oppScore = challenge.opponentScore(for: uid) ?? 0
         let delta = challenge.myRatingDelta(for: uid)
 
-        return HStack {
-            Text(L10n.f("%@-%@", "\(myScore)", "\(oppScore)"))
-                .font(type.body)
-                .foregroundStyle(palette.textPrimary)
-                .monospacedDigit()
-            Spacer()
-            Text(delta >= 0 ? L10n.f("+%@", "\(delta)") : "\(delta)")
-                .font(type.number)
-                .foregroundStyle(delta >= 0 ? palette.accent : palette.textSecondary)
-                .monospacedDigit()
+        return sessionCardSkinContainer {
+            HStack {
+                Text(L10n.f("%@-%@", "\(myScore)", "\(oppScore)"))
+                    .font(type.body)
+                    .foregroundStyle(palette.textPrimary)
+                    .monospacedDigit()
+                Spacer()
+                Text(delta >= 0 ? L10n.f("+%@", "\(delta)") : "\(delta)")
+                    .font(type.number)
+                    .foregroundStyle(delta >= 0 ? palette.accent : palette.textSecondary)
+                    .monospacedDigit()
+                statusBadge(text: "Settled", style: .success)
+            }
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 2)
     }
 
     private func incomingInviteRow(_ challenge: DuelChallenge) -> some View {
@@ -822,33 +910,37 @@ struct JourneyView: View {
         let otherUID = challenge.otherParticipant(for: uid) ?? ""
         let other = duelLeague.userDisplayNames[otherUID] ?? shortUserLabel(otherUID)
         let queueLabel = challenge.queueType == .friend ? "Friend duel" : "Studio duel"
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(L10n.f("%@ invite", queueLabel))
-                .font(type.footnote)
-                .foregroundStyle(palette.textPrimary)
-            Text(L10n.f("From %@", other))
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-            statusBadge(
-                text: "Pending acceptance",
-                style: .info
-            )
-            HStack {
-                Button("Accept") {
-                    PBHaptics.tap()
-                    Task { await duelLeague.acceptInvite(challengeID: challenge.id) }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(palette.accent)
+        return sessionCardSkinContainer {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.f("%@ invite", queueLabel))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textPrimary)
+                Text(L10n.f("From %@", other))
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                statusBadge(
+                    text: "Pending",
+                    style: .info
+                )
+                HStack {
+                    Button("Accept") {
+                        PBHaptics.tap()
+                        Task { await duelLeague.acceptInvite(challengeID: challenge.id) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
+                    .disabled(duelLeague.isActionInFlight(for: "acceptInvite:\(challenge.id)") || duelLeague.isActionBusy)
 
-                Button("Decline", role: .destructive) {
-                    PBHaptics.tap()
-                    Task { await duelLeague.declineInvite(challengeID: challenge.id) }
+                    Button("Decline", role: .destructive) {
+                        PBHaptics.tap()
+                        Task { await duelLeague.declineInvite(challengeID: challenge.id) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(duelLeague.isActionInFlight(for: "declineInvite:\(challenge.id)") || duelLeague.isActionBusy)
                 }
-                .buttonStyle(.bordered)
             }
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 2)
     }
 
     private func outgoingInviteRow(_ challenge: DuelChallenge) -> some View {
@@ -856,44 +948,48 @@ struct JourneyView: View {
         let otherUID = challenge.otherParticipant(for: uid) ?? ""
         let other = duelLeague.userDisplayNames[otherUID] ?? shortUserLabel(otherUID)
         let queueLabel = challenge.queueType == .friend ? "Friend duel" : "Studio duel"
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "paperplane.circle.fill")
-                    .foregroundStyle(palette.accent)
-                    .font(.system(size: 17, weight: .semibold))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.f("%@ invite", queueLabel))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    Text(L10n.f("To %@", other))
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
+        return sessionCardSkinContainer {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "paperplane.circle.fill")
+                        .foregroundStyle(palette.accent)
+                        .font(.system(size: 17, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.f("%@ invite", queueLabel))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textPrimary)
+                        Text(L10n.f("To %@", other))
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    Spacer()
+                    statusBadge(
+                        text: "Pending",
+                        style: .info
+                    )
                 }
-                Spacer()
-                statusBadge(
-                    text: "Pending",
-                    style: .info
-                )
-            }
-            HStack {
-                Button("Cancel Request", role: .destructive) {
-                    PBHaptics.tap()
-                    Task { await duelLeague.cancelInvite(challengeID: challenge.id) }
+                HStack {
+                    Button("Cancel Request", role: .destructive) {
+                        PBHaptics.tap()
+                        Task { await duelLeague.cancelInvite(challengeID: challenge.id) }
+                    }
+                    .buttonStyle(.bordered)
+                    .font(type.footnote)
+                    .disabled(duelLeague.isActionInFlight(for: "cancelInvite:\(challenge.id)") || duelLeague.isActionBusy)
+                    Spacer()
                 }
-                .buttonStyle(.bordered)
-                .font(type.footnote)
-                Spacer()
+                .padding(.top, 2)
             }
-            .padding(.top, 2)
+            .padding(10)
+            .background(palette.accent.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
         }
-        .padding(10)
-        .background(palette.accent.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
     }
 
     private enum DuelStatusBadgeStyle {
         case info
         case warning
+        case success
     }
 
     private func statusBadge(text: String, style: DuelStatusBadgeStyle) -> some View {
@@ -906,6 +1002,9 @@ struct JourneyView: View {
         case .warning:
             bg = Color.orange.opacity(0.18)
             fg = palette.textPrimary
+        case .success:
+            bg = Color.green.opacity(0.18)
+            fg = palette.textPrimary
         }
 
         return Text(text)
@@ -915,6 +1014,22 @@ struct JourneyView: View {
             .padding(.vertical, 4)
             .background(bg)
             .clipShape(Capsule())
+    }
+
+    private func duelStateLabel(for challenge: DuelChallenge, viewerUID: String) -> String {
+        switch challenge.status {
+        case .open, .invited:
+            return "Pending"
+        case .active:
+            if challenge.myScore(for: viewerUID) != nil {
+                return "Recording Submitted"
+            }
+            return "Accepted"
+        case .completed:
+            return "Settled"
+        case .canceled:
+            return "Settled"
+        }
     }
 
     private func relativeTimeString(until date: Date) -> String {
@@ -930,6 +1045,82 @@ struct JourneyView: View {
     }
 
     @ViewBuilder
+    private func duelEntryHeaderCard(challenge: DuelChallenge) -> some View {
+        let introID = journey.equippedRewardID(for: .duelIntroCard)
+        if introID == "reward_duel_intro_card_spotlight" {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Duel Match")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(Color.white)
+                Text(challenge.objective)
+                    .font(type.footnote)
+                    .foregroundStyle(Color.white.opacity(0.92))
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                palette.accent.opacity(0.88),
+                                palette.accent.opacity(0.68),
+                                palette.surfaceAlt.opacity(0.92)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                            .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                    )
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Duel Match")
+                    .font(type.sectionTitle)
+                    .foregroundStyle(palette.textPrimary)
+                Text(challenge.objective)
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            .padding(12)
+            .pbSurfaceCard(palette: palette)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionCardSkinContainer<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if journey.equippedRewardID(for: .sessionCardSkin) == "reward_session_card_skin_aurora" {
+            content()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    palette.accent.opacity(0.16),
+                                    palette.surfaceAlt.opacity(0.94),
+                                    palette.accent.opacity(0.10)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                                .stroke(palette.accent.opacity(0.22), lineWidth: 1)
+                        )
+                )
+        } else {
+            content()
+        }
+    }
+
+    @ViewBuilder
     private func duelEntrySheet(challenge: DuelChallenge) -> some View {
         let uid = firebase.currentUserID ?? ""
         let opponentUID = challenge.otherParticipant(for: uid) ?? ""
@@ -939,9 +1130,7 @@ struct JourneyView: View {
         let recordedMetrics = duelRecordedMetricsByChallengeID[challenge.id]
 
         VStack(alignment: .leading, spacing: 14) {
-            Text("Duel Match")
-                .font(type.sectionTitle)
-                .foregroundStyle(palette.textPrimary)
+            duelEntryHeaderCard(challenge: challenge)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("User A")
@@ -983,10 +1172,6 @@ struct JourneyView: View {
             }
             .padding(10)
             .pbSurfaceCard(palette: palette)
-
-            Text(challenge.objective)
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
 
             HStack(spacing: 10) {
                 Button("Record your take") {
@@ -1106,30 +1291,32 @@ struct JourneyView: View {
     private var rewardsBalanceSection: some View {
         Section {
             journeySectionCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Available")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Spacer()
-                        Text(L10n.f("%@ tokens", "\(journey.tokenBalance)"))
-                            .font(type.number)
-                            .foregroundStyle(palette.accent)
-                            .monospacedDigit()
-                    }
+                sessionCardSkinContainer {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Available")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text(L10n.f("%@ tokens", "\(journey.tokenBalance)"))
+                                .font(type.number)
+                                .foregroundStyle(palette.accent)
+                                .monospacedDigit()
+                        }
 
-                    Text("Complete quests in Overview and claim rewards to build your token balance.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        Text("Complete quests in Overview and claim rewards to build your token balance.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
 
-                    Button {
-                        showInventorySheet = true
-                    } label: {
-                        Label("Open Inventory", systemImage: "shippingbox.fill")
-                            .font(type.button)
-                            .frame(maxWidth: .infinity)
+                        Button {
+                            showInventorySheet = true
+                        } label: {
+                            Label("Open Inventory", systemImage: "shippingbox.fill")
+                                .font(type.button)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
         } header: {
@@ -1141,61 +1328,80 @@ struct JourneyView: View {
         Section {
             journeySectionCard {
                 ForEach(Array(journey.rewards.enumerated()), id: \.element.id) { idx, item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(LocalizedStringKey(item.title))
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Spacer()
-                            if item.isOwned {
-                                Text(item.isEquipped ? "Equipped" : "Owned")
-                                    .font(type.footnote)
-                                    .foregroundStyle(item.isEquipped ? palette.accent : palette.textSecondary)
-                            } else {
-                                Text(L10n.f("%@ tokens", "\(item.costTokens)"))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                                    .monospacedDigit()
+                    sessionCardSkinContainer {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(LocalizedStringKey(item.title))
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Spacer()
+                                if item.isOwned {
+                                    Text(item.isEquipped ? "Equipped" : "Owned")
+                                        .font(type.footnote)
+                                        .foregroundStyle(item.isEquipped ? palette.accent : palette.textSecondary)
+                                } else {
+                                    Text(L10n.f("%@ tokens", "\(item.costTokens)"))
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.textSecondary)
+                                        .monospacedDigit()
+                                }
                             }
-                        }
 
-                        Text(LocalizedStringKey(item.subtitle))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
+                            Text(LocalizedStringKey(item.subtitle))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
 
-                        Text(item.category.title)
-                            .font(.caption)
-                            .foregroundStyle(palette.textSecondary)
+                            Text(item.category.title)
+                                .font(.caption)
+                                .foregroundStyle(palette.textSecondary)
 
                         if !item.isOwned {
                             Button {
-                                if journey.claimRewardItem(id: item.id) {
-                                    rewardsMessage = "Reward unlocked."
-                                    triggerRewardCelebration()
-                                } else {
-                                    rewardsMessage = "Not enough tokens yet."
+                                Task {
+                                    if await journey.claimRewardItem(id: item.id) {
+                                        rewardsMessage = "Reward unlocked."
+                                        triggerRewardCelebration()
+                                    } else {
+                                        rewardsMessage = "Not enough tokens yet."
+                                    }
                                 }
                             } label: {
                                 Text("Claim Reward")
                                     .font(type.button)
                                     .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(palette.accent)
-                        } else if !item.isEquipped {
-                            Button {
-                                if journey.equipRewardItem(id: item.id) {
-                                    rewardsMessage = "Item equipped."
                                 }
-                            } label: {
-                                Text("Equip")
-                                    .font(type.button)
-                                    .frame(maxWidth: .infinity)
+                                .buttonStyle(.borderedProminent)
+                                .tint(palette.accent)
+                                .disabled(journey.isEconomyOperationInProgress)
+                            } else if !item.isEquipped {
+                                Button {
+                                    Task {
+                                        if await journey.equipRewardItem(id: item.id) {
+                                            rewardsMessage = "Item equipped."
+                                        }
+                                    }
+                                } label: {
+                                    Text("Equip")
+                                        .font(type.button)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(journey.isEconomyOperationInProgress)
                             }
-                            .buttonStyle(.bordered)
+
+                            if journey.isEconomyOperationInProgress {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Updating...")
+                                        .font(type.footnote)
+                                }
+                                .foregroundStyle(palette.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                     if idx < journey.rewards.count - 1 {
                         Divider()
                     }
@@ -1239,9 +1445,11 @@ struct JourneyView: View {
                         .foregroundStyle(palette.accent)
                 case .claimable:
                     Button {
-                        if journey.claimQuestReward(for: quest, period: period) {
-                            rewardsMessage = L10n.f("Claimed %@ tokens.", "\(quest.rewardTokens)")
-                            triggerRewardCelebration()
+                        Task {
+                            if await journey.claimQuestReward(for: quest, period: period) {
+                                rewardsMessage = L10n.f("Claimed %@ tokens.", "\(quest.rewardTokens)")
+                                triggerRewardCelebration()
+                            }
                         }
                     } label: {
                         Text(L10n.f("Claim +%@", "\(quest.rewardTokens)"))
@@ -1249,6 +1457,16 @@ struct JourneyView: View {
                     .font(type.footnote)
                     .buttonStyle(.bordered)
                     .tint(palette.accent)
+                    .disabled(journey.isEconomyOperationInProgress)
+                    if journey.isEconomyOperationInProgress {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.75)
+                            Text("Updating...")
+                                .font(type.footnote)
+                        }
+                        .foregroundStyle(palette.textSecondary)
+                    }
                 case .locked:
                     Text(L10n.f("+%@ tokens", "\(quest.rewardTokens)"))
                         .font(type.footnote)
@@ -1316,6 +1534,67 @@ private struct PBRewardConfettiOverlay: View {
         }
         .onAppear {
             animate = true
+        }
+    }
+}
+
+private struct PBDuelFinisherOverlay: View {
+    let styleID: String
+    let token: Int
+
+    @State private var animate = false
+
+    private var highlight: Color {
+        if styleID == "reward_duel_finisher_fx_resonance" {
+            return .mint
+        }
+        return .blue
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Circle()
+                    .stroke(highlight.opacity(0.55), lineWidth: 2)
+                    .frame(width: animate ? proxy.size.width * 0.72 : 24, height: animate ? proxy.size.width * 0.72 : 24)
+                    .opacity(animate ? 0 : 1)
+                    .animation(.easeOut(duration: 1.05), value: animate)
+
+                Circle()
+                    .stroke(highlight.opacity(0.36), lineWidth: 2)
+                    .frame(width: animate ? proxy.size.width * 0.52 : 20, height: animate ? proxy.size.width * 0.52 : 20)
+                    .opacity(animate ? 0 : 1)
+                    .animation(.easeOut(duration: 1.0).delay(0.07), value: animate)
+
+                VStack(spacing: 6) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(highlight)
+                    Text("Duel Finalized")
+                        .font(.headline)
+                        .foregroundStyle(Color.white)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(.black.opacity(0.38))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .scaleEffect(animate ? 1.0 : 0.82)
+                .opacity(animate ? 0 : 1)
+                .animation(.easeOut(duration: 1.0), value: animate)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear {
+            animate = false
+            DispatchQueue.main.async {
+                animate = true
+            }
+        }
+        .onChange(of: token) { _, _ in
+            animate = false
+            DispatchQueue.main.async {
+                animate = true
+            }
         }
     }
 }

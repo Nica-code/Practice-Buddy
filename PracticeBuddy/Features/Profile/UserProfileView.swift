@@ -26,6 +26,9 @@ struct UserProfileView: View {
     private var equippedFrameID: String? { journey.equippedRewardID(for: .profileFrame) }
     private var equippedBannerID: String? { journey.equippedRewardID(for: .profileBanner) }
     private var equippedGlowID: String? { journey.equippedRewardID(for: .profileGlow) }
+    private var equippedDuelIntroID: String? { journey.equippedRewardID(for: .duelIntroCard) }
+    private var equippedDuelFinisherID: String? { journey.equippedRewardID(for: .duelFinisherFX) }
+    private var equippedSessionSkinID: String? { journey.equippedRewardID(for: .sessionCardSkin) }
     
     private func profileSectionCard<Content: View>(
         @ViewBuilder content: () -> Content
@@ -235,6 +238,21 @@ struct UserProfileView: View {
                 }
 
                 ProgressView(value: journey.xpForNextLevel == 0 ? 0 : Double(journey.xpIntoLevel) / Double(journey.xpForNextLevel))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Duel cosmetics")
+                        .font(type.footnote.weight(.semibold))
+                        .foregroundStyle(palette.textPrimary)
+                    Text(equippedDuelIntroID == nil ? "Intro card: none" : "Intro card: Spotlight")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Text(equippedDuelFinisherID == nil ? "Finisher FX: none" : "Finisher FX: Resonance")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Text(equippedSessionSkinID == nil ? "Session skin: none" : "Session skin: Aurora")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
             }
         }
     }

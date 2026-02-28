@@ -52,23 +52,43 @@ struct InventoryView: View {
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
 
+                            Text(slotUsageLabel(for: item.slot))
+                                .font(.caption)
+                                .foregroundStyle(palette.textSecondary)
+
                             HStack(spacing: 10) {
                                 if item.isEquipped {
                                     Button("Unequip") {
-                                        if journey.unequipReward(slot: item.slot) {
-                                            statusMessage = "Item unequipped."
+                                        Task {
+                                            if await journey.unequipReward(slot: item.slot) {
+                                                statusMessage = "Item unequipped."
+                                            }
                                         }
                                     }
                                     .buttonStyle(.bordered)
+                                    .disabled(journey.isEconomyOperationInProgress)
                                 } else {
                                     Button("Equip") {
-                                        if journey.equipRewardItem(id: item.id) {
-                                            statusMessage = "Item equipped."
+                                        Task {
+                                            if await journey.equipRewardItem(id: item.id) {
+                                                statusMessage = "Item equipped."
+                                            }
                                         }
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(palette.accent)
+                                    .disabled(journey.isEconomyOperationInProgress)
                                 }
+                            }
+
+                            if journey.isEconomyOperationInProgress {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Updating...")
+                                        .font(type.footnote)
+                                }
+                                .foregroundStyle(palette.textSecondary)
                             }
                         }
                         .padding(.vertical, 4)
@@ -95,6 +115,27 @@ struct InventoryView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { dismiss() }
             }
+        }
+    }
+
+    private func slotUsageLabel(for slot: JourneyRewardSlot) -> String {
+        switch slot {
+        case .profileFrame:
+            return "Applies to: Profile top card frame"
+        case .profileBanner:
+            return "Applies to: Profile top card banner"
+        case .profileGlow:
+            return "Applies to: Profile top card glow"
+        case .confettiStyle:
+            return "Applies to: Reward claim celebrations"
+        case .duelIntroCard:
+            return "Applies to: Duel entry header"
+        case .duelFinisherFX:
+            return "Applies to: Duel completion effect"
+        case .sessionCardSkin:
+            return "Applies to: Play reward/result cards"
+        case .metronomePack:
+            return "Applies to: Metronome sound style"
         }
     }
 }

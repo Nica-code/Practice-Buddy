@@ -44,6 +44,9 @@ enum JourneyRewardSlot: String, CaseIterable {
     case profileBanner = "profile_banner"
     case profileGlow = "profile_glow"
     case confettiStyle = "confetti_style"
+    case duelIntroCard = "duel_intro_card"
+    case duelFinisherFX = "duel_finisher_fx"
+    case sessionCardSkin = "session_card_skin"
     case metronomePack = "metronome_pack"
 }
 
@@ -188,6 +191,11 @@ final class JourneyProgressManager: ObservableObject {
     private enum InventoryKeys {
         static let metronomeSoundStyleOverride = "pb.inventory.metronome.soundStyleOverride"
         static let confettiStyle = "pb.inventory.confetti.style"
+        static let cloudOwnedRewardIDs = "inventoryOwnedRewardIDs"
+        static let cloudEquippedRewardBySlot = "inventoryEquippedRewardBySlot"
+        static let cloudUpdatedAt = "inventoryUpdatedAt"
+        static let cloudTokenBalance = "journeyTokenBalance"
+        static let cloudClaimedQuestRewardKeys = "journeyClaimedQuestRewardKeys"
     }
 
     @Published private(set) var totalXP: Int
@@ -200,6 +208,7 @@ final class JourneyProgressManager: ObservableObject {
     @Published private(set) var weeklyQuests: [JourneyQuestRow] = []
     @Published private(set) var tokenBalance: Int = 0
     @Published private(set) var rewards: [JourneyRewardItem] = []
+    @Published private(set) var isEconomyOperationInProgress: Bool = false
 
     private var processedSessionIDs: Set<UUID> = []
     private var xpLedgerByDay: [String: Int] = [:]
@@ -212,7 +221,12 @@ final class JourneyProgressManager: ObservableObject {
     private var latestDuelLosses: Int = 0
     private var latestDuelDraws: Int = 0
     private var telemetryCancellable: AnyCancellable?
+    private var inventoryListener: ListenerRegistration?
+    private var inventoryLinkedUID: String?
+    private var isApplyingRemoteInventory = false
+    private var economyOperationKeysInFlight: Set<String> = []
     private let defaults = UserDefaults.standard
+    private let db = Firestore.firestore()
     private let isoDayFormatter: DateFormatter = {
         let fmt = DateFormatter()
         fmt.calendar = Calendar(identifier: .gregorian)
@@ -278,54 +292,59 @@ final class JourneyProgressManager: ObservableObject {
     }
 
     @discardableResult
-    func claimQuestReward(for quest: JourneyQuestRow, period: JourneyQuestPeriod) -> Bool {
+    func claimQuestReward(for quest: JourneyQuestRow, period: JourneyQuestPeriod) async -> Bool {
         guard questRewardStatus(for: quest, period: period) == .claimable else { return false }
-        claimedQuestRewardKeys.insert(questRewardClaimKey(for: quest.id, period: period, at: Date()))
-        tokenBalance += max(0, quest.rewardTokens)
-        persistAll()
-        return true
+
+        let claimKey = questRewardClaimKey(for: quest.id, period: period, at: Date())
+        guard beginEconomyOperation("quest:\(claimKey)") else { return false }
+        defer { endEconomyOperation("quest:\(claimKey)") }
+        if let uid = inventoryLinkedUID {
+            let didClaim = await claimQuestRewardCloud(
+                uid: uid,
+                claimKey: claimKey,
+                rewardTokens: max(0, quest.rewardTokens)
+            )
+            return didClaim
+        }
+
+        return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: max(0, quest.rewardTokens))
     }
 
     @discardableResult
-    func claimRewardItem(id: String) -> Bool {
-        guard !ownedRewardIDs.contains(id),
-              let item = baseRewards.first(where: { $0.id == id }),
-              tokenBalance >= item.costTokens else {
+    func claimRewardItem(id: String) async -> Bool {
+        guard let item = baseRewards.first(where: { $0.id == id }) else { return false }
+        guard beginEconomyOperation("claimReward:\(id)") else { return false }
+        defer { endEconomyOperation("claimReward:\(id)") }
+
+        if let uid = inventoryLinkedUID {
+            let didClaim = await claimRewardItemCloud(uid: uid, item: item)
+            return didClaim
+        }
+
+        return claimRewardItemLocal(id: id)
+    }
+
+    @discardableResult
+    func equipRewardItem(id: String) async -> Bool {
+        guard let item = baseRewards.first(where: { $0.id == id }) else {
             return false
         }
-
-        tokenBalance -= item.costTokens
-        ownedRewardIDs.insert(id)
-        if equippedRewardBySlot[item.slot.rawValue] == nil {
-            equippedRewardBySlot[item.slot.rawValue] = item.id
-            applyEquippedSideEffects()
+        guard beginEconomyOperation("equip:\(id)") else { return false }
+        defer { endEconomyOperation("equip:\(id)") }
+        if let uid = inventoryLinkedUID {
+            return await equipRewardItemCloud(uid: uid, item: item)
         }
-        refreshRewards()
-        persistAll()
-        return true
+        return equipRewardItemLocal(id: id)
     }
 
     @discardableResult
-    func equipRewardItem(id: String) -> Bool {
-        guard ownedRewardIDs.contains(id),
-              let item = baseRewards.first(where: { $0.id == id }) else {
-            return false
+    func unequipReward(slot: JourneyRewardSlot) async -> Bool {
+        guard beginEconomyOperation("unequip:\(slot.rawValue)") else { return false }
+        defer { endEconomyOperation("unequip:\(slot.rawValue)") }
+        if let uid = inventoryLinkedUID {
+            return await unequipRewardCloud(uid: uid, slot: slot)
         }
-        equippedRewardBySlot[item.slot.rawValue] = item.id
-        applyEquippedSideEffects()
-        refreshRewards()
-        persistAll()
-        return true
-    }
-
-    @discardableResult
-    func unequipReward(slot: JourneyRewardSlot) -> Bool {
-        guard equippedRewardBySlot[slot.rawValue] != nil else { return false }
-        equippedRewardBySlot.removeValue(forKey: slot.rawValue)
-        applyEquippedSideEffects()
-        refreshRewards()
-        persistAll()
-        return true
+        return unequipRewardLocal(slot: slot)
     }
 
     func ownedRewards(in category: JourneyRewardCategory) -> [JourneyRewardItem] {
@@ -334,6 +353,31 @@ final class JourneyProgressManager: ObservableObject {
 
     func equippedRewardID(for slot: JourneyRewardSlot) -> String? {
         equippedRewardBySlot[slot.rawValue]
+    }
+
+    func linkToUser(uid: String?) {
+        let normalizedUID: String? = {
+            guard let uid else { return nil }
+            let trimmed = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+
+        if inventoryLinkedUID == normalizedUID { return }
+
+        inventoryListener?.remove()
+        inventoryListener = nil
+        inventoryLinkedUID = normalizedUID
+
+        guard let uid = normalizedUID else { return }
+
+        syncInventoryToCloud(uid: uid)
+        Task { await bootstrapJourneyEconomyInCloud(uid: uid) }
+        inventoryListener = db.collection("users").document(uid).addSnapshotListener { [weak self] snapshot, _ in
+            guard let self, let data = snapshot?.data() else { return }
+            Task { @MainActor in
+                self.applyRemoteInventorySnapshot(data)
+            }
+        }
     }
 
     private func seedFromExistingSessions(_ sessions: [PracticeSessionModel]) {
@@ -708,6 +752,9 @@ final class JourneyProgressManager: ObservableObject {
         saveClaimedQuestRewards()
         saveOwnedRewards()
         saveEquippedRewards()
+        if let uid = inventoryLinkedUID {
+            syncInventoryToCloud(uid: uid)
+        }
     }
 
     private func loadProcessedIDs() {
@@ -847,6 +894,36 @@ final class JourneyProgressManager: ObservableObject {
                 isEquipped: false
             ),
             JourneyRewardItem(
+                id: "reward_duel_intro_card_spotlight",
+                title: "Duel Intro Card: Spotlight",
+                subtitle: "Adds a featured intro style to the duel entry header.",
+                costTokens: 180,
+                category: .cosmetics,
+                slot: .duelIntroCard,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_duel_finisher_fx_resonance",
+                title: "Duel Finisher FX: Resonance",
+                subtitle: "Plays a finish overlay when a duel result is finalized.",
+                costTokens: 210,
+                category: .cosmetics,
+                slot: .duelFinisherFX,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_session_card_skin_aurora",
+                title: "Session Card Skin: Aurora",
+                subtitle: "Applies an aurora-styled skin to Play reward/result cards.",
+                costTokens: 160,
+                category: .cosmetics,
+                slot: .sessionCardSkin,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
                 id: "reward_metronome_pack_studio",
                 title: "Metronome Pack: Studio",
                 subtitle: "Switches metronome to Studio wood-click sound.",
@@ -883,6 +960,417 @@ final class JourneyProgressManager: ObservableObject {
 
         let confettiID = equippedRewardBySlot[JourneyRewardSlot.confettiStyle.rawValue] ?? "default"
         defaults.set(confettiID, forKey: InventoryKeys.confettiStyle)
+    }
+
+    private func applyRemoteInventorySnapshot(_ data: [String: Any]) {
+        if isApplyingRemoteInventory { return }
+
+        let remoteOwned = Set((data[InventoryKeys.cloudOwnedRewardIDs] as? [String] ?? []).filter { !$0.isEmpty })
+        let rawEquipped = (data[InventoryKeys.cloudEquippedRewardBySlot] as? [String: String]) ?? [:]
+        let remoteClaimedQuestKeys = Set((data[InventoryKeys.cloudClaimedQuestRewardKeys] as? [String] ?? []).filter { !$0.isEmpty })
+        let hasRemoteTokenBalance = data[InventoryKeys.cloudTokenBalance] != nil
+        let remoteTokenBalance = max(0, (data[InventoryKeys.cloudTokenBalance] as? Int) ?? 0)
+        let normalizedRemoteEquipped = rawEquipped.reduce(into: [String: String]()) { partial, pair in
+            let slot = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rewardID = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !slot.isEmpty, !rewardID.isEmpty else { return }
+            partial[slot] = rewardID
+        }
+
+        var mergedOwned = ownedRewardIDs
+        mergedOwned.formUnion(remoteOwned)
+
+        var mergedEquipped = normalizedRemoteEquipped.filter { mergedOwned.contains($0.value) }
+        for (slot, rewardID) in equippedRewardBySlot where mergedEquipped[slot] == nil && mergedOwned.contains(rewardID) {
+            mergedEquipped[slot] = rewardID
+        }
+        let mergedClaimedQuestKeys = claimedQuestRewardKeys.union(remoteClaimedQuestKeys)
+
+        let ownedChanged = mergedOwned != ownedRewardIDs
+        let equippedChanged = mergedEquipped != equippedRewardBySlot
+        let claimedChanged = mergedClaimedQuestKeys != claimedQuestRewardKeys
+        let tokenChanged = hasRemoteTokenBalance && remoteTokenBalance != tokenBalance
+        guard ownedChanged || equippedChanged || claimedChanged || tokenChanged else { return }
+
+        isApplyingRemoteInventory = true
+        ownedRewardIDs = mergedOwned
+        equippedRewardBySlot = mergedEquipped
+        claimedQuestRewardKeys = mergedClaimedQuestKeys
+        if hasRemoteTokenBalance {
+            tokenBalance = remoteTokenBalance
+        }
+        applyEquippedSideEffects()
+        refreshRewards()
+        defaults.set(max(0, tokenBalance), forKey: Keys.tokenBalance)
+        saveClaimedQuestRewards()
+        saveOwnedRewards()
+        saveEquippedRewards()
+        isApplyingRemoteInventory = false
+    }
+
+    private func syncInventoryToCloud(uid: String) {
+        guard !isApplyingRemoteInventory else { return }
+
+        let payload: [String: Any] = [
+            InventoryKeys.cloudOwnedRewardIDs: Array(ownedRewardIDs).sorted(),
+            InventoryKeys.cloudEquippedRewardBySlot: equippedRewardBySlot,
+            InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+        ]
+
+        Task {
+            try? await db.collection("users").document(uid).setData(payload, merge: true)
+        }
+    }
+
+    private func claimQuestRewardLocal(claimKey: String, rewardTokens: Int) -> Bool {
+        guard !claimedQuestRewardKeys.contains(claimKey) else { return false }
+        claimedQuestRewardKeys.insert(claimKey)
+        tokenBalance += max(0, rewardTokens)
+        persistAll()
+        return true
+    }
+
+    private func claimRewardItemLocal(id: String) -> Bool {
+        guard !ownedRewardIDs.contains(id),
+              let item = baseRewards.first(where: { $0.id == id }),
+              tokenBalance >= item.costTokens else {
+            return false
+        }
+
+        tokenBalance -= item.costTokens
+        ownedRewardIDs.insert(id)
+        if equippedRewardBySlot[item.slot.rawValue] == nil {
+            equippedRewardBySlot[item.slot.rawValue] = item.id
+        }
+        applyEquippedSideEffects()
+        refreshRewards()
+        persistAll()
+        return true
+    }
+
+    private func equipRewardItemLocal(id: String) -> Bool {
+        guard ownedRewardIDs.contains(id),
+              let item = baseRewards.first(where: { $0.id == id }) else {
+            return false
+        }
+        equippedRewardBySlot[item.slot.rawValue] = item.id
+        applyEquippedSideEffects()
+        refreshRewards()
+        persistAll()
+        return true
+    }
+
+    private func unequipRewardLocal(slot: JourneyRewardSlot) -> Bool {
+        guard equippedRewardBySlot[slot.rawValue] != nil else { return false }
+        equippedRewardBySlot.removeValue(forKey: slot.rawValue)
+        applyEquippedSideEffects()
+        refreshRewards()
+        persistAll()
+        return true
+    }
+
+    private func claimQuestRewardCloud(uid: String, claimKey: String, rewardTokens: Int) async -> Bool {
+        do {
+            let result = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                var cloudClaimed = Set((data[InventoryKeys.cloudClaimedQuestRewardKeys] as? [String] ?? []).filter { !$0.isEmpty })
+                var cloudTokens = max(0, (data[InventoryKeys.cloudTokenBalance] as? Int) ?? self.tokenBalance)
+                if cloudClaimed.contains(claimKey) {
+                    return [
+                        "success": false,
+                        "tokenBalance": cloudTokens,
+                        "claimedQuestRewardKeys": Array(cloudClaimed)
+                    ]
+                }
+
+                cloudClaimed.insert(claimKey)
+                cloudTokens += max(0, rewardTokens)
+
+                transaction.setData([
+                    InventoryKeys.cloudTokenBalance: cloudTokens,
+                    InventoryKeys.cloudClaimedQuestRewardKeys: Array(cloudClaimed).sorted(),
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+
+                return [
+                    "success": true,
+                    "tokenBalance": cloudTokens,
+                    "claimedQuestRewardKeys": Array(cloudClaimed)
+                ]
+            }
+
+            guard let dict = result as? [String: Any] else { return false }
+            let didClaim = (dict["success"] as? Bool) ?? false
+            let claimed = Set((dict["claimedQuestRewardKeys"] as? [String] ?? []).filter { !$0.isEmpty })
+            let tokens = max(0, (dict["tokenBalance"] as? Int) ?? tokenBalance)
+
+            claimedQuestRewardKeys = claimed
+            tokenBalance = tokens
+            defaults.set(max(0, tokenBalance), forKey: Keys.tokenBalance)
+            saveClaimedQuestRewards()
+            return didClaim
+        } catch {
+            return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: rewardTokens)
+        }
+    }
+
+    private func claimRewardItemCloud(uid: String, item: JourneyRewardItem) async -> Bool {
+        do {
+            let result = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                var cloudOwned = Set((data[InventoryKeys.cloudOwnedRewardIDs] as? [String] ?? []).filter { !$0.isEmpty })
+                var cloudEquipped = (data[InventoryKeys.cloudEquippedRewardBySlot] as? [String: String]) ?? [:]
+                var cloudTokens = max(0, (data[InventoryKeys.cloudTokenBalance] as? Int) ?? self.tokenBalance)
+
+                if cloudOwned.contains(item.id) {
+                    return [
+                        "success": false,
+                        "tokenBalance": cloudTokens,
+                        "ownedRewardIDs": Array(cloudOwned),
+                        "equippedRewardBySlot": cloudEquipped
+                    ]
+                }
+
+                guard cloudTokens >= item.costTokens else {
+                    return [
+                        "success": false,
+                        "tokenBalance": cloudTokens,
+                        "ownedRewardIDs": Array(cloudOwned),
+                        "equippedRewardBySlot": cloudEquipped
+                    ]
+                }
+
+                cloudTokens -= item.costTokens
+                cloudOwned.insert(item.id)
+                if cloudEquipped[item.slot.rawValue] == nil {
+                    cloudEquipped[item.slot.rawValue] = item.id
+                }
+
+                transaction.setData([
+                    InventoryKeys.cloudTokenBalance: cloudTokens,
+                    InventoryKeys.cloudOwnedRewardIDs: Array(cloudOwned).sorted(),
+                    InventoryKeys.cloudEquippedRewardBySlot: cloudEquipped,
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+
+                return [
+                    "success": true,
+                    "tokenBalance": cloudTokens,
+                    "ownedRewardIDs": Array(cloudOwned),
+                    "equippedRewardBySlot": cloudEquipped
+                ]
+            }
+
+            guard let dict = result as? [String: Any] else { return false }
+            let didClaim = (dict["success"] as? Bool) ?? false
+            let cloudTokens = max(0, (dict["tokenBalance"] as? Int) ?? tokenBalance)
+            let cloudOwned = Set((dict["ownedRewardIDs"] as? [String] ?? []).filter { !$0.isEmpty })
+            let cloudEquipped = (dict["equippedRewardBySlot"] as? [String: String]) ?? [:]
+
+            tokenBalance = cloudTokens
+            ownedRewardIDs = cloudOwned.union(ownedRewardIDs)
+            equippedRewardBySlot = cloudEquipped.filter { ownedRewardIDs.contains($0.value) }
+            applyEquippedSideEffects()
+            refreshRewards()
+            defaults.set(max(0, tokenBalance), forKey: Keys.tokenBalance)
+            saveOwnedRewards()
+            saveEquippedRewards()
+            return didClaim
+        } catch {
+            return claimRewardItemLocal(id: item.id)
+        }
+    }
+
+    private func equipRewardItemCloud(uid: String, item: JourneyRewardItem) async -> Bool {
+        do {
+            let result = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                let cloudOwned = Set((data[InventoryKeys.cloudOwnedRewardIDs] as? [String] ?? []).filter { !$0.isEmpty })
+                var cloudEquipped = (data[InventoryKeys.cloudEquippedRewardBySlot] as? [String: String]) ?? [:]
+                let mergedOwned = cloudOwned.union(self.ownedRewardIDs)
+
+                guard mergedOwned.contains(item.id) else {
+                    return [
+                        "success": false,
+                        "ownedRewardIDs": Array(cloudOwned),
+                        "equippedRewardBySlot": cloudEquipped
+                    ]
+                }
+
+                cloudEquipped[item.slot.rawValue] = item.id
+                transaction.setData([
+                    InventoryKeys.cloudOwnedRewardIDs: Array(mergedOwned).sorted(),
+                    InventoryKeys.cloudEquippedRewardBySlot: cloudEquipped,
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+
+                return [
+                    "success": true,
+                    "ownedRewardIDs": Array(mergedOwned),
+                    "equippedRewardBySlot": cloudEquipped
+                ]
+            }
+
+            guard let dict = result as? [String: Any] else { return false }
+            let didEquip = (dict["success"] as? Bool) ?? false
+            let cloudOwned = Set((dict["ownedRewardIDs"] as? [String] ?? []).filter { !$0.isEmpty })
+            let cloudEquipped = (dict["equippedRewardBySlot"] as? [String: String]) ?? [:]
+
+            ownedRewardIDs = cloudOwned.union(ownedRewardIDs)
+            equippedRewardBySlot = cloudEquipped.filter { ownedRewardIDs.contains($0.value) }
+            applyEquippedSideEffects()
+            refreshRewards()
+            saveOwnedRewards()
+            saveEquippedRewards()
+            return didEquip
+        } catch {
+            return equipRewardItemLocal(id: item.id)
+        }
+    }
+
+    private func unequipRewardCloud(uid: String, slot: JourneyRewardSlot) async -> Bool {
+        do {
+            let result = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                let cloudOwned = Set((data[InventoryKeys.cloudOwnedRewardIDs] as? [String] ?? []).filter { !$0.isEmpty })
+                var cloudEquipped = (data[InventoryKeys.cloudEquippedRewardBySlot] as? [String: String]) ?? [:]
+                guard cloudEquipped[slot.rawValue] != nil else {
+                    return [
+                        "success": false,
+                        "ownedRewardIDs": Array(cloudOwned),
+                        "equippedRewardBySlot": cloudEquipped
+                    ]
+                }
+
+                cloudEquipped.removeValue(forKey: slot.rawValue)
+                transaction.setData([
+                    InventoryKeys.cloudOwnedRewardIDs: Array(cloudOwned.union(self.ownedRewardIDs)).sorted(),
+                    InventoryKeys.cloudEquippedRewardBySlot: cloudEquipped,
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+
+                return [
+                    "success": true,
+                    "ownedRewardIDs": Array(cloudOwned),
+                    "equippedRewardBySlot": cloudEquipped
+                ]
+            }
+
+            guard let dict = result as? [String: Any] else { return false }
+            let didUnequip = (dict["success"] as? Bool) ?? false
+            let cloudOwned = Set((dict["ownedRewardIDs"] as? [String] ?? []).filter { !$0.isEmpty })
+            let cloudEquipped = (dict["equippedRewardBySlot"] as? [String: String]) ?? [:]
+
+            ownedRewardIDs = cloudOwned.union(ownedRewardIDs)
+            equippedRewardBySlot = cloudEquipped.filter { ownedRewardIDs.contains($0.value) }
+            applyEquippedSideEffects()
+            refreshRewards()
+            saveOwnedRewards()
+            saveEquippedRewards()
+            return didUnequip
+        } catch {
+            return unequipRewardLocal(slot: slot)
+        }
+    }
+
+    private func bootstrapJourneyEconomyInCloud(uid: String) async {
+        do {
+            _ = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                let hasCloudToken = data[InventoryKeys.cloudTokenBalance] != nil
+                let hasCloudClaimed = data[InventoryKeys.cloudClaimedQuestRewardKeys] != nil
+                if hasCloudToken && hasCloudClaimed { return ["bootstrapped": false] }
+
+                transaction.setData([
+                    InventoryKeys.cloudTokenBalance: max(0, self.tokenBalance),
+                    InventoryKeys.cloudClaimedQuestRewardKeys: Array(self.claimedQuestRewardKeys).sorted(),
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+                return ["bootstrapped": true]
+            }
+        } catch {
+            // Non-fatal; local state still works and future operations will retry cloud sync.
+        }
+    }
+
+    private func runCloudTransaction(
+        _ updateBlock: @escaping (Transaction, NSErrorPointer) -> Any?
+    ) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            db.runTransaction(updateBlock) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result else {
+                    continuation.resume(throwing: NSError(
+                        domain: "PracticeBuddy.Journey",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Cloud transaction returned no result."]
+                    ))
+                    return
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func beginEconomyOperation(_ key: String) -> Bool {
+        guard !economyOperationKeysInFlight.contains(key) else { return false }
+        guard economyOperationKeysInFlight.isEmpty else { return false }
+        economyOperationKeysInFlight.insert(key)
+        isEconomyOperationInProgress = !economyOperationKeysInFlight.isEmpty
+        return true
+    }
+
+    private func endEconomyOperation(_ key: String) {
+        economyOperationKeysInFlight.remove(key)
+        isEconomyOperationInProgress = !economyOperationKeysInFlight.isEmpty
     }
 
     static func preferredMetronomeSoundStyleRaw() -> String? {
@@ -1125,6 +1613,12 @@ struct DuelChallenge: Identifiable, Equatable {
     }
 }
 
+struct DuelRecoverableActionError: Identifiable, Equatable {
+    let id = UUID()
+    let message: String
+    let retryTitle: String
+}
+
 @MainActor
 final class DuelLeagueManager: ObservableObject {
     @Published private(set) var myOpenChallenge: DuelChallenge?
@@ -1146,6 +1640,8 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var duelDraws: Int = 0
     @Published private(set) var readyChallengeID: String?
     @Published private(set) var isLoading = false
+    @Published private(set) var isActionBusy = false
+    @Published private(set) var recoverableActionError: DuelRecoverableActionError?
     @Published var statusMessage: String?
 
     var leagueTier: DuelLeagueTier { DuelLeagueTier.forRating(duelRating) }
@@ -1163,6 +1659,15 @@ final class DuelLeagueManager: ObservableObject {
     private let urlSession = URLSession.shared
     private var didReceiveInitialChallengeSnapshot = false
     private var priorChallengeStatusByID: [String: DuelChallengeStatus] = [:]
+    private var inFlightActionKeys: Set<String> = []
+    private var pendingRetryAction: DuelPendingRetryAction?
+
+    private enum DuelPendingRetryAction {
+        case acceptInvite(challengeID: String)
+        case cancelInvite(challengeID: String)
+        case cancelQueue
+        case submitAttempt(challengeID: String, metrics: DuelDerivedMetrics, requiredMinTempoBPM: Int)
+    }
 
     func start(uid: String?) {
         guard let uid, !uid.isEmpty else {
@@ -1210,6 +1715,38 @@ final class DuelLeagueManager: ObservableObject {
         leaderboardCache = [:]
         didReceiveInitialChallengeSnapshot = false
         priorChallengeStatusByID = [:]
+        inFlightActionKeys = []
+        pendingRetryAction = nil
+        isActionBusy = false
+        recoverableActionError = nil
+    }
+
+    func isActionInFlight(for key: String) -> Bool {
+        inFlightActionKeys.contains(key)
+    }
+
+    func clearRecoverableActionError() {
+        recoverableActionError = nil
+        pendingRetryAction = nil
+    }
+
+    func retryRecoverableAction() async {
+        guard let action = pendingRetryAction else { return }
+        clearRecoverableActionError()
+        switch action {
+        case .acceptInvite(let challengeID):
+            await acceptInvite(challengeID: challengeID)
+        case .cancelInvite(let challengeID):
+            await cancelInvite(challengeID: challengeID)
+        case .cancelQueue:
+            await cancelOpenChallenge()
+        case .submitAttempt(let challengeID, let metrics, let requiredMinTempoBPM):
+            await submitDerivedAttempt(
+                challengeID: challengeID,
+                metrics: metrics,
+                requiredMinTempoBPM: requiredMinTempoBPM
+            )
+        }
     }
 
     func queueAsyncScaleDuel(octaves: DuelOctaveCount = .one) async {
@@ -1350,19 +1887,31 @@ final class DuelLeagueManager: ObservableObject {
 
     func cancelOpenChallenge() async {
         guard configuredUID != nil else { return }
+        let actionKey = "cancelOpenQueue"
+        guard beginAction(key: actionKey) else { return }
+        defer { endAction(key: actionKey) }
         let previousOpen = myOpenChallenge
         myOpenChallenge = nil
         do {
             _ = try await callDuelEndpoint(name: "duelQueueCancel", body: [:])
             statusMessage = "Open duel canceled."
+            clearRecoverableActionError()
         } catch {
             myOpenChallenge = previousOpen
-            statusMessage = error.localizedDescription
+            handleActionFailure(
+                error,
+                fallbackMessage: "Could not cancel queue right now.",
+                retryTitle: "Retry Cancel",
+                retryAction: .cancelQueue
+            )
         }
     }
 
     func cancelInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
+        let actionKey = "cancelInvite:\(challengeID)"
+        guard beginAction(key: actionKey) else { return }
+        defer { endAction(key: actionKey) }
         let priorOutgoing = outgoingInvites
         outgoingInvites.removeAll { $0.id == challengeID }
         do {
@@ -1371,14 +1920,23 @@ final class DuelLeagueManager: ObservableObject {
                 body: ["challengeId": challengeID, "accept": false]
             )
             statusMessage = "Invite canceled."
+            clearRecoverableActionError()
         } catch {
             outgoingInvites = priorOutgoing
-            statusMessage = error.localizedDescription
+            handleActionFailure(
+                error,
+                fallbackMessage: "Could not cancel invite right now.",
+                retryTitle: "Retry Cancel",
+                retryAction: .cancelInvite(challengeID: challengeID)
+            )
         }
     }
 
     func acceptInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
+        let actionKey = "acceptInvite:\(challengeID)"
+        guard beginAction(key: actionKey) else { return }
+        defer { endAction(key: actionKey) }
         do {
             let result = try await callDuelEndpoint(
                 name: "duelRespond",
@@ -1391,13 +1949,22 @@ final class DuelLeagueManager: ObservableObject {
                 weekKey: telemetryWeekKey(for: Date())
             )
             statusMessage = status == "activated" ? "Duel accepted. Match started." : "Duel accepted."
+            clearRecoverableActionError()
         } catch {
-            statusMessage = error.localizedDescription
+            handleActionFailure(
+                error,
+                fallbackMessage: "Could not accept invite right now.",
+                retryTitle: "Retry Accept",
+                retryAction: .acceptInvite(challengeID: challengeID)
+            )
         }
     }
 
     func declineInvite(challengeID: String) async {
         guard configuredUID != nil else { return }
+        let actionKey = "declineInvite:\(challengeID)"
+        guard beginAction(key: actionKey) else { return }
+        defer { endAction(key: actionKey) }
         do {
             let result = try await callDuelEndpoint(
                 name: "duelRespond",
@@ -1405,6 +1972,7 @@ final class DuelLeagueManager: ObservableObject {
             )
             let status = (result["status"] as? String) ?? ""
             statusMessage = status == "requeued_both" ? "Match declined. Searching new opponent." : "Invite declined."
+            clearRecoverableActionError()
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -1412,6 +1980,9 @@ final class DuelLeagueManager: ObservableObject {
 
     func submitDerivedAttempt(challengeID: String, metrics: DuelDerivedMetrics, requiredMinTempoBPM: Int = 0) async {
         guard configuredUID != nil else { return }
+        let actionKey = "submitAttempt:\(challengeID)"
+        guard beginAction(key: actionKey) else { return }
+        defer { endAction(key: actionKey) }
         guard metrics.noteCount > 0, metrics.beatsAnalyzed > 0 else {
             statusMessage = "Metrics are incomplete."
             return
@@ -1453,8 +2024,18 @@ final class DuelLeagueManager: ObservableObject {
                 )
             }
             statusMessage = "Attempt submitted."
+            clearRecoverableActionError()
         } catch {
-            statusMessage = error.localizedDescription
+            handleActionFailure(
+                error,
+                fallbackMessage: "Could not submit take right now.",
+                retryTitle: "Retry Submit",
+                retryAction: .submitAttempt(
+                    challengeID: challengeID,
+                    metrics: metrics,
+                    requiredMinTempoBPM: requiredMinTempoBPM
+                )
+            )
         }
     }
 
@@ -1936,6 +2517,65 @@ final class DuelLeagueManager: ObservableObject {
             if !fetched.isEmpty {
                 userDisplayNames.merge(fetched) { _, new in new }
             }
+        }
+    }
+
+    private func beginAction(key: String) -> Bool {
+        guard !inFlightActionKeys.contains(key) else { return false }
+        inFlightActionKeys.insert(key)
+        isActionBusy = !inFlightActionKeys.isEmpty
+        return true
+    }
+
+    private func endAction(key: String) {
+        inFlightActionKeys.remove(key)
+        isActionBusy = !inFlightActionKeys.isEmpty
+    }
+
+    private func handleActionFailure(
+        _ error: Error,
+        fallbackMessage: String,
+        retryTitle: String,
+        retryAction: DuelPendingRetryAction
+    ) {
+        let nsError = error as NSError
+        let raw = ((nsError.userInfo[NSLocalizedDescriptionKey] as? String) ?? error.localizedDescription)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = raw.lowercased()
+
+        let networkCodes: Set<Int> = [
+            NSURLErrorTimedOut,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet
+        ]
+        let isNetwork = nsError.domain == NSURLErrorDomain && networkCodes.contains(nsError.code)
+        let isServer = nsError.code >= 500
+        let retryable = isNetwork || isServer || lower.contains("request failed")
+
+        let userMessage: String
+        if lower.contains("challenge not pending") {
+            userMessage = "This invite is no longer pending."
+        } else if lower.contains("challenge is not active") || lower.contains("submission window is closed") {
+            userMessage = "This duel is no longer active."
+        } else if lower.contains("tempo too low") || lower.contains("capture too short") || lower.contains("metrics are incomplete") {
+            userMessage = raw
+        } else if retryable {
+            userMessage = "Temporary connection issue. Try again."
+        } else {
+            userMessage = raw.isEmpty ? fallbackMessage : raw
+        }
+
+        statusMessage = userMessage
+        if retryable {
+            pendingRetryAction = retryAction
+            recoverableActionError = DuelRecoverableActionError(
+                message: userMessage,
+                retryTitle: retryTitle
+            )
+        } else {
+            clearRecoverableActionError()
         }
     }
 

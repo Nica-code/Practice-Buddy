@@ -17,6 +17,7 @@ const db = admin.firestore();
 const OPEN_MATCH_FALLBACK_SECONDS = 30;
 const ACCEPT_WINDOW_SECONDS = 24 * 60 * 60;
 const SUBMISSION_WINDOW_SECONDS = 24 * 60 * 60;
+const SUBMISSION_SETTLE_GRACE_SECONDS = 30;
 const MAX_PENDING_INVITES_PER_USER = 5;
 
 const ROUTE_PLAY_DUEL = "play_duel";
@@ -568,6 +569,11 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
       if (!challengeSnap.exists) throw new Error("Challenge not found");
       const challenge = challengeSnap.data() || {};
       if (String(challenge.status || "") !== "active") throw new Error("Challenge is not active");
+      const deadlineMs = challenge.submissionDeadlineAt?.toDate ?
+        challenge.submissionDeadlineAt.toDate().getTime() : null;
+      if (deadlineMs != null && Date.now() > deadlineMs + (SUBMISSION_SETTLE_GRACE_SECONDS * 1000)) {
+        throw new Error("Submission window is closed for this duel.");
+      }
       const requiredMinTempoBPM = clampInt(challenge.requiredMinTempoBPM, 0, 240, 0);
       if (requiredMinTempoBPM > 0 && tempoBPM < requiredMinTempoBPM) {
         throw new Error(`Tempo too low for this league duel. Required: ${requiredMinTempoBPM}+ BPM.`);
@@ -601,10 +607,18 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
       let opponentScore = challenge.opponentScore == null ? null : clampInt(challenge.opponentScore, 0, 100, 0);
       if (uid === createdByUid) {
         creatorScore = derivedScore;
-        txn.update(challengeRef, {creatorScore: derivedScore, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+        txn.update(challengeRef, {
+          creatorScore: derivedScore,
+          lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       } else {
         opponentScore = derivedScore;
-        txn.update(challengeRef, {opponentScore: derivedScore, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+        txn.update(challengeRef, {
+          opponentScore: derivedScore,
+          lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
 
       if (creatorScore == null || opponentScore == null) {
@@ -720,7 +734,7 @@ async function settleExpiredGlobal() {
   for (const doc of expired.docs) {
     const data = doc.data() || {};
     const deadline = data.submissionDeadlineAt?.toDate ? data.submissionDeadlineAt.toDate().getTime() : null;
-    if (deadline != null && deadline <= nowMs) {
+    if (deadline != null && (deadline + (SUBMISSION_SETTLE_GRACE_SECONDS * 1000)) <= nowMs) {
       await settleChallengeById(doc.id);
     }
   }
@@ -736,7 +750,7 @@ async function settleExpiredForUser(uid) {
     const data = doc.data() || {};
     if (String(data.status || "") !== "active") continue;
     const deadline = data.submissionDeadlineAt?.toDate ? data.submissionDeadlineAt.toDate().getTime() : null;
-    if (deadline != null && deadline <= nowMs) {
+    if (deadline != null && (deadline + (SUBMISSION_SETTLE_GRACE_SECONDS * 1000)) <= nowMs) {
       await settleChallengeById(doc.id);
     }
   }
@@ -795,7 +809,7 @@ async function settleChallengeById(challengeId) {
     const data = snap.data() || {};
     if (String(data.status || "") !== "active") return;
     const deadline = data.submissionDeadlineAt?.toDate ? data.submissionDeadlineAt.toDate() : null;
-    if (!deadline || deadline.getTime() > Date.now()) return;
+    if (!deadline || (deadline.getTime() + (SUBMISSION_SETTLE_GRACE_SECONDS * 1000)) > Date.now()) return;
 
     const createdByUid = String(data.createdByUid || "");
     const participants = Array.isArray(data.participants) ? data.participants : [];

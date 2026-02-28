@@ -3,6 +3,7 @@ import StoreKit
 
 struct ShopView: View {
     @EnvironmentObject private var purchaseManager: PurchaseManager
+    @EnvironmentObject private var journey: JourneyProgressManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -93,9 +94,35 @@ struct ShopView: View {
             .listRowBackground(palette.surface)
 
             Section("Cosmetics") {
-                Text("Coming soon")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    cosmeticStatusRow(
+                        title: "Duel Intro Card",
+                        equippedID: journey.equippedRewardID(for: .duelIntroCard),
+                        equippedName: "Spotlight"
+                    )
+                    cosmeticStatusRow(
+                        title: "Duel Finisher FX",
+                        equippedID: journey.equippedRewardID(for: .duelFinisherFX),
+                        equippedName: "Resonance"
+                    )
+                    cosmeticStatusRow(
+                        title: "Session Card Skin",
+                        equippedID: journey.equippedRewardID(for: .sessionCardSkin),
+                        equippedName: "Aurora"
+                    )
+
+                    Text("Unlock and equip cosmetics from Play > Rewards.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+
+                    NavigationLink {
+                        InventoryView()
+                    } label: {
+                        Label("Open Inventory", systemImage: "shippingbox.fill")
+                            .font(type.body)
+                    }
+                }
+                .padding(.vertical, 4)
             }
             .listRowBackground(palette.surface)
 
@@ -158,5 +185,24 @@ struct ShopView: View {
             return theme.accent
         }
         return palette.textSecondary
+    }
+
+    @ViewBuilder
+    private func cosmeticStatusRow(title: String, equippedID: String?, equippedName: String) -> some View {
+        HStack {
+            Text(title)
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            if equippedID == nil {
+                Text("Not equipped")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            } else {
+                Text("Equipped: \(equippedName)")
+                    .font(type.footnote)
+                    .foregroundStyle(theme.accent)
+            }
+        }
     }
 }
