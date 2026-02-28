@@ -450,7 +450,7 @@ struct SmartLoopTimerView: View {
         remainingSeconds = loopDuration
         if metronomeEnabled {
             metronome.setBPM(currentTempoBPM)
-            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
         }
         startTicker()
     }
@@ -481,7 +481,7 @@ struct SmartLoopTimerView: View {
             phase = .work
             if metronomeEnabled {
                 metronome.setBPM(currentTempoBPM)
-                metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+                metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
             }
             startTicker()
         } else if phase == .pausedRest {
@@ -605,7 +605,7 @@ struct SmartLoopTimerView: View {
             metronome.applyUpdatedConfiguration(
                 beatsPerBar: 4,
                 subdivision: .none,
-                soundStyle: .click
+                soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click)
             )
             statusMessage = L10n.f("Tempo ladder advanced to %@ BPM.", "\(currentTempoBPM)")
         }

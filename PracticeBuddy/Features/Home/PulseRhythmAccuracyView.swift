@@ -187,7 +187,7 @@ struct PulseRhythmAccuracyView: View {
         targetBeats = min(max(targetBeats, 8), 128)
         if useMetronome {
             metronome.setBPM(bpm)
-            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
         }
         engine.start(bpm: bpm, targetBeats: targetBeats)
     }

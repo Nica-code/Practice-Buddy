@@ -23,6 +23,9 @@ struct UserProfileView: View {
     @FocusState private var focusedField: ProfileField?
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    private var equippedFrameID: String? { journey.equippedRewardID(for: .profileFrame) }
+    private var equippedBannerID: String? { journey.equippedRewardID(for: .profileBanner) }
+    private var equippedGlowID: String? { journey.equippedRewardID(for: .profileGlow) }
     
     private func profileSectionCard<Content: View>(
         @ViewBuilder content: () -> Content
@@ -126,11 +129,59 @@ struct UserProfileView: View {
         }
         .padding(PBLayout.padLG)
         .pbFlatCard(palette: palette)
+        .background(profileBannerBackground)
+        .overlay(profileFrameOverlay)
+        .shadow(
+            color: profileGlowColor.opacity(profileGlowID == nil ? 0 : 0.38),
+            radius: profileGlowID == nil ? 0 : 14,
+            x: 0,
+            y: 4
+        )
         .padding(.horizontal, PBLayout.padSM)
         .padding(.top, 8)
         .padding(.bottom, 4)
         .offset(y: animateHeader ? 0 : 12)
         .opacity(animateHeader ? 1 : 0)
+    }
+
+    @ViewBuilder
+    private var profileBannerBackground: some View {
+        if equippedBannerID == "reward_profile_banner_concert" {
+            RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            palette.accent.opacity(0.26),
+                            palette.surface.opacity(0.85)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var profileFrameOverlay: some View {
+        if equippedFrameID == "reward_profile_frame_studio" {
+            RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [palette.accent.opacity(0.7), palette.textSecondary.opacity(0.45)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.4
+                )
+        }
+    }
+
+    private var profileGlowID: String? { equippedGlowID }
+    private var profileGlowColor: Color {
+        if profileGlowID == "reward_profile_glow_soft" {
+            return palette.accent
+        }
+        return .clear
     }
 
     private var profileShortcutItems: [PBShortcutItem] {

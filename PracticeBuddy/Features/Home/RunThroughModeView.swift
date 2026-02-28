@@ -207,7 +207,7 @@ struct RunThroughModeView: View {
         markers = []
         if useMetronome {
             metronome.setBPM(metronomeBPM)
-            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
         }
         recorder.startRecording()
     }

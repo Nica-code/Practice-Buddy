@@ -677,10 +677,11 @@ struct HomeView: View {
     }
 
     private func applyMetronomeConfiguration() {
+        let effectiveSoundRaw = JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? metronomeSoundStyleRaw
         metronome.applyUpdatedConfiguration(
             beatsPerBar: metronomeBeatsPerBar,
             subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-            soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+            soundStyle: MetronomeEngine.SoundStyle(rawValue: effectiveSoundRaw) ?? .click
         )
     }
 
@@ -2206,10 +2207,11 @@ struct HomeView: View {
         if metronome.isRunning {
             metronome.stop()
         } else {
+            let effectiveSoundRaw = JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? metronomeSoundStyleRaw
             metronome.start(
                 beatsPerBar: metronomeBeatsPerBar,
                 subdivision: MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none,
-                soundStyle: MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click
+                soundStyle: MetronomeEngine.SoundStyle(rawValue: effectiveSoundRaw) ?? .click
             )
         }
     }
@@ -2218,7 +2220,8 @@ struct HomeView: View {
         metronomeBPM = min(max(metronomeBPM, 40), 220)
         metronomeBeatsPerBar = MetronomeEngine.clampBeatsPerBar(metronomeBeatsPerBar)
         metronomeSubdivisionRaw = (MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none).rawValue
-        metronomeSoundStyleRaw = (MetronomeEngine.SoundStyle(rawValue: metronomeSoundStyleRaw) ?? .click).rawValue
+        let preferred = JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? metronomeSoundStyleRaw
+        metronomeSoundStyleRaw = (MetronomeEngine.SoundStyle(rawValue: preferred) ?? .click).rawValue
     }
 
     private var defaultEditableTemplates: [EditableSessionTemplate] {

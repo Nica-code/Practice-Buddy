@@ -757,3 +757,64 @@ What Is Next
   - dedicated duel recording UI (record/done flow from duel entry sheet)
   - push notification events for invite/accepted/ready states
   - stronger anti-abuse and adjudication refinements
+
+31) Duel League Expansion + Requirement Enforcement
+- League tiers expanded from 3 to 8:
+  - Bronze, Silver, Gold, Platinum, Emerald, Diamond, Master, Grandmaster
+- Difficulty requirements now scale by league:
+  - Bronze: 1 octave
+  - Silver: 2 octaves
+  - Gold: 3 octaves
+  - Platinum: 3 octaves + 88+ BPM
+  - Emerald: 3 octaves + 104+ BPM
+  - Diamond: 3 octaves + 116+ BPM
+  - Master: 3 octaves + 126+ BPM
+  - Grandmaster: 3 octaves + 136+ BPM
+- iOS UI now displays active league requirement in Play -> Duels & League.
+- Queue/Invite requests now use league requirement defaults instead of fixed one-octave.
+- Backend (`functions/index.js`) now enforces:
+  - required octaves and tempo floor on active duels
+  - stricter capture quality thresholds at higher leagues
+  - expanded `duelLeagueForRating` mapping for all new leagues
+
+32) Duel Recorder/Submission Refinements
+- Dedicated duel submission payload now includes `tempoBPM`.
+- Duel capture strictness now aligns to challenge league, not only local rating.
+- Recorder rhythm BPM control now respects required minimum tempo when present.
+- Submission validation rejects under-tempo takes for tempo-gated leagues.
+
+33) Play Quests Overhaul (Duel-First + Weekly Rotation)
+- Replaced fixed basic quest list with duel-focused quest engine.
+- Added event telemetry for duel quest progress:
+  - queue joined
+  - invite sent
+  - accept entered
+  - take submitted
+  - high-score submission (80+)
+  - tempo-qualified submission
+- New daily quests are duel-centric (token rewards in 4-10 range).
+- Weekly quests now rotate from a duel-focused pool (4 active/week), deterministic by week key and seed.
+- Weekly rotation includes diversity-aware category selection and persisted weekly plan.
+- Added duel baselines (daily/weekly) for win/rating/league-climb deltas.
+- Play now syncs duel snapshot stats into quest manager for real-time quest progress updates.
+
+34) Rewards + Inventory Phase A (Functional Unlocks)
+- Reward model upgraded from simple owned flags to:
+  - category (`Cosmetics`, `Tools`)
+  - slot-based equip model
+  - equipped state persistence
+- Added Inventory screen:
+  - `PracticeBuddy/Features/Journey/InventoryView.swift`
+  - category segmented view, Equip/Unequip actions, owned-item browsing
+- Added real functional reward items:
+  - Studio Frame (profile frame slot)
+  - Concert Banner (profile banner slot)
+  - Soft Profile Glow (profile glow slot)
+  - Classic Confetti / Spark Confetti (confetti style slot)
+  - Metronome Pack: Studio (tool slot)
+- Profile visuals now react to equipped cosmetics (frame/banner/glow) on top profile card.
+- Reward claim/quest claim celebrations now render style-aware confetti overlay.
+- Metronome pack now applies audio-style override across practice tools using metronome start paths.
+
+35) Build/Verification
+- Latest iOS compile pass: `BUILD SUCCEEDED` after quest/inventory/reward integration.

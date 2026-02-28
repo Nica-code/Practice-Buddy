@@ -34,7 +34,11 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
 
   try {
     const uid = await requireUID(req);
-    const octaves = parseOctaves(req.body?.octaves);
+    const requestedOctaves = parseOctaves(req.body?.octaves);
+    const requesterSnap = await db.collection("users").doc(uid).get();
+    const requesterRating = clampInt(requesterSnap.data()?.duelRating, 0, 1000000, 0);
+    const requesterRequirement = duelRequirementForRating(requesterRating);
+    const octaves = Math.max(requestedOctaves, requesterRequirement.octaves);
 
     await settleExpiredForUser(uid);
 
@@ -94,6 +98,11 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
           return {status: "retry"};
         }
         const creatorOctaves = parseOctaves(latestData.octaveCount);
+        const creatorSnap = await txn.get(db.collection("users").doc(creatorUID));
+        const creatorRating = clampInt(creatorSnap.data()?.duelRating, 0, 1000000, 0);
+        const creatorRequirement = duelRequirementForRating(creatorRating);
+        const matchRequirement = maxDuelRequirement(creatorRequirement, requesterRequirement);
+        const matchOctaves = Math.max(creatorOctaves, matchRequirement.octaves);
 
         txn.update(ref, {
           status: "invited",
@@ -103,7 +112,9 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
           creatorAccepted: true,
           opponentAccepted: false,
           opponentRequestedOctaves: octaves,
-          octaveCount: creatorOctaves,
+          octaveCount: matchOctaves,
+          requiredLeague: matchRequirement.league,
+          requiredMinTempoBPM: matchRequirement.minTempoBPM,
           objective: "Match found • awaiting acceptance",
           matchFoundAt: admin.firestore.FieldValue.serverTimestamp(),
           acceptByAt: admin.firestore.Timestamp.fromMillis(now + (ACCEPT_WINDOW_SECONDS * 1000)),
@@ -112,7 +123,9 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
         return {
           status: "matched_pending_accept",
           challengeId: ref.id,
-          octaves: creatorOctaves,
+          octaves: matchOctaves,
+          requiredLeague: matchRequirement.league,
+          requiredMinTempoBPM: matchRequirement.minTempoBPM,
           notifyUid: creatorUID,
         };
       }
@@ -124,9 +137,11 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
         participants: [uid],
         status: "open",
         queueType: "open",
-        objective: `Queued • ${octaves} octave${octaves === 1 ? "" : "s"}`,
+        objective: duelObjective("Queued", octaves, requesterRequirement.minTempoBPM),
         scaleName: null,
         octaveCount: octaves,
+        requiredLeague: requesterRequirement.league,
+        requiredMinTempoBPM: requesterRequirement.minTempoBPM,
         creatorAccepted: true,
         opponentAccepted: false,
         opponentRequestedOctaves: null,
@@ -141,7 +156,13 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
         submissionDeadlineAt: null,
         completedAt: null,
       });
-      return {status: "queued", challengeId: ref.id, octaves};
+      return {
+        status: "queued",
+        challengeId: ref.id,
+        octaves,
+        requiredLeague: requesterRequirement.league,
+        requiredMinTempoBPM: requesterRequirement.minTempoBPM,
+      };
     });
 
     if (output.status === "matched_pending_accept" && output.notifyUid) {
@@ -203,10 +224,19 @@ exports.duelInvite = onRequest(async (req, res) => {
     const uid = await requireUID(req);
     const targetUID = String(req.body?.targetUID || "").trim();
     const source = parseInviteSource(req.body?.source);
-    const octaves = parseOctaves(req.body?.octaves);
+    const requestedOctaves = parseOctaves(req.body?.octaves);
     if (!targetUID || targetUID === uid) {
       throw new Error("Invalid target");
     }
+
+    const [senderSnap, targetSnap] = await Promise.all([
+      db.collection("users").doc(uid).get(),
+      db.collection("users").doc(targetUID).get(),
+    ]);
+    const senderRequirement = duelRequirementForRating(clampInt(senderSnap.data()?.duelRating, 0, 1000000, 0));
+    const targetRequirement = duelRequirementForRating(clampInt(targetSnap.data()?.duelRating, 0, 1000000, 0));
+    const matchRequirement = maxDuelRequirement(senderRequirement, targetRequirement);
+    const octaves = Math.max(requestedOctaves, matchRequirement.octaves);
 
     await settleExpiredForUser(uid);
     await settleExpiredForUser(targetUID);
@@ -274,9 +304,11 @@ exports.duelInvite = onRequest(async (req, res) => {
       participants: [uid, targetUID],
       status: "invited",
       queueType: source,
-      objective: `Challenge • ${octaves} octave${octaves === 1 ? "" : "s"}`,
+      objective: duelObjective("Challenge", octaves, matchRequirement.minTempoBPM),
       scaleName: null,
       octaveCount: octaves,
+      requiredLeague: matchRequirement.league,
+      requiredMinTempoBPM: matchRequirement.minTempoBPM,
       creatorAccepted: true,
       opponentAccepted: false,
       opponentRequestedOctaves: null,
@@ -343,6 +375,8 @@ exports.duelRespond = onRequest(async (req, res) => {
         if (queueType === "open" && uid !== createdByUid) {
           const creatorOctaves = parseOctaves(data.octaveCount);
           const responderOctaves = parseOctaves(data.opponentRequestedOctaves || creatorOctaves);
+          const creatorMinTempo = clampInt(data.requiredMinTempoBPM, 0, 240, 0);
+          const creatorLeague = String(data.requiredLeague || duelLeagueForRating(0));
           txn.update(ref, {
             status: "open",
             opponentUid: null,
@@ -351,7 +385,7 @@ exports.duelRespond = onRequest(async (req, res) => {
             opponentAccepted: false,
             opponentRequestedOctaves: null,
             scaleName: null,
-            objective: `Queued • ${creatorOctaves} octave${creatorOctaves === 1 ? "" : "s"}`,
+            objective: duelObjective("Queued", creatorOctaves, creatorMinTempo),
             startedAt: null,
             submissionDeadlineAt: null,
             creatorScore: null,
@@ -359,10 +393,16 @@ exports.duelRespond = onRequest(async (req, res) => {
             winnerUid: null,
             creatorRatingDelta: 0,
             opponentRatingDelta: 0,
+            requiredLeague: creatorLeague,
+            requiredMinTempoBPM: creatorMinTempo,
             acceptByAt: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
+          const responderRequirement = duelRequirementForRating(
+              clampInt((await txn.get(db.collection("users").doc(uid))).data()?.duelRating, 0, 1000000, 0)
+          );
+          const responderMinTempo = responderRequirement.minTempoBPM;
           const newOpenRef = db.collection("duelChallenges").doc();
           txn.set(newOpenRef, {
             createdByUid: uid,
@@ -370,9 +410,11 @@ exports.duelRespond = onRequest(async (req, res) => {
             participants: [uid],
             status: "open",
             queueType: "open",
-            objective: `Queued • ${responderOctaves} octave${responderOctaves === 1 ? "" : "s"}`,
+            objective: duelObjective("Queued", responderOctaves, responderMinTempo),
             scaleName: null,
             octaveCount: responderOctaves,
+            requiredLeague: responderRequirement.league,
+            requiredMinTempoBPM: responderMinTempo,
             creatorAccepted: true,
             opponentAccepted: false,
             opponentRequestedOctaves: null,
@@ -415,6 +457,7 @@ exports.duelRespond = onRequest(async (req, res) => {
 
       if (creatorAccepted && opponentAccepted) {
         const octaves = parseOctaves(data.octaveCount);
+        const requiredMinTempoBPM = clampInt(data.requiredMinTempoBPM, 0, 240, 0);
         const scaleName = randomDuelScaleName();
         txn.update(ref, {
           status: "active",
@@ -424,10 +467,10 @@ exports.duelRespond = onRequest(async (req, res) => {
           ),
           acceptByAt: null,
           scaleName,
-          objective: `${scaleName} • ${octaves} octave${octaves === 1 ? "" : "s"}`,
+          objective: duelObjective(scaleName, octaves, requiredMinTempoBPM),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return {status: "activated", scaleName, octaves, notifyUids: participants};
+        return {status: "activated", scaleName, octaves, requiredMinTempoBPM, notifyUids: participants};
       }
 
       const notifyUid = participants.find((p) => p !== uid) || null;
@@ -511,6 +554,7 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
     const consistencyScore = clampInt(metrics.consistencyScore, 0, 100, 0);
     const noteCount = clampInt(metrics.noteCount, 0, 2000, 0);
     const beatsAnalyzed = clampInt(metrics.beatsAnalyzed, 0, 2000, 0);
+    const tempoBPM = clampInt(metrics.tempoBPM, 0, 240, 0);
     if (noteCount <= 0 || beatsAnalyzed <= 0) {
       throw new Error("Metrics are incomplete");
     }
@@ -524,6 +568,14 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
       if (!challengeSnap.exists) throw new Error("Challenge not found");
       const challenge = challengeSnap.data() || {};
       if (String(challenge.status || "") !== "active") throw new Error("Challenge is not active");
+      const requiredMinTempoBPM = clampInt(challenge.requiredMinTempoBPM, 0, 240, 0);
+      if (requiredMinTempoBPM > 0 && tempoBPM < requiredMinTempoBPM) {
+        throw new Error(`Tempo too low for this league duel. Required: ${requiredMinTempoBPM}+ BPM.`);
+      }
+      const quality = duelQualityThresholdForLeague(String(challenge.requiredLeague || "bronze"));
+      if (noteCount < quality.minNotes || beatsAnalyzed < quality.minBeats) {
+        throw new Error(`Capture too short for this league duel. Need at least ${quality.minNotes} notes and ${quality.minBeats} beats.`);
+      }
 
       const participants = Array.isArray(challenge.participants) ? challenge.participants : [];
       const createdByUid = String(challenge.createdByUid || "");
@@ -540,6 +592,7 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
         consistencyScore,
         noteCount,
         beatsAnalyzed,
+        tempoBPM,
         derivedScore,
         submittedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, {merge: true});
@@ -703,6 +756,7 @@ async function settleAcceptanceTimeout(challengeId) {
     const queueType = String(data.queueType || "open");
     if (queueType === "open" && createdByUid) {
       const octaves = parseOctaves(data.octaveCount);
+      const minTempo = clampInt(data.requiredMinTempoBPM, 0, 240, 0);
       txn.update(ref, {
         status: "open",
         opponentUid: null,
@@ -710,8 +764,10 @@ async function settleAcceptanceTimeout(challengeId) {
         creatorAccepted: true,
         opponentAccepted: false,
         opponentRequestedOctaves: null,
-        objective: `Queued • ${octaves} octave${octaves === 1 ? "" : "s"}`,
+        objective: duelObjective("Queued", octaves, minTempo),
         scaleName: null,
+        requiredLeague: String(data.requiredLeague || duelLeagueForRating(0)),
+        requiredMinTempoBPM: minTempo,
         startedAt: null,
         submissionDeadlineAt: null,
         creatorScore: null,
@@ -950,9 +1006,90 @@ function parseOctaves(value) {
 }
 
 function duelLeagueForRating(rating) {
+  if (rating >= 2000) return "grandmaster";
+  if (rating >= 1600) return "master";
+  if (rating >= 1250) return "diamond";
+  if (rating >= 950) return "emerald";
+  if (rating >= 700) return "platinum";
   if (rating >= 450) return "gold";
   if (rating >= 200) return "silver";
   return "bronze";
+}
+
+function duelRequirementForRating(rating) {
+  const league = duelLeagueForRating(clampInt(rating, 0, 1000000, 0));
+  switch (league) {
+    case "grandmaster":
+      return {league, octaves: 3, minTempoBPM: 136};
+    case "master":
+      return {league, octaves: 3, minTempoBPM: 126};
+    case "diamond":
+      return {league, octaves: 3, minTempoBPM: 116};
+    case "emerald":
+      return {league, octaves: 3, minTempoBPM: 104};
+    case "platinum":
+      return {league, octaves: 3, minTempoBPM: 88};
+    case "gold":
+      return {league, octaves: 3, minTempoBPM: 0};
+    case "silver":
+      return {league, octaves: 2, minTempoBPM: 0};
+    default:
+      return {league: "bronze", octaves: 1, minTempoBPM: 0};
+  }
+}
+
+function maxDuelRequirement(left, right) {
+  const first = left || {league: "bronze", octaves: 1, minTempoBPM: 0};
+  const second = right || {league: "bronze", octaves: 1, minTempoBPM: 0};
+  return {
+    league: leagueRank(first.league) >= leagueRank(second.league) ? first.league : second.league,
+    octaves: Math.max(parseOctaves(first.octaves), parseOctaves(second.octaves)),
+    minTempoBPM: Math.max(clampInt(first.minTempoBPM, 0, 240, 0), clampInt(second.minTempoBPM, 0, 240, 0)),
+  };
+}
+
+function leagueRank(league) {
+  const order = [
+    "bronze",
+    "silver",
+    "gold",
+    "platinum",
+    "emerald",
+    "diamond",
+    "master",
+    "grandmaster",
+  ];
+  const i = order.indexOf(String(league || "").toLowerCase());
+  return i >= 0 ? i : 0;
+}
+
+function duelObjective(prefix, octaves, minTempoBPM) {
+  const base = `${prefix} • ${octaves} octave${octaves === 1 ? "" : "s"}`;
+  if (minTempoBPM > 0) {
+    return `${base} • ${minTempoBPM}+ BPM`;
+  }
+  return base;
+}
+
+function duelQualityThresholdForLeague(league) {
+  switch (String(league || "").toLowerCase()) {
+    case "grandmaster":
+      return {minNotes: 220, minBeats: 44};
+    case "master":
+      return {minNotes: 200, minBeats: 42};
+    case "diamond":
+      return {minNotes: 180, minBeats: 40};
+    case "emerald":
+      return {minNotes: 160, minBeats: 36};
+    case "platinum":
+      return {minNotes: 145, minBeats: 34};
+    case "gold":
+      return {minNotes: 130, minBeats: 32};
+    case "silver":
+      return {minNotes: 95, minBeats: 24};
+    default:
+      return {minNotes: 70, minBeats: 16};
+  }
 }
 
 function computeDerivedScore(intonationScore, rhythmScore, consistencyScore) {

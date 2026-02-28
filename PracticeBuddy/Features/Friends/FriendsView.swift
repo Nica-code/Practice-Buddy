@@ -437,7 +437,7 @@ struct FriendsView: View {
                                 Button("Duel Challenge") {
                                     PBHaptics.tap()
                                     Task {
-                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: .one)
+                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: duelLeague.activeLeagueRequirement.octaves)
                                     }
                                     expandedLeaderboardUserID = nil
                                 }

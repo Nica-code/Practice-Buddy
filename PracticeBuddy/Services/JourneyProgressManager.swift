@@ -19,7 +19,32 @@ struct JourneyRewardItem: Identifiable, Equatable {
     let title: String
     let subtitle: String
     let costTokens: Int
+    let category: JourneyRewardCategory
+    let slot: JourneyRewardSlot
     let isOwned: Bool
+    let isEquipped: Bool
+}
+
+enum JourneyRewardCategory: String, CaseIterable, Identifiable {
+    case cosmetics
+    case tools
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cosmetics: return "Cosmetics"
+        case .tools: return "Tools"
+        }
+    }
+}
+
+enum JourneyRewardSlot: String, CaseIterable {
+    case profileFrame = "profile_frame"
+    case profileBanner = "profile_banner"
+    case profileGlow = "profile_glow"
+    case confettiStyle = "confetti_style"
+    case metronomePack = "metronome_pack"
 }
 
 enum JourneyQuestPeriod: String {
@@ -33,6 +58,111 @@ enum JourneyQuestRewardStatus: Equatable {
     case claimed
 }
 
+enum DuelQuestEvent: String, CaseIterable {
+    case queueJoined = "queue_joined"
+    case inviteSent = "invite_sent"
+    case acceptEntered = "accept_entered"
+    case takeSubmitted = "take_submitted"
+    case highScoreSubmission = "high_score_submission"
+    case tempoQualifiedSubmission = "tempo_qualified_submission"
+}
+
+private enum DuelQuestNotification {
+    static let telemetryDidChange = Notification.Name("pb.duelQuestTelemetryDidChange")
+}
+
+private struct QuestDefinition: Equatable {
+    enum Metric: Equatable {
+        case dailyEvent(DuelQuestEvent)
+        case weeklyEvent(DuelQuestEvent)
+        case weeklyAnyEvent([DuelQuestEvent])
+        case dailyWins
+        case weeklyWins
+        case weeklyRatingGain
+        case weeklyLeagueUps
+    }
+
+    let id: String
+    let title: String
+    let subtitle: String
+    let target: Int
+    let rewardTokens: Int
+    let metric: Metric
+    let category: String
+}
+
+private struct QuestContext {
+    let dayKey: String
+    let weekKey: String
+    let dailyEventCounts: [DuelQuestEvent: Int]
+    let weeklyEventCounts: [DuelQuestEvent: Int]
+    let dailyWins: Int
+    let weeklyWins: Int
+    let weeklyRatingGain: Int
+    let weeklyLeagueUps: Int
+}
+
+private struct WeeklyQuestPlan: Codable {
+    let weekKey: String
+    let questIDs: [String]
+}
+
+private final class DuelQuestTelemetryStore {
+    static let shared = DuelQuestTelemetryStore()
+
+    private enum Keys {
+        static let dayCounters = "pb.journey.duelTelemetry.dayCounters"
+        static let weekCounters = "pb.journey.duelTelemetry.weekCounters"
+    }
+
+    private let defaults = UserDefaults.standard
+    private let lock = NSLock()
+
+    func record(_ event: DuelQuestEvent, on dayKey: String, weekKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var dayMap = readMap(for: Keys.dayCounters)
+        let dayCounterKey = "\(dayKey)|\(event.rawValue)"
+        dayMap[dayCounterKey, default: 0] += 1
+        writeMap(dayMap, for: Keys.dayCounters)
+
+        var weekMap = readMap(for: Keys.weekCounters)
+        let weekCounterKey = "\(weekKey)|\(event.rawValue)"
+        weekMap[weekCounterKey, default: 0] += 1
+        writeMap(weekMap, for: Keys.weekCounters)
+
+        NotificationCenter.default.post(name: DuelQuestNotification.telemetryDidChange, object: nil)
+    }
+
+    func dailyCount(for event: DuelQuestEvent, dayKey: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let map = readMap(for: Keys.dayCounters)
+        return max(0, map["\(dayKey)|\(event.rawValue)"] ?? 0)
+    }
+
+    func weeklyCount(for event: DuelQuestEvent, weekKey: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let map = readMap(for: Keys.weekCounters)
+        return max(0, map["\(weekKey)|\(event.rawValue)"] ?? 0)
+    }
+
+    private func readMap(for key: String) -> [String: Int] {
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func writeMap(_ map: [String: Int], for key: String) {
+        guard let data = try? JSONEncoder().encode(map) else { return }
+        defaults.set(data, forKey: key)
+    }
+}
+
 @MainActor
 final class JourneyProgressManager: ObservableObject {
     private enum Keys {
@@ -43,6 +173,21 @@ final class JourneyProgressManager: ObservableObject {
         static let tokenBalance = "pb.journey.tokenBalance"
         static let claimedQuestRewardKeys = "pb.journey.claimedQuestRewardKeys"
         static let ownedRewardIDs = "pb.journey.ownedRewardIDs"
+        static let equippedRewardBySlot = "pb.journey.equippedRewardBySlot"
+        static let weeklyQuestPlan = "pb.journey.weeklyQuestPlan"
+        static let questSeedSalt = "pb.journey.questSeedSalt"
+        static let duelDailyBaselineDay = "pb.journey.duelBaseline.day.key"
+        static let duelDailyBaselineWins = "pb.journey.duelBaseline.day.wins"
+        static let duelDailyBaselineRating = "pb.journey.duelBaseline.day.rating"
+        static let duelWeeklyBaselineWeek = "pb.journey.duelBaseline.week.key"
+        static let duelWeeklyBaselineWins = "pb.journey.duelBaseline.week.wins"
+        static let duelWeeklyBaselineRating = "pb.journey.duelBaseline.week.rating"
+        static let duelWeeklyBaselineLeagueRank = "pb.journey.duelBaseline.week.leagueRank"
+    }
+
+    private enum InventoryKeys {
+        static let metronomeSoundStyleOverride = "pb.inventory.metronome.soundStyleOverride"
+        static let confettiStyle = "pb.inventory.confetti.style"
     }
 
     @Published private(set) var totalXP: Int
@@ -60,6 +205,13 @@ final class JourneyProgressManager: ObservableObject {
     private var xpLedgerByDay: [String: Int] = [:]
     private var claimedQuestRewardKeys: Set<String> = []
     private var ownedRewardIDs: Set<String> = []
+    private var equippedRewardBySlot: [String: String] = [:]
+    private var lastSessions: [PracticeSessionModel] = []
+    private var latestDuelRating: Int = 0
+    private var latestDuelWins: Int = 0
+    private var latestDuelLosses: Int = 0
+    private var latestDuelDraws: Int = 0
+    private var telemetryCancellable: AnyCancellable?
     private let defaults = UserDefaults.standard
     private let isoDayFormatter: DateFormatter = {
         let fmt = DateFormatter()
@@ -76,13 +228,21 @@ final class JourneyProgressManager: ObservableObject {
         loadLedger()
         loadClaimedQuestRewards()
         loadOwnedRewards()
+        loadEquippedRewards()
         tokenBalance = max(0, defaults.integer(forKey: Keys.tokenBalance))
         recalculateLevel()
         todayXP = xpLedgerByDay[dayKey(for: Date())] ?? 0
         refreshRewards()
+        telemetryCancellable = NotificationCenter.default.publisher(for: DuelQuestNotification.telemetryDidChange)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.updateQuestProgress(from: self.lastSessions)
+            }
+        updateQuestProgress(from: [])
     }
 
     func handleSessionSnapshot(_ sessions: [PracticeSessionModel]) {
+        lastSessions = sessions
         if !defaults.bool(forKey: Keys.seeded) {
             seedFromExistingSessions(sessions)
             defaults.set(true, forKey: Keys.seeded)
@@ -90,6 +250,23 @@ final class JourneyProgressManager: ObservableObject {
             awardXPForNewSessions(sessions)
         }
         updateQuestProgress(from: sessions)
+    }
+
+    func handleDuelSnapshot(rating: Int, wins: Int, losses: Int, draws: Int) {
+        latestDuelRating = max(0, rating)
+        latestDuelWins = max(0, wins)
+        latestDuelLosses = max(0, losses)
+        latestDuelDraws = max(0, draws)
+        updateQuestProgress(from: lastSessions)
+    }
+
+    func recordDuelEvent(_ event: DuelQuestEvent) {
+        let now = Date()
+        DuelQuestTelemetryStore.shared.record(
+            event,
+            on: dayKey(for: now),
+            weekKey: questPeriodKey(.weekly, for: now)
+        )
     }
 
     func questRewardStatus(for quest: JourneyQuestRow, period: JourneyQuestPeriod) -> JourneyQuestRewardStatus {
@@ -119,9 +296,44 @@ final class JourneyProgressManager: ObservableObject {
 
         tokenBalance -= item.costTokens
         ownedRewardIDs.insert(id)
+        if equippedRewardBySlot[item.slot.rawValue] == nil {
+            equippedRewardBySlot[item.slot.rawValue] = item.id
+            applyEquippedSideEffects()
+        }
         refreshRewards()
         persistAll()
         return true
+    }
+
+    @discardableResult
+    func equipRewardItem(id: String) -> Bool {
+        guard ownedRewardIDs.contains(id),
+              let item = baseRewards.first(where: { $0.id == id }) else {
+            return false
+        }
+        equippedRewardBySlot[item.slot.rawValue] = item.id
+        applyEquippedSideEffects()
+        refreshRewards()
+        persistAll()
+        return true
+    }
+
+    @discardableResult
+    func unequipReward(slot: JourneyRewardSlot) -> Bool {
+        guard equippedRewardBySlot[slot.rawValue] != nil else { return false }
+        equippedRewardBySlot.removeValue(forKey: slot.rawValue)
+        applyEquippedSideEffects()
+        refreshRewards()
+        persistAll()
+        return true
+    }
+
+    func ownedRewards(in category: JourneyRewardCategory) -> [JourneyRewardItem] {
+        rewards.filter { $0.category == category && $0.isOwned }
+    }
+
+    func equippedRewardID(for slot: JourneyRewardSlot) -> String? {
+        equippedRewardBySlot[slot.rawValue]
     }
 
     private func seedFromExistingSessions(_ sessions: [PracticeSessionModel]) {
@@ -170,80 +382,280 @@ final class JourneyProgressManager: ObservableObject {
     }
 
     private func updateQuestProgress(from sessions: [PracticeSessionModel]) {
-        let cal = Calendar.current
+        _ = sessions
         let now = Date()
-        let todayInterval = cal.dateInterval(of: .day, for: now)
-        let weekInterval = cal.dateInterval(of: .weekOfYear, for: now)
+        let dayToken = dayKey(for: now)
+        let weekToken = questPeriodKey(.weekly, for: now)
+        ensureDuelBaselines(dayKey: dayToken, weekKey: weekToken)
 
-        let todaySessions = sessions.filter { s in
-            guard let it = todayInterval else { return false }
-            return s.date >= it.start && s.date < it.end
+        let dailyWins = max(0, latestDuelWins - defaults.integer(forKey: Keys.duelDailyBaselineWins))
+        let weeklyWins = max(0, latestDuelWins - defaults.integer(forKey: Keys.duelWeeklyBaselineWins))
+        let weeklyRatingGain = max(0, latestDuelRating - defaults.integer(forKey: Keys.duelWeeklyBaselineRating))
+        let weeklyLeagueUps = max(0, DuelLeagueTier.forRating(latestDuelRating).difficultyRank - defaults.integer(forKey: Keys.duelWeeklyBaselineLeagueRank))
+
+        var dailyEventCounts: [DuelQuestEvent: Int] = [:]
+        var weeklyEventCounts: [DuelQuestEvent: Int] = [:]
+        DuelQuestEvent.allCases.forEach { event in
+            dailyEventCounts[event] = DuelQuestTelemetryStore.shared.dailyCount(for: event, dayKey: dayToken)
+            weeklyEventCounts[event] = DuelQuestTelemetryStore.shared.weeklyCount(for: event, weekKey: weekToken)
         }
-        let weekSessions = sessions.filter { s in
-            guard let it = weekInterval else { return false }
-            return s.date >= it.start && s.date < it.end
+
+        let context = QuestContext(
+            dayKey: dayToken,
+            weekKey: weekToken,
+            dailyEventCounts: dailyEventCounts,
+            weeklyEventCounts: weeklyEventCounts,
+            dailyWins: dailyWins,
+            weeklyWins: weeklyWins,
+            weeklyRatingGain: weeklyRatingGain,
+            weeklyLeagueUps: weeklyLeagueUps
+        )
+
+        dailyQuests = dailyQuestDefinitions.map { definition in
+            JourneyQuestRow(
+                id: definition.id,
+                title: definition.title,
+                progress: progress(for: definition.metric, context: context),
+                target: definition.target,
+                rewardTokens: definition.rewardTokens,
+                subtitle: definition.subtitle
+            )
         }
 
-        let todayMinutes = todaySessions.reduce(0) { $0 + practiceMinutes(for: $1) }
-        let todayReflectiveSessions = todaySessions.filter(hasReflectionContent).count
-        let todayCount = todaySessions.count
+        weeklyQuests = activeWeeklyQuestDefinitions(for: weekToken).map { definition in
+            JourneyQuestRow(
+                id: definition.id,
+                title: definition.title,
+                progress: progress(for: definition.metric, context: context),
+                target: definition.target,
+                rewardTokens: definition.rewardTokens,
+                subtitle: definition.subtitle
+            )
+        }
+    }
 
-        let weekMinutes = weekSessions.reduce(0) { $0 + practiceMinutes(for: $1) }
-        let activeDays = Set(weekSessions.map { cal.startOfDay(for: $0.date) }).count
+    private func ensureDuelBaselines(dayKey: String, weekKey: String) {
+        if defaults.string(forKey: Keys.duelDailyBaselineDay) != dayKey {
+            defaults.set(dayKey, forKey: Keys.duelDailyBaselineDay)
+            defaults.set(latestDuelWins, forKey: Keys.duelDailyBaselineWins)
+            defaults.set(latestDuelRating, forKey: Keys.duelDailyBaselineRating)
+        }
+        if defaults.string(forKey: Keys.duelWeeklyBaselineWeek) != weekKey {
+            defaults.set(weekKey, forKey: Keys.duelWeeklyBaselineWeek)
+            defaults.set(latestDuelWins, forKey: Keys.duelWeeklyBaselineWins)
+            defaults.set(latestDuelRating, forKey: Keys.duelWeeklyBaselineRating)
+            defaults.set(DuelLeagueTier.forRating(latestDuelRating).difficultyRank, forKey: Keys.duelWeeklyBaselineLeagueRank)
+        }
+    }
 
-        dailyQuests = [
-            JourneyQuestRow(
-                id: "dq_minutes",
-                title: "Daily Time Builder",
-                progress: todayMinutes,
-                target: 25,
-                rewardTokens: 15,
-                subtitle: "Practice 25 minutes today"
+    private var dailyQuestDefinitions: [QuestDefinition] {
+        [
+            QuestDefinition(
+                id: "dq_queue_once",
+                title: "Queue Up",
+                subtitle: "Join duel queue once today",
+                target: 1,
+                rewardTokens: 4,
+                metric: .dailyEvent(.queueJoined),
+                category: "engagement"
             ),
-            JourneyQuestRow(
-                id: "dq_sessions",
-                title: "Two Session Day",
-                progress: todayCount,
-                target: 2,
-                rewardTokens: 12,
-                subtitle: "Complete 2 sessions today"
+            QuestDefinition(
+                id: "dq_invite_once",
+                title: "Challenger",
+                subtitle: "Send 1 duel challenge",
+                target: 1,
+                rewardTokens: 5,
+                metric: .dailyEvent(.inviteSent),
+                category: "engagement"
             ),
-            JourneyQuestRow(
-                id: "dq_reflect",
-                title: "Reflect & Improve",
-                progress: todayReflectiveSessions,
+            QuestDefinition(
+                id: "dq_accept_enter",
+                title: "Accept & Enter",
+                subtitle: "Accept 1 duel and enter the match flow",
+                target: 1,
+                rewardTokens: 6,
+                metric: .dailyEvent(.acceptEntered),
+                category: "engagement"
+            ),
+            QuestDefinition(
+                id: "dq_submit_take",
+                title: "Record Take",
+                subtitle: "Submit 1 duel take",
+                target: 1,
+                rewardTokens: 8,
+                metric: .dailyEvent(.takeSubmitted),
+                category: "core"
+            ),
+            QuestDefinition(
+                id: "dq_win_today",
+                title: "Win Today",
+                subtitle: "Win 1 duel today",
                 target: 1,
                 rewardTokens: 10,
-                subtitle: "Save 1 session with notes/reflection"
-            )
-        ]
-
-        weeklyQuests = [
-            JourneyQuestRow(
-                id: "wq_minutes",
-                title: "Weekly Volume",
-                progress: weekMinutes,
-                target: 180,
-                rewardTokens: 50,
-                subtitle: "Reach 180 minutes this week"
+                metric: .dailyWins,
+                category: "competitive"
             ),
-            JourneyQuestRow(
-                id: "wq_days",
-                title: "Consistency Week",
-                progress: activeDays,
-                target: 5,
-                rewardTokens: 40,
-                subtitle: "Practice on 5 different days"
+            QuestDefinition(
+                id: "dq_clutch_80",
+                title: "Clutch Performer",
+                subtitle: "Submit a duel take with 80+ derived score",
+                target: 1,
+                rewardTokens: 7,
+                metric: .dailyEvent(.highScoreSubmission),
+                category: "quality"
+            ),
+            QuestDefinition(
+                id: "dq_tempo_clean",
+                title: "Clean Tempo Run",
+                subtitle: "Submit 1 duel take meeting tempo requirement",
+                target: 1,
+                rewardTokens: 6,
+                metric: .dailyEvent(.tempoQualifiedSubmission),
+                category: "quality"
             )
         ]
     }
 
-    private func hasReflectionContent(_ session: PracticeSessionModel) -> Bool {
-        if !session.noteTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if !session.noteFocus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if !session.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if !session.noteStructuredJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        return false
+    private var weeklyQuestPool: [QuestDefinition] {
+        [
+            QuestDefinition(
+                id: "wq_duel_volume",
+                title: "Duel Volume",
+                subtitle: "Submit 5 duel takes this week",
+                target: 5,
+                rewardTokens: 22,
+                metric: .weeklyEvent(.takeSubmitted),
+                category: "core"
+            ),
+            QuestDefinition(
+                id: "wq_win_3",
+                title: "Win Streak",
+                subtitle: "Win 3 duels this week",
+                target: 3,
+                rewardTokens: 26,
+                metric: .weeklyWins,
+                category: "competitive"
+            ),
+            QuestDefinition(
+                id: "wq_rating_push",
+                title: "Rank Push",
+                subtitle: "Gain 40 duel rating this week",
+                target: 40,
+                rewardTokens: 24,
+                metric: .weeklyRatingGain,
+                category: "progression"
+            ),
+            QuestDefinition(
+                id: "wq_reliable_challenger",
+                title: "Reliable Challenger",
+                subtitle: "Queue or send invites 6 times this week",
+                target: 6,
+                rewardTokens: 18,
+                metric: .weeklyAnyEvent([.queueJoined, .inviteSent]),
+                category: "engagement"
+            ),
+            QuestDefinition(
+                id: "wq_high_accuracy",
+                title: "High Accuracy Week",
+                subtitle: "Record 3 takes with 80+ derived score",
+                target: 3,
+                rewardTokens: 20,
+                metric: .weeklyEvent(.highScoreSubmission),
+                category: "quality"
+            ),
+            QuestDefinition(
+                id: "wq_league_climber",
+                title: "League Climber",
+                subtitle: "Climb at least one league this week",
+                target: 1,
+                rewardTokens: 30,
+                metric: .weeklyLeagueUps,
+                category: "progression"
+            )
+        ]
+    }
+
+    private func activeWeeklyQuestDefinitions(for weekKey: String) -> [QuestDefinition] {
+        if let data = defaults.data(forKey: Keys.weeklyQuestPlan),
+           let plan = try? JSONDecoder().decode(WeeklyQuestPlan.self, from: data),
+           plan.weekKey == weekKey {
+            let map = Dictionary(uniqueKeysWithValues: weeklyQuestPool.map { ($0.id, $0) })
+            let existing = plan.questIDs.compactMap { map[$0] }
+            if existing.count == plan.questIDs.count {
+                return existing
+            }
+        }
+
+        var selected: [QuestDefinition] = []
+        let categories = ["core", "competitive", "engagement", "quality", "progression"]
+        for category in categories {
+            let quest = weeklyQuestPool
+                .filter { $0.category == category }
+                .min { deterministicQuestOrderValue($0.id, weekKey: weekKey) < deterministicQuestOrderValue($1.id, weekKey: weekKey) }
+            if let quest, !selected.contains(where: { $0.id == quest.id }) {
+                selected.append(quest)
+            }
+            if selected.count >= 4 { break }
+        }
+
+        if selected.count < 4 {
+            let remaining = weeklyQuestPool
+                .filter { candidate in !selected.contains(where: { $0.id == candidate.id }) }
+                .sorted { deterministicQuestOrderValue($0.id, weekKey: weekKey) < deterministicQuestOrderValue($1.id, weekKey: weekKey) }
+            selected.append(contentsOf: remaining.prefix(4 - selected.count))
+        }
+
+        let finalSelection = Array(selected.prefix(4))
+        let plan = WeeklyQuestPlan(weekKey: weekKey, questIDs: finalSelection.map(\.id))
+        if let encoded = try? JSONEncoder().encode(plan) {
+            defaults.set(encoded, forKey: Keys.weeklyQuestPlan)
+        }
+        return finalSelection
+    }
+
+    private func deterministicQuestOrderValue(_ questID: String, weekKey: String) -> UInt64 {
+        let salt = questSeedSalt()
+        return stableHash64("\(weekKey)|\(salt)|\(questID)")
+    }
+
+    private func questSeedSalt() -> String {
+        if let existing = defaults.string(forKey: Keys.questSeedSalt), !existing.isEmpty {
+            return existing
+        }
+        let created = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        defaults.set(created, forKey: Keys.questSeedSalt)
+        return created
+    }
+
+    private func stableHash64(_ value: String) -> UInt64 {
+        let prime: UInt64 = 1099511628211
+        var hash: UInt64 = 1469598103934665603
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* prime
+        }
+        return hash
+    }
+
+    private func progress(for metric: QuestDefinition.Metric, context: QuestContext) -> Int {
+        switch metric {
+        case .dailyEvent(let event):
+            return max(0, context.dailyEventCounts[event] ?? 0)
+        case .weeklyEvent(let event):
+            return max(0, context.weeklyEventCounts[event] ?? 0)
+        case .weeklyAnyEvent(let events):
+            return max(0, events.reduce(0) { partial, event in
+                partial + max(0, context.weeklyEventCounts[event] ?? 0)
+            })
+        case .dailyWins:
+            return max(0, context.dailyWins)
+        case .weeklyWins:
+            return max(0, context.weeklyWins)
+        case .weeklyRatingGain:
+            return max(0, context.weeklyRatingGain)
+        case .weeklyLeagueUps:
+            return max(0, context.weeklyLeagueUps)
+        }
     }
 
     private func practiceMinutes(for session: PracticeSessionModel) -> Int {
@@ -295,6 +707,7 @@ final class JourneyProgressManager: ObservableObject {
         saveLedger()
         saveClaimedQuestRewards()
         saveOwnedRewards()
+        saveEquippedRewards()
     }
 
     private func loadProcessedIDs() {
@@ -348,6 +761,22 @@ final class JourneyProgressManager: ObservableObject {
         defaults.set(Array(ownedRewardIDs), forKey: Keys.ownedRewardIDs)
     }
 
+    private func loadEquippedRewards() {
+        guard let data = defaults.data(forKey: Keys.equippedRewardBySlot),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            equippedRewardBySlot = [:]
+            applyEquippedSideEffects()
+            return
+        }
+        equippedRewardBySlot = decoded
+        applyEquippedSideEffects()
+    }
+
+    private func saveEquippedRewards() {
+        guard let data = try? JSONEncoder().encode(equippedRewardBySlot) else { return }
+        defaults.set(data, forKey: Keys.equippedRewardBySlot)
+    }
+
     private func questRewardClaimKey(for questID: String, period: JourneyQuestPeriod, at date: Date) -> String {
         "\(period.rawValue):\(questPeriodKey(period, for: date)):\(questID)"
     }
@@ -368,25 +797,64 @@ final class JourneyProgressManager: ObservableObject {
     private var baseRewards: [JourneyRewardItem] {
         [
             JourneyRewardItem(
-                id: "reward_confetti",
-                title: "Confetti Burst",
-                subtitle: "Unlock a new celebration style for level-up moments.",
-                costTokens: 40,
-                isOwned: false
-            ),
-            JourneyRewardItem(
-                id: "reward_profile_frame",
-                title: "Studio Profile Frame",
-                subtitle: "Special profile frame for studio and buddies surfaces.",
+                id: "reward_profile_frame_studio",
+                title: "Studio Frame",
+                subtitle: "A clean rounded profile frame for your card.",
                 costTokens: 60,
-                isOwned: false
+                category: .cosmetics,
+                slot: .profileFrame,
+                isOwned: false,
+                isEquipped: false
             ),
             JourneyRewardItem(
-                id: "reward_theme_badge",
-                title: "Theme Collector Badge",
-                subtitle: "Exclusive badge for your Journey profile.",
-                costTokens: 80,
-                isOwned: false
+                id: "reward_profile_banner_concert",
+                title: "Concert Banner",
+                subtitle: "Warm concert banner behind your top profile card.",
+                costTokens: 120,
+                category: .cosmetics,
+                slot: .profileBanner,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_profile_glow_soft",
+                title: "Soft Profile Glow",
+                subtitle: "Subtle accent glow around your profile card.",
+                costTokens: 90,
+                category: .cosmetics,
+                slot: .profileGlow,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_confetti_classic",
+                title: "Classic Confetti",
+                subtitle: "Celebration burst with classic accents.",
+                costTokens: 70,
+                category: .cosmetics,
+                slot: .confettiStyle,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_confetti_spark",
+                title: "Spark Confetti",
+                subtitle: "Brighter confetti palette for reward celebrations.",
+                costTokens: 140,
+                category: .cosmetics,
+                slot: .confettiStyle,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "reward_metronome_pack_studio",
+                title: "Metronome Pack: Studio",
+                subtitle: "Switches metronome to Studio wood-click sound.",
+                costTokens: 160,
+                category: .tools,
+                slot: .metronomePack,
+                isOwned: false,
+                isEquipped: false
             )
         ]
     }
@@ -398,9 +866,44 @@ final class JourneyProgressManager: ObservableObject {
                 title: item.title,
                 subtitle: item.subtitle,
                 costTokens: item.costTokens,
-                isOwned: ownedRewardIDs.contains(item.id)
+                category: item.category,
+                slot: item.slot,
+                isOwned: ownedRewardIDs.contains(item.id),
+                isEquipped: equippedRewardBySlot[item.slot.rawValue] == item.id
             )
         }
+    }
+
+    private func applyEquippedSideEffects() {
+        if equippedRewardBySlot[JourneyRewardSlot.metronomePack.rawValue] == "reward_metronome_pack_studio" {
+            defaults.set("wood", forKey: InventoryKeys.metronomeSoundStyleOverride)
+        } else {
+            defaults.removeObject(forKey: InventoryKeys.metronomeSoundStyleOverride)
+        }
+
+        let confettiID = equippedRewardBySlot[JourneyRewardSlot.confettiStyle.rawValue] ?? "default"
+        defaults.set(confettiID, forKey: InventoryKeys.confettiStyle)
+    }
+
+    static func preferredMetronomeSoundStyleRaw() -> String? {
+        UserDefaults.standard.string(forKey: InventoryKeys.metronomeSoundStyleOverride)
+    }
+
+    static func activeConfettiStyleID() -> String {
+        UserDefaults.standard.string(forKey: InventoryKeys.confettiStyle) ?? "default"
+    }
+}
+
+struct DuelLeagueRequirement: Equatable {
+    let league: DuelLeagueTier
+    let octaves: DuelOctaveCount
+    let minimumTempoBPM: Int
+
+    var summary: String {
+        if minimumTempoBPM > 0 {
+            return "\(octaves.title) • \(minimumTempoBPM)+ BPM"
+        }
+        return octaves.title
     }
 }
 
@@ -408,12 +911,22 @@ enum DuelLeagueTier: String, CaseIterable {
     case bronze
     case silver
     case gold
+    case platinum
+    case emerald
+    case diamond
+    case master
+    case grandmaster
 
     var title: String {
         switch self {
         case .bronze: return "Bronze"
         case .silver: return "Silver"
         case .gold: return "Gold"
+        case .platinum: return "Platinum"
+        case .emerald: return "Emerald"
+        case .diamond: return "Diamond"
+        case .master: return "Master"
+        case .grandmaster: return "Grandmaster"
         }
     }
 
@@ -422,6 +935,45 @@ enum DuelLeagueTier: String, CaseIterable {
         case .bronze: return 0
         case .silver: return 200
         case .gold: return 450
+        case .platinum: return 700
+        case .emerald: return 950
+        case .diamond: return 1250
+        case .master: return 1600
+        case .grandmaster: return 2000
+        }
+    }
+
+    var difficultyRank: Int {
+        switch self {
+        case .bronze: return 0
+        case .silver: return 1
+        case .gold: return 2
+        case .platinum: return 3
+        case .emerald: return 4
+        case .diamond: return 5
+        case .master: return 6
+        case .grandmaster: return 7
+        }
+    }
+
+    var requirement: DuelLeagueRequirement {
+        switch self {
+        case .bronze:
+            return DuelLeagueRequirement(league: self, octaves: .one, minimumTempoBPM: 0)
+        case .silver:
+            return DuelLeagueRequirement(league: self, octaves: .two, minimumTempoBPM: 0)
+        case .gold:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 0)
+        case .platinum:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 88)
+        case .emerald:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 104)
+        case .diamond:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 116)
+        case .master:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 126)
+        case .grandmaster:
+            return DuelLeagueRequirement(league: self, octaves: .three, minimumTempoBPM: 136)
         }
     }
 
@@ -429,11 +981,21 @@ enum DuelLeagueTier: String, CaseIterable {
         switch self {
         case .bronze: return .silver
         case .silver: return .gold
-        case .gold: return nil
+        case .gold: return .platinum
+        case .platinum: return .emerald
+        case .emerald: return .diamond
+        case .diamond: return .master
+        case .master: return .grandmaster
+        case .grandmaster: return nil
         }
     }
 
     static func forRating(_ rating: Int) -> DuelLeagueTier {
+        if rating >= DuelLeagueTier.grandmaster.minRating { return .grandmaster }
+        if rating >= DuelLeagueTier.master.minRating { return .master }
+        if rating >= DuelLeagueTier.diamond.minRating { return .diamond }
+        if rating >= DuelLeagueTier.emerald.minRating { return .emerald }
+        if rating >= DuelLeagueTier.platinum.minRating { return .platinum }
         if rating >= DuelLeagueTier.gold.minRating { return .gold }
         if rating >= DuelLeagueTier.silver.minRating { return .silver }
         return .bronze
@@ -505,6 +1067,7 @@ struct DuelDerivedMetrics {
     let consistencyScore: Int
     let noteCount: Int
     let beatsAnalyzed: Int
+    let tempoBPM: Int
 
     var derivedScore: Int {
         let weighted = (Double(intonationScore) * 0.5) + (Double(rhythmScore) * 0.35) + (Double(consistencyScore) * 0.15)
@@ -529,6 +1092,8 @@ struct DuelChallenge: Identifiable, Equatable {
     let objective: String
     let scaleName: String?
     let octaveCount: Int
+    let requiredLeague: String?
+    let requiredMinTempoBPM: Int
     let creatorAccepted: Bool
     let opponentAccepted: Bool
     let opponentRequestedOctaves: Int?
@@ -584,6 +1149,7 @@ final class DuelLeagueManager: ObservableObject {
     @Published var statusMessage: String?
 
     var leagueTier: DuelLeagueTier { DuelLeagueTier.forRating(duelRating) }
+    var activeLeagueRequirement: DuelLeagueRequirement { leagueTier.requirement }
 
     private var db: Firestore { Firestore.firestore() }
     private var listeners: [ListenerRegistration] = []
@@ -648,6 +1214,9 @@ final class DuelLeagueManager: ObservableObject {
 
     func queueAsyncScaleDuel(octaves: DuelOctaveCount = .one) async {
         guard let uid = configuredUID else { return }
+        let required = activeLeagueRequirement
+        let requestedOctaves = max(octaves.rawValue, required.octaves.rawValue)
+        let normalizedOctaves = DuelOctaveCount(rawValue: requestedOctaves) ?? required.octaves
         if myOpenChallenge != nil {
             statusMessage = "You already have an open duel request."
             return
@@ -663,12 +1232,19 @@ final class DuelLeagueManager: ObservableObject {
         do {
             let response = try await callDuelEndpoint(
                 name: "duelQueueJoin",
-                body: ["octaves": octaves.rawValue]
+                body: ["octaves": normalizedOctaves.rawValue]
             )
             let status = (response["status"] as? String) ?? ""
             let challengeID = (response["challengeId"] as? String) ?? UUID().uuidString
+            let serverOctaves = DuelOctaveCount(rawValue: (response["octaves"] as? Int) ?? normalizedOctaves.rawValue) ?? normalizedOctaves
+            let requirementSummary = required.summary
             switch status {
             case "already_queued", "queued":
+                DuelQuestTelemetryStore.shared.record(
+                    .queueJoined,
+                    on: telemetryDayKey(for: Date()),
+                    weekKey: telemetryWeekKey(for: Date())
+                )
                 myOpenChallenge = DuelChallenge(
                     id: challengeID,
                     createdByUID: uid,
@@ -676,9 +1252,11 @@ final class DuelLeagueManager: ObservableObject {
                     participants: [uid],
                     status: .open,
                     queueType: .open,
-                    objective: "Queued • \(octaves.title)",
+                    objective: "Queued • \(serverOctaves.title)",
                     scaleName: nil,
-                    octaveCount: octaves.rawValue,
+                    octaveCount: serverOctaves.rawValue,
+                    requiredLeague: required.league.rawValue,
+                    requiredMinTempoBPM: required.minimumTempoBPM,
                     creatorAccepted: true,
                     opponentAccepted: false,
                     opponentRequestedOctaves: nil,
@@ -693,7 +1271,7 @@ final class DuelLeagueManager: ObservableObject {
                     creatorRatingDelta: 0,
                     opponentRatingDelta: 0
                 )
-                statusMessage = "Queued for \(octaves.title). Waiting for another player."
+                statusMessage = "Queued for \(requirementSummary). Waiting for another player."
             case "matched_pending_accept":
                 myOpenChallenge = nil
                 statusMessage = "Match found. Waiting for acceptance."
@@ -734,6 +1312,9 @@ final class DuelLeagueManager: ObservableObject {
 
     func inviteTargetedDuel(targetUID: String, source: DuelInviteSource, octaves: DuelOctaveCount = .one) async {
         guard let uid = configuredUID, uid != targetUID else { return }
+        let required = activeLeagueRequirement
+        let requestedOctaves = max(octaves.rawValue, required.octaves.rawValue)
+        let normalizedOctaves = DuelOctaveCount(rawValue: requestedOctaves) ?? required.octaves
         if activeChallenges.contains(where: { $0.myScore(for: uid) == nil }) {
             statusMessage = "Finish your active duel before sending a new invitation."
             return
@@ -753,10 +1334,15 @@ final class DuelLeagueManager: ObservableObject {
                 body: [
                     "targetUID": targetUID,
                     "source": source.rawValue,
-                    "octaves": octaves.rawValue
+                    "octaves": normalizedOctaves.rawValue
                 ]
             )
-            statusMessage = "\(source.title) duel invitation sent (\(octaves.title))."
+            DuelQuestTelemetryStore.shared.record(
+                .inviteSent,
+                on: telemetryDayKey(for: Date()),
+                weekKey: telemetryWeekKey(for: Date())
+            )
+            statusMessage = "\(source.title) duel invitation sent (\(required.summary))."
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -799,6 +1385,11 @@ final class DuelLeagueManager: ObservableObject {
                 body: ["challengeId": challengeID, "accept": true]
             )
             let status = (result["status"] as? String) ?? ""
+            DuelQuestTelemetryStore.shared.record(
+                .acceptEntered,
+                on: telemetryDayKey(for: Date()),
+                weekKey: telemetryWeekKey(for: Date())
+            )
             statusMessage = status == "activated" ? "Duel accepted. Match started." : "Duel accepted."
         } catch {
             statusMessage = error.localizedDescription
@@ -819,7 +1410,7 @@ final class DuelLeagueManager: ObservableObject {
         }
     }
 
-    func submitDerivedAttempt(challengeID: String, metrics: DuelDerivedMetrics) async {
+    func submitDerivedAttempt(challengeID: String, metrics: DuelDerivedMetrics, requiredMinTempoBPM: Int = 0) async {
         guard configuredUID != nil else { return }
         guard metrics.noteCount > 0, metrics.beatsAnalyzed > 0 else {
             statusMessage = "Metrics are incomplete."
@@ -836,10 +1427,31 @@ final class DuelLeagueManager: ObservableObject {
                         "rhythmScore": metrics.rhythmScore,
                         "consistencyScore": metrics.consistencyScore,
                         "noteCount": metrics.noteCount,
-                        "beatsAnalyzed": metrics.beatsAnalyzed
+                        "beatsAnalyzed": metrics.beatsAnalyzed,
+                        "tempoBPM": metrics.tempoBPM
                     ]
                 ]
             )
+            let now = Date()
+            DuelQuestTelemetryStore.shared.record(
+                .takeSubmitted,
+                on: telemetryDayKey(for: now),
+                weekKey: telemetryWeekKey(for: now)
+            )
+            if metrics.derivedScore >= 80 {
+                DuelQuestTelemetryStore.shared.record(
+                    .highScoreSubmission,
+                    on: telemetryDayKey(for: now),
+                    weekKey: telemetryWeekKey(for: now)
+                )
+            }
+            if requiredMinTempoBPM > 0 && metrics.tempoBPM >= requiredMinTempoBPM {
+                DuelQuestTelemetryStore.shared.record(
+                    .tempoQualifiedSubmission,
+                    on: telemetryDayKey(for: now),
+                    weekKey: telemetryWeekKey(for: now)
+                )
+            }
             statusMessage = "Attempt submitted."
         } catch {
             statusMessage = error.localizedDescription
@@ -1235,6 +1847,23 @@ final class DuelLeagueManager: ObservableObject {
         return "\(year)-W\(week)"
     }
 
+    private func telemetryDayKey(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func telemetryWeekKey(for date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let year = calendar.component(.yearForWeekOfYear, from: date)
+        let week = calendar.component(.weekOfYear, from: date)
+        return "\(year)-W\(week)"
+    }
+
     private func parseChallenge(_ doc: DocumentSnapshot) -> DuelChallenge? {
         guard let data = doc.data(),
               let createdByUID = data["createdByUid"] as? String,
@@ -1262,6 +1891,8 @@ final class DuelLeagueManager: ObservableObject {
             objective: (data["objective"] as? String) ?? "Random scale challenge",
             scaleName: data["scaleName"] as? String,
             octaveCount: min(max((data["octaveCount"] as? Int) ?? 1, 1), 3),
+            requiredLeague: data["requiredLeague"] as? String,
+            requiredMinTempoBPM: max(0, (data["requiredMinTempoBPM"] as? Int) ?? 0),
             creatorAccepted: (data["creatorAccepted"] as? Bool) ?? true,
             opponentAccepted: (data["opponentAccepted"] as? Bool) ?? false,
             opponentRequestedOctaves: data["opponentRequestedOctaves"] as? Int,

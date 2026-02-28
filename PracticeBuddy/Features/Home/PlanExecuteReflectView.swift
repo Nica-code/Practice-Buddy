@@ -637,7 +637,7 @@ private struct PracticeToolsQuickPanelView: View {
                 HStack(spacing: 10) {
                     Button("Start") {
                         metronome.setBPM(bpm)
-                        metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: .click)
+                        metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
                     }
                     .buttonStyle(.borderedProminent)
                     Button("Stop") {
