@@ -79,6 +79,13 @@ struct HomeView: View {
         var id: String { rawValue }
     }
 
+    private enum HomeNavigationTarget: String, Identifiable {
+        case studioManagerTeacher
+        case studioPlanner
+
+        var id: String { rawValue }
+    }
+
     private enum CheckInIntervalPreset: String, CaseIterable, Identifiable {
         case focused
         case standard
@@ -185,6 +192,7 @@ struct HomeView: View {
     @State private var showShopSheet = false
     @State private var showVerificationInfoSheet = false
     @State private var showGoalReachedBanner = false
+    @State private var homeNavigationTarget: HomeNavigationTarget?
 
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
@@ -389,13 +397,21 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .pbModernCard(palette: palette)
+                .pbFlatCard(palette: palette)
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
                 .onTapGesture {
                     selectedHomeArea = .dashboard
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .navigationDestination(item: $homeNavigationTarget) { target in
+            switch target {
+            case .studioManagerTeacher:
+                PBLazyView(StudioManagerView(entryMode: .teacher))
+            case .studioPlanner:
+                PBLazyView(StudioPlannerView())
             }
         }
     }
@@ -431,6 +447,7 @@ struct HomeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .animation(.snappy(duration: 0.28, extraBounce: 0.03), value: selectedHomeArea)
         }
@@ -1078,7 +1095,7 @@ struct HomeView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .pbModernCard(palette: palette)
+        .pbFlatCard(palette: palette)
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 4)
@@ -1151,526 +1168,600 @@ struct HomeView: View {
         return events
     }
 
+    private func homeSectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: 0,
+                bottom: 4,
+                trailing: 0
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
     private var sessionControlSection: some View {
-        Section("Practice Timer") {
-            HStack(alignment: .center, spacing: 12) {
-                Text(DurationFormatter.string(from: currentElapsedSeconds))
-                    .font(type.timer)
-                    .monospacedDigit()
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Button(primaryButtonTitle) {
-                    hapticSoftTap()
-                    toggleStartPauseOrStart()
-                }
-                .font(type.button)
-                .buttonStyle(.borderedProminent)
-                Button("Stop") {
-                    hapticSoftTap()
-                    stopTapped()
-                }
-                .font(type.button)
-                .buttonStyle(.bordered)
-                .disabled(!canStop)
-            }
-
-            HStack(spacing: 10) {
-                Toggle(isOn: $verifiedModeEnabled) {
-                    Text("Verified Mode")
-                        .font(type.footnote)
+        Section {
+            homeSectionCard {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(DurationFormatter.string(from: currentElapsedSeconds))
+                        .font(type.timer)
+                        .monospacedDigit()
                         .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Button(primaryButtonTitle) {
+                        hapticSoftTap()
+                        toggleStartPauseOrStart()
+                    }
+                    .font(type.button)
+                    .buttonStyle(.borderedProminent)
+                    Button("Stop") {
+                        hapticSoftTap()
+                        stopTapped()
+                    }
+                    .font(type.button)
+                    .buttonStyle(.bordered)
+                    .disabled(!canStop)
                 }
-                .toggleStyle(.switch)
-                Button {
-                    showVerificationInfoSheet = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-            }
 
-            HStack {
-                Text("Verified")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                Spacer()
-                Text(DurationFormatter.string(from: effectiveVerifiedSeconds))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Unverified")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                Spacer()
-                Text(DurationFormatter.string(from: effectiveUnverifiedSeconds))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            if verificationEnabledForSession {
-                Text("Includes: Screen Time blocking, random check-ins (30–50 min), and lock-screen alerts.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-
-            if verificationEnabledForSession {
                 HStack(spacing: 10) {
-                    Button("Select Apps") {
-                        showAppSelectionPicker = true
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!appShield.isAvailable)
-                    Button("Authorize") {
-                        Task { await appShield.requestAuthorization() }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!appShield.isAvailable)
-                }
-                Text(LocalizedStringKey(appShield.statusLine))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            if verificationEnabledForSession && !verificationMechanismActive {
-                Text("Verification inactive")
-                    .font(type.footnote)
-                    .foregroundStyle(.orange)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var practiceTimeSection: some View {
-        Section("Practice Time") {
-            HStack(spacing: 10) {
-                compactTimeStat(title: "Today", seconds: store.totalTodaySeconds)
-                compactTimeStat(title: "Week", seconds: store.totalThisWeekSeconds)
-                compactTimeStat(title: "Month", seconds: store.totalThisMonthSeconds)
-            }
-            .padding(.vertical, 2)
-
-            ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
-                Label("Share Practice Time", systemImage: "square.and.arrow.up")
-                    .font(type.body)
-                    .foregroundStyle(palette.accent)
-            }
-            .buttonStyle(.bordered)
-            .tint(palette.accent)
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var goalSection: some View {
-        Section("Goal") {
-            Picker("Period", selection: goalScope) {
-                ForEach(GoalScope.allCases) { scope in
-                    Text(LocalizedStringKey(scope.title)).tag(scope)
-                }
-            }
-            .pickerStyle(.menu)
-
-            if goalMinutes == 0 {
-                Text("Goal is off. Turn it on in Settings.")
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        let scopeTitleKey =
-                            (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today ? "Today" :
-                            (GoalScope(rawValue: goalScopeRaw) ?? .today) == .week ? "This week" : "This month"
-                        Text(LocalizedStringKey(scopeTitleKey))
+                    Toggle(isOn: $verifiedModeEnabled) {
+                        Text("Verified Mode")
+                            .font(type.footnote)
                             .foregroundStyle(palette.textPrimary)
+                    }
+                    .toggleStyle(.switch)
+                    Button {
+                        showVerificationInfoSheet = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
 
+                if verificationEnabledForSession {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(verificationMechanismActive ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(verificationMechanismActive ? "Verification active" : "Verification inactive")
+                            .font(type.footnote)
+                            .foregroundStyle(verificationMechanismActive ? Color.green : Color.orange)
+                    }
+                }
+
+                DisclosureGroup {
+                    HStack {
+                        Text("Verified")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
                         Spacer()
-
-                        Text(L10n.f("%@ / %@ min", DurationFormatter.string(from: scopedSeconds), "\(goalMinutes)"))
-                            .font(type.number)
+                        Text(DurationFormatter.string(from: effectiveVerifiedSeconds))
+                            .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
                             .monospacedDigit()
                     }
 
-                    ProgressView(value: goalProgress)
+                    HStack {
+                        Text("Unverified")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Spacer()
+                        Text(DurationFormatter.string(from: effectiveUnverifiedSeconds))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
+                    }
 
-                    if (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today {
+                    if verificationEnabledForSession {
+                        HStack(spacing: 10) {
+                            Button("Select Apps") {
+                                PBHaptics.tap()
+                                showAppSelectionPicker = true
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appShield.isAvailable)
+                            Button("Authorize") {
+                                PBHaptics.tap()
+                                Task { await appShield.requestAuthorization() }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!appShield.isAvailable)
+                        }
+
+                        Text(LocalizedStringKey(appShield.statusLine))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                } label: {
+                    Text("Verification details")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textPrimary)
+                }
+            }
+        }
+        header: {
+            PBSectionHeaderLabel(title: "Practice Timer")
+        }
+    }
+
+    private var practiceTimeSection: some View {
+        Section {
+            homeSectionCard {
+                HStack(spacing: 10) {
+                    compactTimeStat(title: "Today", seconds: store.totalTodaySeconds)
+                    compactTimeStat(title: "Week", seconds: store.totalThisWeekSeconds)
+                    compactTimeStat(title: "Month", seconds: store.totalThisMonthSeconds)
+                }
+                .padding(.vertical, 2)
+
+                ShareLink(item: social.shareText(for: sharePeriodForCurrentMode)) {
+                    Label("Share Practice Time", systemImage: "square.and.arrow.up")
+                        .font(type.body)
+                        .foregroundStyle(palette.accent)
+                }
+                .buttonStyle(.bordered)
+                .tint(palette.accent)
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Practice Time")
+        }
+    }
+
+    private var goalSection: some View {
+        Section {
+            homeSectionCard {
+                Picker("Period", selection: goalScope) {
+                    ForEach(GoalScope.allCases) { scope in
+                        Text(LocalizedStringKey(scope.title)).tag(scope)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if goalMinutes == 0 {
+                    Text("Goal is off. Turn it on in Settings.")
+                        .foregroundStyle(palette.textSecondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("Streak")
+                            let scopeTitleKey =
+                                (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today ? "Today" :
+                                (GoalScope(rawValue: goalScopeRaw) ?? .today) == .week ? "This week" : "This month"
+                            Text(LocalizedStringKey(scopeTitleKey))
                                 .foregroundStyle(palette.textPrimary)
+
                             Spacer()
-                            Text(
-                                L10n.f(
-                                    streakDays == 1 ? "%@ day" : "%@ days",
-                                    "\(streakDays)"
-                                )
-                            )
+
+                            Text(L10n.f("%@ / %@ min", DurationFormatter.string(from: scopedSeconds), "\(goalMinutes)"))
                                 .font(type.number)
                                 .foregroundStyle(palette.textSecondary)
                                 .monospacedDigit()
                         }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
 
-    private var recentHistorySection: some View {
-        Section("Recent History") {
-            if store.sessions.isEmpty {
-                Text("No sessions yet.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(Array(store.sessions.prefix(5)), id: \.id) { session in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(session.date, format: .dateTime.month(.abbreviated).day().hour().minute())
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                                Text(DurationFormatter.string(from: max(0, session.durationSeconds)))
-                                    .font(type.number)
+                        ProgressView(value: goalProgress)
+
+                        if (GoalScope(rawValue: goalScopeRaw) ?? .today) == .today {
+                            HStack {
+                                Text("Streak")
                                     .foregroundStyle(palette.textPrimary)
-                                    .monospacedDigit()
-                                let xp = max(0, (session.hasVerificationData ? session.verifiedSeconds : session.durationSeconds) / 60)
-                                Text(L10n.f("+%@ XP", "\(xp)"))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.accent)
-                            }
-                            .frame(width: 170, alignment: .leading)
-                            .padding(10)
-                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-
-            NavigationLink {
-                PBLazyView(HistoryView())
-            } label: {
-                Text("View Full History")
-                    .font(type.body)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var practiceToolsSection: some View {
-        Section("Practice Tools") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    Button {
-                        activePracticeToolSheet = .metronome
-                    } label: {
-                        practiceToolCard(
-                            title: "Metronome",
-                            subtitle: L10n.f("%@ BPM • %@", "\(metronomeBPM)", metronome.isRunning ? "Running" : "Tap to start"),
-                            icon: "metronome"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        activePracticeToolSheet = .tuner
-                    } label: {
-                        practiceToolCard(
-                            title: "Tuner",
-                            subtitle: L10n.f(
-                                "A=%@ • %@",
-                                "\(tunerReferenceHz)",
-                                tuner.isListening ? "Listening" : "Tap to tune"
-                            ),
-                            icon: "tuningfork"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var teacherToolsSection: some View {
-        Section("Teacher Tools") {
-            if purchaseManager.isPro {
-                VStack(alignment: .leading, spacing: 10) {
-                    NavigationLink {
-                        PBLazyView(StudioManagerView(entryMode: .teacher))
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Studio Manager")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Create your studio, manage roster, and publish assignments.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-
-                    NavigationLink {
-                        PBLazyView(StudioPlannerView())
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Studio Planner")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Plan lessons, studio class, and recital events with calendar sync.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Teacher tools are part of Practice Buddy Pro.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Open Practice Buddy Pro") {
-                        selectedTab = 4
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.footnote)
-                }
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var studentToolsSection: some View {
-        Section("Student Tools") {
-            if purchaseManager.isPro {
-                NavigationLink {
-                    PBLazyView(StudioManagerView(entryMode: .student))
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Your Studio")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("Join your teacher's studio, review roster, and track assignment progress.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Student studio tools are part of Practice Buddy Pro.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Open Practice Buddy Pro") {
-                        selectedTab = 4
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.footnote)
-                }
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var studioToolsOffSection: some View {
-        Section("Studio") {
-            Text("No studio tools are enabled. Update Tool Access in Settings.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var practiceLabSection: some View {
-        Section("Practice Lab") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    NavigationLink {
-                        PBLazyView(PlanExecuteReflectView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Plan → Execute → Reflect",
-                            subtitle: "Build goals, run timed blocks, and save reflection notes.",
-                            icon: "list.bullet.clipboard"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        PBLazyView(WarmUpGeneratorView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Warm-up Generator",
-                            subtitle: "Create a warm-up plan.",
-                            icon: "figure.run"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        PBLazyView(ScaleIntonationView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Scale Intonation Score",
-                            subtitle: "Play scales and get note-by-note pitch feedback.",
-                            icon: "tuningfork"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    NavigationLink {
-                        PBLazyView(RunThroughModeView())
-                    } label: {
-                        practiceLabCard(
-                            title: "Run-through Mode",
-                            subtitle: "Record one-take performances with quick self-review.",
-                            icon: "record.circle"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var warmupOfWeekSection: some View {
-        Section("Warm-up of the Week") {
-            if let warmup = warmupOfWeekManager.warmup {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(warmup.title)
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    NavigationLink {
-                        PBLazyView(WarmUpGeneratorView())
-                    } label: {
-                        Text("Open Warm-up Generator")
-                            .font(type.footnote)
-                    }
-                }
-            } else {
-                Text("No studio warm-up published.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var linkedAssignmentsSection: some View {
-        Section("Today’s Assignments") {
-            if assignmentLinkManager.todayAssignments.isEmpty {
-                Text("No assignments due today.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                ForEach(assignmentLinkManager.todayAssignments) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(item.title)
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Spacer()
-                            Button {
-                                Task {
-                                    await assignmentLinkManager.markAssignmentCompletion(item.id, completed: !item.completed)
-                                }
-                            } label: {
-                                Image(systemName: item.completed ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(item.completed ? palette.accent : palette.textSecondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        HStack(spacing: 10) {
-                            Button(assignmentLinkManager.isAssignmentLinked(item.id) ? "Unlink" : "Link") {
-                                assignmentLinkManager.linkAssignment(
-                                    assignmentLinkManager.isAssignmentLinked(item.id) ? nil : item.id
+                                Spacer()
+                                Text(
+                                    L10n.f(
+                                        streakDays == 1 ? "%@ day" : "%@ days",
+                                        "\(streakDays)"
+                                    )
                                 )
-                            }
-                            .buttonStyle(.bordered)
-                            .font(type.footnote)
-
-                            if assignmentLinkManager.isAssignmentLinked(item.id) {
-                                NavigationLink {
-                                    PBLazyView(PlanExecuteReflectView())
-                                } label: {
-                                    Text("Start Linked Plan")
-                                        .font(type.footnote)
-                                }
-
-                                NavigationLink {
-                                    PBLazyView(RunThroughModeView())
-                                } label: {
-                                    Text("Start Linked Run-through")
-                                        .font(type.footnote)
-                                }
+                                    .font(type.number)
+                                    .foregroundStyle(palette.textSecondary)
+                                    .monospacedDigit()
                             }
                         }
                     }
                     .padding(.vertical, 4)
                 }
             }
+        } header: {
+            PBSectionHeaderLabel(title: "Goal")
+        }
+    }
 
-            if let msg = assignmentLinkManager.statusMessage, !msg.isEmpty {
-                Text(LocalizedStringKey(msg))
+    private var recentHistorySection: some View {
+        Section {
+            homeSectionCard {
+                if store.sessions.isEmpty {
+                    Text("No sessions yet.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(Array(store.sessions.prefix(5)), id: \.id) { session in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(session.date, format: .dateTime.month(.abbreviated).day().hour().minute())
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.textSecondary)
+                                    Text(DurationFormatter.string(from: max(0, session.durationSeconds)))
+                                        .font(type.number)
+                                        .foregroundStyle(palette.textPrimary)
+                                        .monospacedDigit()
+                                    let xp = max(0, (session.hasVerificationData ? session.verifiedSeconds : session.durationSeconds) / 60)
+                                    Text(L10n.f("+%@ XP", "\(xp)"))
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.accent)
+                                }
+                                .frame(width: 170, alignment: .leading)
+                                .padding(10)
+                                .pbSurfaceCard(palette: palette, cornerRadius: 12)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
+                NavigationLink {
+                    PBLazyView(HistoryView())
+                } label: {
+                    Text("View Full History")
+                        .font(type.body)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Recent History")
+        }
+    }
+
+    private var practiceToolsSection: some View {
+        Section {
+            homeSectionCard {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        Button {
+                            activePracticeToolSheet = .metronome
+                        } label: {
+                            practiceToolCard(
+                                title: "Metronome",
+                                subtitle: L10n.f("%@ BPM • %@", "\(metronomeBPM)", metronome.isRunning ? "Running" : "Tap to start"),
+                                icon: "metronome"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            activePracticeToolSheet = .tuner
+                        } label: {
+                            practiceToolCard(
+                                title: "Tuner",
+                                subtitle: L10n.f(
+                                    "A=%@ • %@",
+                                    "\(tunerReferenceHz)",
+                                    tuner.isListening ? "Listening" : "Tap to tune"
+                                ),
+                                icon: "tuningfork"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Practice Tools")
+        }
+    }
+
+    private var teacherToolsSection: some View {
+        Section {
+            homeSectionCard {
+                if purchaseManager.isPro {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button {
+                            homeNavigationTarget = .studioManagerTeacher
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Studio Manager")
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text("Create your studio, manage roster, and publish assignments.")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            homeNavigationTarget = .studioPlanner
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Studio Planner")
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text("Plan lessons, studio class, and recital events with calendar sync.")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Teacher tools are part of Practice Buddy Pro.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Button("Open Practice Buddy Pro") {
+                            selectedTab = 4
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                    }
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Teacher Tools")
+        }
+    }
+
+    private var studentToolsSection: some View {
+        Section {
+            homeSectionCard {
+                if purchaseManager.isPro {
+                    NavigationLink {
+                        PBLazyView(StudioManagerView(entryMode: .student))
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your Studio")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Join your teacher's studio, review roster, and track assignment progress.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Student studio tools are part of Practice Buddy Pro.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        Button("Open Practice Buddy Pro") {
+                            selectedTab = 4
+                        }
+                        .buttonStyle(.bordered)
+                        .font(type.footnote)
+                    }
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Student Tools")
+        }
+    }
+
+    private var studioToolsOffSection: some View {
+        Section {
+            homeSectionCard {
+                Text("No studio tools are enabled. Update Tool Access in Settings.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
+        } header: {
+            PBSectionHeaderLabel(title: "Studio")
         }
-        .listRowBackground(palette.surface)
+    }
+
+    private var practiceLabSection: some View {
+        Section {
+            homeSectionCard {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        NavigationLink {
+                            PBLazyView(PlanExecuteReflectView())
+                        } label: {
+                            practiceLabCard(
+                                title: "Plan → Execute → Reflect",
+                                subtitle: "Build goals, run timed blocks, and save reflection notes.",
+                                icon: "list.bullet.clipboard"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            PBLazyView(WarmUpGeneratorView())
+                        } label: {
+                            practiceLabCard(
+                                title: "Warm-up Generator",
+                                subtitle: "Create a warm-up plan.",
+                                icon: "figure.run"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            PBLazyView(ScaleIntonationView())
+                        } label: {
+                            practiceLabCard(
+                                title: "Scale Intonation Score",
+                                subtitle: "Play scales and get note-by-note pitch feedback.",
+                                icon: "tuningfork"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            PBLazyView(RunThroughModeView())
+                        } label: {
+                            practiceLabCard(
+                                title: "Run-through Mode",
+                                subtitle: "Record one-take performances with quick self-review.",
+                                icon: "record.circle"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Practice Lab")
+        }
+    }
+
+    private var warmupOfWeekSection: some View {
+        Section {
+            homeSectionCard {
+                if let warmup = warmupOfWeekManager.warmup {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(warmup.title)
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        NavigationLink {
+                            PBLazyView(WarmUpGeneratorView())
+                        } label: {
+                            Text("Open Warm-up Generator")
+                                .font(type.footnote)
+                        }
+                    }
+                } else {
+                    Text("No studio warm-up published.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Warm-up of the Week")
+        }
+    }
+
+    private var linkedAssignmentsSection: some View {
+        Section {
+            homeSectionCard {
+                if assignmentLinkManager.todayAssignments.isEmpty {
+                    Text("No assignments due today.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                } else {
+                    ForEach(Array(assignmentLinkManager.todayAssignments.enumerated()), id: \.element.id) { idx, item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(item.title)
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Spacer()
+                                Button {
+                                    Task {
+                                        await assignmentLinkManager.markAssignmentCompletion(item.id, completed: !item.completed)
+                                    }
+                                } label: {
+                                    Image(systemName: item.completed ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(item.completed ? palette.accent : palette.textSecondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            HStack(spacing: 10) {
+                                Button(assignmentLinkManager.isAssignmentLinked(item.id) ? "Unlink" : "Link") {
+                                    assignmentLinkManager.linkAssignment(
+                                        assignmentLinkManager.isAssignmentLinked(item.id) ? nil : item.id
+                                    )
+                                }
+                                .buttonStyle(.bordered)
+                                .font(type.footnote)
+
+                                if assignmentLinkManager.isAssignmentLinked(item.id) {
+                                    NavigationLink {
+                                        PBLazyView(PlanExecuteReflectView())
+                                    } label: {
+                                        Text("Start Linked Plan")
+                                            .font(type.footnote)
+                                    }
+
+                                    NavigationLink {
+                                        PBLazyView(RunThroughModeView())
+                                    } label: {
+                                        Text("Start Linked Run-through")
+                                            .font(type.footnote)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        if idx < assignmentLinkManager.todayAssignments.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+
+                if let msg = assignmentLinkManager.statusMessage, !msg.isEmpty {
+                    Text(LocalizedStringKey(msg))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Today’s Assignments")
+        }
     }
 
     @ViewBuilder
     private var templatesSection: some View {
-        Section("Session Templates") {
-            if purchaseManager.isPro {
-                ForEach($editableTemplates) { $template in
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("Template name", text: $template.name)
-                            .font(type.body)
+        Section {
+            homeSectionCard {
+                if purchaseManager.isPro {
+                    ForEach(Array($editableTemplates.enumerated()), id: \.element.id) { idx, $template in
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("Template name", text: $template.name)
+                                .font(type.body)
 
-                        VStack(spacing: 8) {
-                            stepperMinutes("Warm-up", value: $template.warmupMinutes)
-                            stepperMinutes("Technique", value: $template.techniqueMinutes)
-                            stepperMinutes("Repertoire", value: $template.repertoireMinutes)
-                        }
-
-                        HStack {
-                            Spacer()
-                            Button("Start") {
-                                hapticSoftTap()
-                                applyTemplate(template.asPracticeTemplate)
+                            VStack(spacing: 8) {
+                                stepperMinutes("Warm-up", value: $template.warmupMinutes)
+                                stepperMinutes("Technique", value: $template.techniqueMinutes)
+                                stepperMinutes("Repertoire", value: $template.repertoireMinutes)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .font(type.button)
+
+                            HStack {
+                                Spacer()
+                                Button("Start") {
+                                    hapticSoftTap()
+                                    applyTemplate(template.asPracticeTemplate)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .font(type.button)
+                            }
                         }
+                        .padding(.vertical, 4)
+                        if idx < editableTemplates.count - 1 {
+                            Divider()
+                        }
+                    }
+                    .onChange(of: editableTemplates) { _, _ in
+                        persistEditableTemplates()
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Template-based planning is a Pro feature.")
+                            .font(type.body)
+                            .foregroundStyle(palette.textSecondary)
+                        Button("Unlock Pro") {
+                            selectedTab = 4
+                        }
+                        .font(type.button)
+                        .buttonStyle(.borderedProminent)
                     }
                     .padding(.vertical, 4)
                 }
-                .onChange(of: editableTemplates) { _, _ in
-                    persistEditableTemplates()
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Template-based planning is a Pro feature.")
-                        .font(type.body)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Unlock Pro") {
-                        selectedTab = 4
-                    }
-                    .font(type.button)
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(.vertical, 4)
             }
+        } header: {
+            PBSectionHeaderLabel(title: "Session Templates")
         }
-        .listRowBackground(palette.surface)
     }
 
     private var centsLabel: String {

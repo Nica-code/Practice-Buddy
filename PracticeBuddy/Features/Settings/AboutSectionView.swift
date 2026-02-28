@@ -23,34 +23,56 @@ struct AboutSectionView: View {
     }
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    
+    private func aboutSectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: 0,
+                bottom: 4,
+                trailing: 0
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
 
     var body: some View {
         Section("About") {
-            HStack {
-                Text("Version")
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(versionString)
-                    .foregroundStyle(palette.textSecondary)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Contact Information & Feedback")
-                    .font(.headline)
-                    .foregroundStyle(palette.textPrimary)
-            }
-            .padding(.vertical, 2)
-
-            HStack(spacing: 10) {
-                pillButton(title: "Email") {
-                    openEmail()
+            aboutSectionCard {
+                HStack {
+                    Text("Version")
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(versionString)
+                        .foregroundStyle(palette.textSecondary)
                 }
 
-                pillButton(title: "Website") {
-                    openWebsite()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Contact Information & Feedback")
+                        .font(.headline)
+                        .foregroundStyle(palette.textPrimary)
                 }
+                .padding(.vertical, 2)
+
+                HStack(spacing: 10) {
+                    pillButton(title: "Email") {
+                        openEmail()
+                    }
+
+                    pillButton(title: "Website") {
+                        openWebsite()
+                    }
+                }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
         }
     }
 

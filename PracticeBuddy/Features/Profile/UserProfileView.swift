@@ -23,7 +23,26 @@ struct UserProfileView: View {
     @FocusState private var focusedField: ProfileField?
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    
+    private func profileSectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: 0,
+                bottom: 4,
+                trailing: 0
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,7 +125,7 @@ struct UserProfileView: View {
             }
         }
         .padding(PBLayout.padLG)
-        .pbModernCard(palette: palette)
+        .pbFlatCard(palette: palette)
         .padding(.horizontal, PBLayout.padSM)
         .padding(.top, 8)
         .padding(.bottom, 4)
@@ -141,109 +160,110 @@ struct UserProfileView: View {
 
     private var progressSection: some View {
         Section("Progress") {
-            HStack {
-                Text("Current level")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(L10n.f("Lv %@", "\(journey.level)"))
-                    .font(type.number)
-                    .foregroundStyle(palette.accent)
-                    .monospacedDigit()
-            }
+            profileSectionCard {
+                HStack {
+                    Text("Current level")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(L10n.f("Lv %@", "\(journey.level)"))
+                        .font(type.number)
+                        .foregroundStyle(palette.accent)
+                        .monospacedDigit()
+                }
 
-            HStack {
-                Text("XP")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(L10n.f("%@/%@", "\(journey.xpIntoLevel)", "\(journey.xpForNextLevel)"))
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
+                HStack {
+                    Text("XP")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(L10n.f("%@/%@", "\(journey.xpIntoLevel)", "\(journey.xpForNextLevel)"))
+                        .font(type.number)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
 
-            ProgressView(value: journey.xpForNextLevel == 0 ? 0 : Double(journey.xpIntoLevel) / Double(journey.xpForNextLevel))
+                ProgressView(value: journey.xpForNextLevel == 0 ? 0 : Double(journey.xpIntoLevel) / Double(journey.xpForNextLevel))
+            }
         }
-        .listRowBackground(palette.surface)
     }
 
     private var personalizeSection: some View {
         Section("Personalize") {
-            TextField("Instrument", text: $instrument)
-                .font(type.body)
-                .focused($focusedField, equals: .instrument)
+            profileSectionCard {
+                TextField("Instrument", text: $instrument)
+                    .font(type.body)
+                    .focused($focusedField, equals: .instrument)
 
-            TextField("Short bio", text: $bio, axis: .vertical)
-                .font(type.body)
-                .lineLimit(2...4)
-                .focused($focusedField, equals: .bio)
+                TextField("Short bio", text: $bio, axis: .vertical)
+                    .font(type.body)
+                    .lineLimit(2...4)
+                    .focused($focusedField, equals: .bio)
 
-            Text("Bio can be up to 160 characters.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-
-            let columns = [GridItem(.adaptive(minimum: 112), spacing: 10)]
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(PBAvatarStyle.all, id: \.id) { style in
-                    let selected = style.id == avatarID
-                    Button {
-                        avatarID = style.id
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .top) {
-                                PBAvatarView(avatarID: style.id, displayName: style.title, size: 42)
-                                Spacer()
-                                Text(style.availability.label)
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(selected ? palette.accent : palette.textSecondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background((selected ? palette.accent.opacity(0.18) : palette.surface).clipShape(Capsule()))
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(LocalizedStringKey(style.title))
-                                    .font(type.footnote.weight(.semibold))
-                                    .foregroundStyle(palette.textPrimary)
-                                Text(LocalizedStringKey(style.subtitle))
-                                    .font(.caption2)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                                .fill(selected ? palette.accent.opacity(0.16) : palette.surfaceAlt)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                                        .stroke(selected ? palette.accent.opacity(0.35) : Color.black.opacity(0.04), lineWidth: selected ? 1.5 : 1)
-                                )
-                                .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Button {
-                saveProfile()
-            } label: {
-                Text("Save Profile")
-                    .font(type.button)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
-
-            if let msg = buddiesVM.statusMessage, !msg.isEmpty {
-                Text(LocalizedStringKey(msg))
+                Text("Bio can be up to 160 characters.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
+
+                let columns = [GridItem(.adaptive(minimum: 112), spacing: 10)]
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(PBAvatarStyle.all, id: \.id) { style in
+                        let selected = style.id == avatarID
+                        Button {
+                            avatarID = style.id
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .top) {
+                                    PBAvatarView(avatarID: style.id, displayName: style.title, size: 42)
+                                    Spacer()
+                                    Text(style.availability.label)
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(selected ? palette.accent : palette.textSecondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background((selected ? palette.accent.opacity(0.18) : palette.surface).clipShape(Capsule()))
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(LocalizedStringKey(style.title))
+                                        .font(type.footnote.weight(.semibold))
+                                        .foregroundStyle(palette.textPrimary)
+                                    Text(LocalizedStringKey(style.subtitle))
+                                        .font(.caption2)
+                                        .foregroundStyle(palette.textSecondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                                    .fill(selected ? palette.accent.opacity(0.16) : palette.surfaceAlt)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                                            .stroke(selected ? palette.accent.opacity(0.35) : Color.black.opacity(0.04), lineWidth: selected ? 1.5 : 1)
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Button {
+                    saveProfile()
+                } label: {
+                    Text("Save Profile")
+                        .font(type.button)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
+
+                if let msg = buddiesVM.statusMessage, !msg.isEmpty {
+                    Text(LocalizedStringKey(msg))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
             }
         }
-        .listRowBackground(palette.surface)
     }
 
     private func saveProfile() {
@@ -270,6 +290,26 @@ struct PublicUserProfileView: View {
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    
+    private func publicProfileSectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: 0,
+                bottom: 4,
+                trailing: 0
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
 
     var body: some View {
         List {
@@ -298,103 +338,105 @@ struct PublicUserProfileView: View {
 
     private var profileSection: some View {
         Section("Public Profile") {
-            if isLoadingProfile && profile == nil {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading profile…")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            } else if let profile {
-                HStack(spacing: 10) {
-                    PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 48)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(profile.displayName)
-                            .font(type.sectionTitle)
-                            .foregroundStyle(palette.textPrimary)
-                        HStack(spacing: 8) {
-                            PBLevelBadgeView(level: profile.publicLevel)
-                            if !profile.instrument.isEmpty {
-                                Text(profile.instrument)
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
+            publicProfileSectionCard {
+                if isLoadingProfile && profile == nil {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Loading profile…")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                } else if let profile {
+                    HStack(spacing: 10) {
+                        PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 48)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(profile.displayName)
+                                .font(type.sectionTitle)
+                                .foregroundStyle(palette.textPrimary)
+                            HStack(spacing: 8) {
+                                PBLevelBadgeView(level: profile.publicLevel)
+                                if !profile.instrument.isEmpty {
+                                    Text(profile.instrument)
+                                        .font(type.footnote)
+                                        .foregroundStyle(palette.textSecondary)
+                                }
                             }
                         }
+                        Spacer()
                     }
-                    Spacer()
-                }
 
-                if !profile.bio.isEmpty {
-                    Text(profile.bio)
+                    if !profile.bio.isEmpty {
+                        Text(profile.bio)
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                } else {
+                    Text(fallbackDisplayName)
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                 }
-            } else {
-                Text(fallbackDisplayName)
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
             }
         }
-        .listRowBackground(palette.surface)
     }
 
     @ViewBuilder
     private var friendRequestSection: some View {
         Section("Friend") {
-            switch buddiesVM.relationshipState(with: userID) {
-            case .me:
-                Text("This is your profile.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-
-            case .friends:
-                Label("You are friends", systemImage: "checkmark.circle.fill")
-                    .font(type.body)
-                    .foregroundStyle(palette.accent)
-
-            case .incoming(let invite):
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("This user sent you a friend request.")
+            publicProfileSectionCard {
+                switch buddiesVM.relationshipState(with: userID) {
+                case .me:
+                    Text("This is your profile.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                    HStack {
-                        Button("Accept") {
-                            Task { await buddiesVM.acceptInvite(invite) }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(palette.accent)
 
-                        Button("Reject", role: .destructive) {
-                            Task { await buddiesVM.declineInvite(invite) }
+                case .friends:
+                    Label("You are friends", systemImage: "checkmark.circle.fill")
+                        .font(type.body)
+                        .foregroundStyle(palette.accent)
+
+                case .incoming(let invite):
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("This user sent you a friend request.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                        HStack {
+                            Button("Accept") {
+                                Task { await buddiesVM.acceptInvite(invite) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(palette.accent)
+
+                            Button("Reject", role: .destructive) {
+                                Task { await buddiesVM.declineInvite(invite) }
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
                     }
+
+                case .outgoing:
+                    Text("Friend request pending.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+
+                case .notFriends:
+                    Button {
+                        Task { await buddiesVM.sendInvite(to: userID) }
+                    } label: {
+                        Label("Add Friend", systemImage: "person.badge.plus")
+                            .font(type.button)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
                 }
 
-            case .outgoing:
-                Text("Friend request pending.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-
-            case .notFriends:
-                Button {
-                    Task { await buddiesVM.sendInvite(to: userID) }
-                } label: {
-                    Label("Add Friend", systemImage: "person.badge.plus")
-                        .font(type.button)
-                        .frame(maxWidth: .infinity)
+                if let message = buddiesVM.statusMessage, !message.isEmpty {
+                    Text(LocalizedStringKey(message))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(palette.accent)
-            }
-
-            if let message = buddiesVM.statusMessage, !message.isEmpty {
-                Text(LocalizedStringKey(message))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
             }
         }
-        .listRowBackground(palette.surface)
     }
 
     private func loadProfile() async {

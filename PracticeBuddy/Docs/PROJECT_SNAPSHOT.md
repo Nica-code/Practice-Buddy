@@ -442,7 +442,7 @@ Current V1 behavior notes:
 - Settings Notifications now include category toggles for:
   - duels, messages, goals, friend requests, studio invites, assignments, buddies
   - plus “Enable iOS Notifications” and “Open iOS Notification Settings”.
-- Added master-only in-app **Launch Prep** screen in Settings with reset/deploy checklist.
+- Removed in-app **Launch Prep** surface from Settings (master policy remains enforced in entitlement logic).
 - Firestore rules hardened for `/users/{uid}`:
   - restricted privileged fields (`entitlementTier`, `isPro`, `hasLifetimePro`, `isMasterAccount`, etc.) are no longer client-writable.
   - client now syncs only non-privileged role/tool-visibility fields.
@@ -732,7 +732,8 @@ Known Notes
 - Universal Links require Associated Domains capability + deployed AASA files on hosted domain.
 - Launch reset tooling added:
   - Firestore reset script: `scripts/firestore_launch_reset.sh`
-  - Auth user deletion remains a Firebase Console step.
+  - script now preserves configured master account(s) by email/UID while deleting test data.
+  - Auth user deletion remains a Firebase Console step (delete test users only, keep master account).
 - After chat/rules changes, deploy latest Firestore rules before device testing:
   - `firebase deploy --only firestore:rules`
 

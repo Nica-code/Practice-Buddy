@@ -16,15 +16,22 @@ Project
 - From repo root:
   - ./scripts/firestore_launch_reset.sh
 
-This deletes these collections recursively:
-- users
-- studios
-- friendships
-- invites
+By default this preserves the configured master email:
+- `nicaviolin@icloud.com`
+
+Optional environment overrides:
+- `PRESERVE_EMAILS="one@example.com,two@example.com" ./scripts/firestore_launch_reset.sh`
+- `PRESERVE_UIDS="uid1,uid2" ./scripts/firestore_launch_reset.sh`
+- `SERVICE_ACCOUNT_PATH=/absolute/path/to/service-account.json ./scripts/firestore_launch_reset.sh`
+
+Current reset behavior:
+- deletes `studios`, `friendships`, and `invites` recursively
+- deletes all `users/*` docs except preserved UIDs
+- does not delete Firebase Authentication users (manual step below)
 
 3) Delete Firebase Auth test users
 - Firebase Console -> Authentication -> Users
-- Select all test users -> Delete
+- Delete only test users and keep your master account
 
 4) Verify default launch policy (first sign in)
 After a fresh sign in, user docs should include:
@@ -72,9 +79,3 @@ Notes:
 
 Optional harden for master account
 - Add your final Firebase UID to Info.plist key PBMasterUIDs for strongest identification.
-
-In-app launch prep surface
-- Master accounts now see **Settings → Launch Prep** with:
-  - reset/deploy command checklist
-  - whitelist grant/revoke command templates
-  - reminder that entitlement fields are server-authoritative.

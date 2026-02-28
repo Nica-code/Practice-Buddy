@@ -29,7 +29,6 @@ struct StudioHubView: View {
         )
     }
 
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     var body: some View {
@@ -96,7 +95,7 @@ struct StudioHubView: View {
             .pickerStyle(.segmented)
         }
         .padding(PBLayout.padLG)
-        .pbModernCard(palette: palette)
+        .pbFlatCard(palette: palette)
         .padding(.horizontal, PBLayout.padSM)
         .padding(.top, 8)
         .padding(.bottom, 4)

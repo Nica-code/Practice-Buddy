@@ -82,6 +82,8 @@ final class PurchaseManager: ObservableObject {
     private var db: Firestore { Firestore.firestore() }
     private var userListener: ListenerRegistration?
     private var linkedUID: String?
+    private var linkedEmail: String?
+    private var isMasterOverride = false
     private var updatesTask: Task<Void, Never>?
     private var foregroundCancellable: AnyCancellable?
     private var lastSyncedUID: String?
@@ -200,9 +202,12 @@ final class PurchaseManager: ObservableObject {
         }
     }
 
-    func linkToUser(uid: String?) {
-        guard linkedUID != uid else { return }
+    func linkToUser(uid: String?, email: String? = nil) {
+        let normalizedEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard linkedUID != uid || linkedEmail != normalizedEmail else { return }
         linkedUID = uid
+        linkedEmail = normalizedEmail
+        applyMasterOverride(AppInfo.isMasterAccount(uid: uid, email: normalizedEmail))
         userListener?.remove()
         userListener = nil
 
@@ -222,15 +227,17 @@ final class PurchaseManager: ObservableObject {
                     return
                 }
 
-                let remoteLifetime = (data["hasLifetimePro"] as? Bool) ?? (data["isPro"] as? Bool)
-                if let remoteLifetime, remoteLifetime != self.hasLifetimePro {
-                    self.applyLifetimeProState(remoteLifetime)
-                }
+                if !self.isMasterOverride {
+                    let remoteLifetime = (data["hasLifetimePro"] as? Bool) ?? (data["isPro"] as? Bool)
+                    if let remoteLifetime, remoteLifetime != self.hasLifetimePro {
+                        self.applyLifetimeProState(remoteLifetime)
+                    }
 
-                if let tierRaw = data["entitlementTier"] as? String,
-                   let tier = PBEntitlementTier(rawValue: tierRaw),
-                   tier != self.entitlementTier {
-                    self.applyEntitlementTier(tier)
+                    if let tierRaw = data["entitlementTier"] as? String,
+                       let tier = PBEntitlementTier(rawValue: tierRaw),
+                       tier != self.entitlementTier {
+                        self.applyEntitlementTier(tier)
+                    }
                 }
 
                 let remoteTrialUsed = (data["trialUsed"] as? Bool) ?? self.hasUsedProTrial
@@ -261,6 +268,10 @@ final class PurchaseManager: ObservableObject {
                 if let remoteShowStudent = data["showStudentTools"] as? Bool,
                    let remoteShowTeacher = data["showTeacherTools"] as? Bool {
                     self.applyToolVisibility(showStudent: remoteShowStudent, showTeacher: remoteShowTeacher)
+                }
+
+                if self.isMasterOverride {
+                    self.enforceMasterAccessValues()
                 }
             }
         }
@@ -380,6 +391,12 @@ final class PurchaseManager: ObservableObject {
             }
         }
 
+        if isMasterOverride {
+            enforceMasterAccessValues()
+            await pushLocalStateToFirestore()
+            return
+        }
+
         applyLifetimeProState(hasProPurchase)
         if hasProPurchase && entitlementTier == .free {
             applyEntitlementTier(.pro)
@@ -425,9 +442,44 @@ final class PurchaseManager: ObservableObject {
         } else {
             newTrialActive = false
         }
-        let newPro = entitlementTier.isUnlocked || hasLifetimePro || newTrialActive
+        let newPro = isMasterOverride || entitlementTier.isUnlocked || hasLifetimePro || newTrialActive
         if isProTrialActive != newTrialActive { isProTrialActive = newTrialActive }
         if isPro != newPro { isPro = newPro }
+    }
+
+    private func applyMasterOverride(_ enabled: Bool) {
+        guard enabled != isMasterOverride else {
+            if enabled {
+                enforceMasterAccessValues()
+            }
+            return
+        }
+
+        isMasterOverride = enabled
+        if enabled {
+            enforceMasterAccessValues()
+            syncStatus = nil
+        } else {
+            let hasPurchase = ownedProductIDs.contains(Self.proProductID)
+            applyLifetimeProState(hasPurchase)
+            if entitlementTier == .allAccess {
+                applyEntitlementTier(hasPurchase ? .pro : .free)
+            }
+            recalculateProAccess()
+        }
+    }
+
+    private func enforceMasterAccessValues() {
+        applyEntitlementTier(.allAccess)
+        applyLifetimeProState(true)
+        if primaryFocus != .both {
+            applyPrimaryFocus(.both, syncLegacyAccountType: false)
+        }
+        if accountType != .teacher {
+            applyAccountType(.teacher)
+        }
+        applyToolVisibility(showStudent: true, showTeacher: true)
+        recalculateProAccess()
     }
 
     private func expiredTrialMessageIfNeeded(now: Date = Date()) -> String? {

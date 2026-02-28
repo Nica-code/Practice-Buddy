@@ -58,9 +58,6 @@ struct FriendsView: View {
                 }
             }
         }
-        .background {
-            PBBackdropView(palette: palette)
-        }
         .toolbarBackground(chrome, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
@@ -99,11 +96,7 @@ struct FriendsView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(type.footnote.weight(.semibold))
-                .foregroundStyle(theme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(0.3)
+            PBSectionHeaderLabel(title: title)
             content()
         }
     }
@@ -241,6 +234,7 @@ struct FriendsView: View {
                 .pbSurfaceCard(palette: palette)
 
             Button("Add") {
+                PBHaptics.tap()
                 let code = inviteCodeInput
                 inviteCodeInput = ""
                 Task {
@@ -271,12 +265,14 @@ struct FriendsView: View {
                         }
                         Spacer()
                         Button("Accept") {
+                            PBHaptics.tap()
                             Task { await buddiesVM.acceptInvite(invite) }
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(palette.accent)
 
                         Button("Reject", role: .destructive) {
+                            PBHaptics.tap()
                             Task { await buddiesVM.declineInvite(invite) }
                         }
                         .buttonStyle(.bordered)
@@ -310,6 +306,7 @@ struct FriendsView: View {
                             Image(systemName: "clock")
                                 .foregroundStyle(theme.textSecondary)
                             Button("Cancel", role: .destructive) {
+                                PBHaptics.tap()
                                 Task { await buddiesVM.cancelOutgoingInvite(invite) }
                             }
                             .buttonStyle(.bordered)
@@ -372,6 +369,7 @@ struct FriendsView: View {
                         }
                         Spacer()
                         Button("Visit Profile") {
+                            PBHaptics.tap()
                             profileTarget = LeaderboardActionUser(id: buddy.id, displayName: buddy.displayName)
                         }
                         .buttonStyle(.bordered)
@@ -430,12 +428,14 @@ struct FriendsView: View {
                         if expandedLeaderboardUserID == row.id {
                             HStack(spacing: 8) {
                                 Button("Go to Profile") {
+                                    PBHaptics.tap()
                                     profileTarget = LeaderboardActionUser(id: row.id, displayName: row.name)
                                     expandedLeaderboardUserID = nil
                                 }
                                 .buttonStyle(.bordered)
 
                                 Button("Duel Challenge") {
+                                    PBHaptics.tap()
                                     Task {
                                         await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: .one)
                                     }

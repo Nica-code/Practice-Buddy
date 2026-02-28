@@ -143,9 +143,19 @@ struct ContentView: View {
     @ViewBuilder
     private var rootContent: some View {
         if !firebase.isReady {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(theme.background.ignoresSafeArea())
+            VStack(spacing: 14) {
+                PBSkeletonCard(lines: 2)
+                    .padding(PBLayout.padMD)
+                    .pbModernCard(palette: theme.resolvedPalette(for: colorScheme))
+                PBSkeletonCard(lines: 3)
+                    .padding(PBLayout.padMD)
+                    .pbModernCard(palette: theme.resolvedPalette(for: colorScheme))
+                ProgressView()
+                    .padding(.top, 6)
+            }
+            .padding(PBLayout.padLG)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(PBBackdropView(palette: theme.resolvedPalette(for: colorScheme)))
         } else if needsAccountSetup {
             AccountSetupView()
         } else {
@@ -253,7 +263,7 @@ struct ContentView: View {
         lastPipelineSyncKey = syncKey
         lastPipelineSyncAt = now
 
-        purchaseManager.linkToUser(uid: linkUID)
+        purchaseManager.linkToUser(uid: linkUID, email: firebase.currentUserEmail)
 
         guard canRunRealtimePipelines else {
             assignmentLinkManager.pauseRealtime()

@@ -90,7 +90,6 @@ struct ThemePickerView: View {
                         .background(
                             Capsule()
                                 .fill(currentTheme.surfaceAlt)
-                                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -100,7 +99,6 @@ struct ThemePickerView: View {
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(currentTheme.surface)
-                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
             )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
@@ -277,7 +275,6 @@ private struct ThemePreviewSheet: View {
         .background(
             Capsule()
                 .fill(palette.surfaceAlt)
-                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
         )
     }
 }

@@ -18,10 +18,16 @@ struct SocialView: View {
     var body: some View {
         List {
             if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
+                VStack(spacing: 10) {
+                    PBSkeletonCard(lines: 2)
+                        .padding(10)
+                        .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
+                    PBSkeletonCard(lines: 2)
+                        .padding(10)
+                        .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
+                    PBSkeletonCard(lines: 2)
+                        .padding(10)
+                        .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -37,13 +43,18 @@ struct SocialView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
                         .multilineTextAlignment(.center)
+                    Button("Start New Chat") {
+                        PBHaptics.tap()
+                        showNewChatSheet = true
+                    }
+                    .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 28)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             } else {
-                Section("Conversations") {
+                Section {
                     ForEach(filteredThreads) { thread in
                         NavigationLink {
                             SocialChatThreadView(threadID: thread.id)
@@ -51,8 +62,10 @@ struct SocialView: View {
                         } label: {
                             threadRow(thread)
                         }
+                        .listRowBackground(Color.clear)
                         .swipeActions(edge: .leading, allowsFullSwipe: false) {
                             Button {
+                                PBHaptics.tap()
                                 viewModel.togglePin(threadID: thread.id)
                             } label: {
                                 Label(
@@ -64,6 +77,7 @@ struct SocialView: View {
 
                             if thread.unreadCount > 0 {
                                 Button {
+                                    PBHaptics.tap()
                                     viewModel.markThreadReadManually(thread.id)
                                 } label: {
                                     Label("Mark Read", systemImage: "checkmark.circle")
@@ -73,6 +87,7 @@ struct SocialView: View {
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button {
+                                PBHaptics.tap()
                                 viewModel.toggleMute(threadID: thread.id)
                             } label: {
                                 Label(
@@ -83,20 +98,33 @@ struct SocialView: View {
                             .tint(.gray)
 
                             Button(role: .destructive) {
+                                PBHaptics.tap()
                                 viewModel.hideThreadLocally(thread.id)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
                         }
                     }
+                } header: {
+                    PBSectionHeaderLabel(title: "Conversations")
                 }
+            }
+
+            if let status = viewModel.statusMessage, !status.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(palette.accent)
+                    Text(LocalizedStringKey(status))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
         .scrollContentBackground(.hidden)
-        .background {
-            PBBackdropView(palette: palette)
-        }
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(chrome, for: .navigationBar)
@@ -106,6 +134,7 @@ struct SocialView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    PBHaptics.tap()
                     showNewChatSheet = true
                 } label: {
                     Image(systemName: "square.and.pencil")
@@ -193,7 +222,9 @@ struct SocialView: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
     }
 
     private var newChatSheet: some View {
@@ -203,9 +234,10 @@ struct SocialView: View {
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                Section("Practice Buddies") {
+                Section {
                     ForEach(viewModel.friendCandidates) { buddy in
                         Button {
+                            PBHaptics.tap()
                             viewModel.openFriendThread(friendUID: buddy.id)
                             showNewChatSheet = false
                         } label: {
@@ -223,6 +255,8 @@ struct SocialView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                } header: {
+                    PBSectionHeaderLabel(title: "Practice Buddies")
                 }
             }
         }
@@ -338,7 +372,6 @@ private struct SocialChatThreadView: View {
             .background(
                 RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
                     .fill(isMine ? palette.accent.opacity(0.22) : palette.surface)
-                    .shadow(color: Color.black.opacity(0.05), radius: 6, x: 0, y: 2)
             )
             if !isMine { Spacer(minLength: 40) }
         }
@@ -363,6 +396,7 @@ private struct SocialChatThreadView: View {
                     .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
 
                 Button("Send") {
+                    PBHaptics.tap()
                     Task {
                         await viewModel.sendMessage()
                         isComposerFocused = false

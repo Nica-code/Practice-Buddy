@@ -50,6 +50,26 @@ struct JourneyView: View {
         return min(1.0, max(0, Double(journey.xpIntoLevel) / Double(journey.xpForNextLevel)))
     }
 
+    private func journeySectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(PBLayout.padMD)
+        .pbModernCard(palette: palette)
+        .listRowInsets(
+            EdgeInsets(
+                top: 4,
+                leading: 0,
+                bottom: 4,
+                trailing: 0
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             playShortcutRow
@@ -187,48 +207,47 @@ struct JourneyView: View {
 
     private var playFriendRequestBannerSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(visiblePlayFriendInvites) { invite in
-                    HStack(spacing: 10) {
-                        Image(systemName: "person.badge.plus")
-                            .foregroundStyle(palette.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(invite.fromDisplayName) sent a friend request")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textPrimary)
-                            Text(invite.fromFriendCode)
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                        Spacer()
-                        Button("Accept") {
-                            Task {
-                                await playBuddiesVM.acceptInvite(invite)
-                                dismissedPlayInviteIDs.insert(invite.id)
+            journeySectionCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(visiblePlayFriendInvites) { invite in
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.badge.plus")
+                                .foregroundStyle(palette.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(invite.fromDisplayName) sent a friend request")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text(invite.fromFriendCode)
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
                             }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(palette.accent)
-                        .font(type.footnote)
-                        Button("Decline", role: .destructive) {
-                            Task {
-                                await playBuddiesVM.declineInvite(invite)
-                                dismissedPlayInviteIDs.insert(invite.id)
+                            Spacer()
+                            Button("Accept") {
+                                Task {
+                                    await playBuddiesVM.acceptInvite(invite)
+                                    dismissedPlayInviteIDs.insert(invite.id)
+                                }
                             }
+                            .buttonStyle(.borderedProminent)
+                            .tint(palette.accent)
+                            .font(type.footnote)
+                            Button("Decline", role: .destructive) {
+                                Task {
+                                    await playBuddiesVM.declineInvite(invite)
+                                    dismissedPlayInviteIDs.insert(invite.id)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .font(type.footnote)
                         }
-                        .buttonStyle(.bordered)
-                        .font(type.footnote)
+                        .padding(10)
+                        .pbSurfaceCard(palette: palette)
                     }
-                    .padding(10)
-                    .pbSurfaceCard(palette: palette)
                 }
             }
         } header: {
-            Text("Pending Friend Requests")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+            PBSectionHeaderLabel(title: "Pending Friend Requests")
         }
-        .listRowBackground(palette.surface)
     }
 
     private var playShortcutRow: some View {
@@ -263,7 +282,7 @@ struct JourneyView: View {
             .pickerStyle(.segmented)
         }
         .padding(PBLayout.padLG)
-        .pbModernCard(palette: palette)
+        .pbFlatCard(palette: palette)
         .padding(.horizontal, PBLayout.padSM)
         .padding(.top, 8)
         .padding(.bottom, 4)
@@ -312,11 +331,12 @@ struct JourneyView: View {
     }
 
     private var levelSection: some View {
-        Section("Progress Level") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(L10n.f("Level %@", "\(journey.level)"))
-                        .font(type.sectionTitle)
+        Section {
+            journeySectionCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(L10n.f("Level %@", "\(journey.level)"))
+                            .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
                     Text(L10n.f("%@ XP", "\(journey.totalXP)"))
@@ -343,14 +363,16 @@ struct JourneyView: View {
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
+                }
             }
-            .padding(.vertical, 6)
+        } header: {
+            PBSectionHeaderLabel(title: "Progress Level")
         }
-        .listRowBackground(palette.surface)
     }
 
     private var duelLeagueSection: some View {
-        Section("Duels & League") {
+        Section {
+            journeySectionCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("League")
@@ -417,6 +439,7 @@ struct JourneyView: View {
             let isQueuedForOpenDuel = duelLeague.myOpenChallenge != nil
 
             Button {
+                PBHaptics.tap()
                 Task {
                     if isQueuedForOpenDuel {
                         await duelLeague.cancelOpenChallenge()
@@ -447,6 +470,7 @@ struct JourneyView: View {
                     } else {
                         ForEach(duelLeague.friendCandidates) { candidate in
                             Button(candidate.displayName) {
+                                PBHaptics.tap()
                                 Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .friend, octaves: .one) }
                             }
                         }
@@ -462,6 +486,7 @@ struct JourneyView: View {
                     } else {
                         ForEach(duelLeague.studioCandidates) { candidate in
                             Button(candidate.displayName) {
+                                PBHaptics.tap()
                                 Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .studio, octaves: .one) }
                             }
                         }
@@ -473,47 +498,55 @@ struct JourneyView: View {
             }
 
             if !duelLeague.incomingInvites.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Incoming Invites")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    ForEach(duelLeague.incomingInvites) { challenge in
-                        incomingInviteRow(challenge)
+                DisclosureGroup("Incoming Invites (\(duelLeague.incomingInvites.count))") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(duelLeague.incomingInvites) { challenge in
+                            incomingInviteRow(challenge)
+                        }
                     }
+                    .padding(.top, 6)
                 }
+                .font(type.footnote)
+                .foregroundStyle(palette.textPrimary)
             }
 
             if !duelLeague.outgoingInvites.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Outgoing Invites")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    ForEach(duelLeague.outgoingInvites) { challenge in
-                        outgoingInviteRow(challenge)
+                DisclosureGroup("Outgoing Invites (\(duelLeague.outgoingInvites.count))") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(duelLeague.outgoingInvites) { challenge in
+                            outgoingInviteRow(challenge)
+                        }
                     }
+                    .padding(.top, 6)
                 }
+                .font(type.footnote)
+                .foregroundStyle(palette.textPrimary)
             }
 
             if !duelLeague.activeChallenges.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Active Duels")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    ForEach(duelLeague.activeChallenges) { challenge in
-                        duelChallengeRow(challenge)
+                DisclosureGroup("Active Duels (\(duelLeague.activeChallenges.count))") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(duelLeague.activeChallenges) { challenge in
+                            duelChallengeRow(challenge)
+                        }
                     }
+                    .padding(.top, 6)
                 }
+                .font(type.footnote)
+                .foregroundStyle(palette.textPrimary)
             }
 
             if !duelLeague.recentCompleted.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Recent Results")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textPrimary)
-                    ForEach(duelLeague.recentCompleted.prefix(3)) { challenge in
-                        duelCompletedRow(challenge)
+                DisclosureGroup("Recent Results") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(duelLeague.recentCompleted.prefix(3)) { challenge in
+                            duelCompletedRow(challenge)
+                        }
                     }
+                    .padding(.top, 6)
                 }
+                .font(type.footnote)
+                .foregroundStyle(palette.textPrimary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -530,7 +563,14 @@ struct JourneyView: View {
                     Task { await duelLeague.refreshSeasonLeaderboard(scope: newValue) }
                 }
 
-                if duelLeague.leaderboardRows.isEmpty {
+                if duelLeague.isLoading {
+                    VStack(spacing: 8) {
+                        PBSkeletonCard(lines: 2)
+                        PBSkeletonCard(lines: 2)
+                        PBSkeletonCard(lines: 2)
+                    }
+                    .padding(.vertical, 2)
+                } else if duelLeague.leaderboardRows.isEmpty {
                     Text("No ladder data yet for this scope.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
@@ -588,12 +628,19 @@ struct JourneyView: View {
             .id(JourneyScrollTarget.seasonLadder.rawValue)
 
             if let status = duelLeague.statusMessage, !status.isEmpty {
-                Text(LocalizedStringKey(status))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(palette.accent)
+                    Text(LocalizedStringKey(status))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .padding(.top, 4)
             }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Duels & League")
         }
-        .listRowBackground(palette.surface)
     }
 
     @ViewBuilder
@@ -715,12 +762,14 @@ struct JourneyView: View {
             )
             HStack {
                 Button("Accept") {
+                    PBHaptics.tap()
                     Task { await duelLeague.acceptInvite(challengeID: challenge.id) }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(palette.accent)
 
                 Button("Decline", role: .destructive) {
+                    PBHaptics.tap()
                     Task { await duelLeague.declineInvite(challengeID: challenge.id) }
                 }
                 .buttonStyle(.bordered)
@@ -755,6 +804,7 @@ struct JourneyView: View {
             }
             HStack {
                 Button("Cancel Request", role: .destructive) {
+                    PBHaptics.tap()
                     Task { await duelLeague.cancelInvite(challengeID: challenge.id) }
                 }
                 .buttonStyle(.bordered)
@@ -941,113 +991,127 @@ struct JourneyView: View {
     }
 
     private var questsSection: some View {
-        Section("Quests") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Daily Quests")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textPrimary)
-                ForEach(journey.dailyQuests) { quest in
-                    questRow(quest, period: .daily)
+        Section {
+            journeySectionCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Daily Quests")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textPrimary)
+                    ForEach(journey.dailyQuests) { quest in
+                        questRow(quest, period: .daily)
+                    }
+                }
+
+                Divider()
+                    .overlay(palette.textSecondary.opacity(0.45))
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Weekly Quests")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textPrimary)
+                    ForEach(journey.weeklyQuests) { quest in
+                        questRow(quest, period: .weekly)
+                    }
                 }
             }
-
-            Divider()
-                .overlay(palette.textSecondary.opacity(0.45))
-                .padding(.vertical, 4)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Weekly Quests")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textPrimary)
-                ForEach(journey.weeklyQuests) { quest in
-                    questRow(quest, period: .weekly)
-                }
-            }
+        } header: {
+            PBSectionHeaderLabel(title: "Quests")
         }
-        .listRowBackground(palette.surface)
     }
 
     private var rewardsBalanceSection: some View {
-        Section("Token Balance") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Available")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(L10n.f("%@ tokens", "\(journey.tokenBalance)"))
-                        .font(type.number)
-                        .foregroundStyle(palette.accent)
-                        .monospacedDigit()
-                }
-
-                Text("Complete quests in Overview and claim rewards to build your token balance.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            .padding(.vertical, 6)
-        }
-        .listRowBackground(palette.surface)
-    }
-
-    private var rewardsCatalogSection: some View {
-        Section("Reward Catalog") {
-            ForEach(journey.rewards) { item in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(LocalizedStringKey(item.title))
+        Section {
+            journeySectionCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Available")
                             .font(type.body)
                             .foregroundStyle(palette.textPrimary)
                         Spacer()
-                        if item.isOwned {
-                            Label("Owned", systemImage: "checkmark.circle.fill")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.accent)
-                        } else {
-                            Text(L10n.f("%@ tokens", "\(item.costTokens)"))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
+                        Text(L10n.f("%@ tokens", "\(journey.tokenBalance)"))
+                            .font(type.number)
+                            .foregroundStyle(palette.accent)
+                            .monospacedDigit()
                     }
 
-                    Text(LocalizedStringKey(item.subtitle))
+                    Text("Complete quests in Overview and claim rewards to build your token balance.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
+                }
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Token Balance")
+        }
+    }
 
-                    if !item.isOwned {
-                        Button {
-                            if journey.claimRewardItem(id: item.id) {
-                                rewardsMessage = "Reward unlocked."
+    private var rewardsCatalogSection: some View {
+        Section {
+            journeySectionCard {
+                ForEach(Array(journey.rewards.enumerated()), id: \.element.id) { idx, item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(LocalizedStringKey(item.title))
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            if item.isOwned {
+                                Label("Owned", systemImage: "checkmark.circle.fill")
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.accent)
                             } else {
-                                rewardsMessage = "Not enough tokens yet."
+                                Text(L10n.f("%@ tokens", "\(item.costTokens)"))
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                                    .monospacedDigit()
                             }
-                        } label: {
-                            Text("Claim Reward")
-                                .font(type.button)
-                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(palette.accent)
+
+                        Text(LocalizedStringKey(item.subtitle))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+
+                        if !item.isOwned {
+                            Button {
+                                if journey.claimRewardItem(id: item.id) {
+                                    rewardsMessage = "Reward unlocked."
+                                } else {
+                                    rewardsMessage = "Not enough tokens yet."
+                                }
+                            } label: {
+                                Text("Claim Reward")
+                                    .font(type.button)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(palette.accent)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    if idx < journey.rewards.count - 1 {
+                        Divider()
                     }
                 }
-                .padding(.vertical, 4)
             }
+        } header: {
+            PBSectionHeaderLabel(title: "Reward Catalog")
         }
-        .listRowBackground(palette.surface)
     }
 
     private var aboutSection: some View {
-        Section("How XP Works") {
-            Text("1 verified minute = 1 XP. XP is awarded when a session is completed and saved.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+        Section {
+            journeySectionCard {
+                Text("1 verified minute = 1 XP. XP is awarded when a session is completed and saved.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
 
-            Text("Quest rewards are tokens for future rewards and cosmetics.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                Text("Quest rewards are tokens for future rewards and cosmetics.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "How XP Works")
         }
-        .listRowBackground(palette.surface)
     }
 
     @ViewBuilder
