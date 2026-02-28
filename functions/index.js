@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -17,6 +18,13 @@ const OPEN_MATCH_FALLBACK_SECONDS = 30;
 const ACCEPT_WINDOW_SECONDS = 24 * 60 * 60;
 const SUBMISSION_WINDOW_SECONDS = 24 * 60 * 60;
 const MAX_PENDING_INVITES_PER_USER = 5;
+
+const ROUTE_PLAY_DUEL = "play_duel";
+const ROUTE_SOCIAL_FRIEND_REQUESTS = "social_friend_requests";
+const ROUTE_SOCIAL_CHAT = "social_chat";
+const TYPE_DUEL = "duel";
+const TYPE_FRIEND_REQUEST = "friend_request";
+const TYPE_CHAT_MESSAGE = "chat_message";
 
 exports.duelQueueJoin = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -101,7 +109,12 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
           acceptByAt: admin.firestore.Timestamp.fromMillis(now + (ACCEPT_WINDOW_SECONDS * 1000)),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return {status: "matched_pending_accept", challengeId: ref.id, octaves: creatorOctaves};
+        return {
+          status: "matched_pending_accept",
+          challengeId: ref.id,
+          octaves: creatorOctaves,
+          notifyUid: creatorUID,
+        };
       }
 
       const ref = db.collection("duelChallenges").doc();
@@ -130,6 +143,20 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
       });
       return {status: "queued", challengeId: ref.id, octaves};
     });
+
+    if (output.status === "matched_pending_accept" && output.notifyUid) {
+      await safePushToUser(output.notifyUid, {
+        title: "Duel Match Found",
+        body: "A queued duel is ready. Accept to start.",
+        prefKey: "notificationDuels",
+        data: {
+          pb_route: ROUTE_PLAY_DUEL,
+          pb_type: TYPE_DUEL,
+          challengeId: String(output.challengeId || ""),
+        },
+        category: "pb.duel",
+      });
+    }
 
     res.status(200).json({ok: true, ...output});
   } catch (error) {
@@ -267,6 +294,18 @@ exports.duelInvite = onRequest(async (req, res) => {
       acceptByAt: admin.firestore.Timestamp.fromMillis(Date.now() + (ACCEPT_WINDOW_SECONDS * 1000)),
     });
 
+    await safePushToUser(targetUID, {
+      title: "New Duel Challenge",
+      body: "You received a duel challenge. Open Play to respond.",
+      prefKey: "notificationDuels",
+      data: {
+        pb_route: ROUTE_PLAY_DUEL,
+        pb_type: TYPE_DUEL,
+        challengeId: ref.id,
+      },
+      category: "pb.duel",
+    });
+
     res.status(200).json({ok: true, status: "invited", challengeId: ref.id});
   } catch (error) {
     logger.error("duelInvite failed", error);
@@ -348,14 +387,15 @@ exports.duelRespond = onRequest(async (req, res) => {
             submissionDeadlineAt: null,
             completedAt: null,
           });
-          return {status: "requeued_both"};
+          return {status: "requeued_both", creatorUid: createdByUid};
         }
 
         txn.update(ref, {
           status: "canceled",
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return {status: "declined"};
+        const notifyUid = participants.find((p) => p !== uid) || null;
+        return {status: "declined", notifyUid};
       }
 
       let creatorAccepted = data.creatorAccepted !== false;
@@ -387,11 +427,63 @@ exports.duelRespond = onRequest(async (req, res) => {
           objective: `${scaleName} • ${octaves} octave${octaves === 1 ? "" : "s"}`,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return {status: "activated", scaleName, octaves};
+        return {status: "activated", scaleName, octaves, notifyUids: participants};
       }
 
-      return {status: "accepted_waiting_other"};
+      const notifyUid = participants.find((p) => p !== uid) || null;
+      return {status: "accepted_waiting_other", notifyUid};
     });
+
+    if (output.status === "activated") {
+      const notifyUids = Array.isArray(output.notifyUids) ? output.notifyUids : [];
+      await Promise.all(notifyUids.map((participantUid) => safePushToUser(participantUid, {
+        title: "Duel Accepted",
+        body: "Your duel is active. Record your take when ready.",
+        prefKey: "notificationDuels",
+        data: {
+          pb_route: ROUTE_PLAY_DUEL,
+          pb_type: TYPE_DUEL,
+          challengeId,
+        },
+        category: "pb.duel",
+      })));
+    } else if (output.status === "accepted_waiting_other" && output.notifyUid) {
+      await safePushToUser(output.notifyUid, {
+        title: "Duel Response Needed",
+        body: "Your opponent accepted. Open Play to confirm the duel.",
+        prefKey: "notificationDuels",
+        data: {
+          pb_route: ROUTE_PLAY_DUEL,
+          pb_type: TYPE_DUEL,
+          challengeId,
+        },
+        category: "pb.duel",
+      });
+    } else if (output.status === "declined" && output.notifyUid) {
+      await safePushToUser(output.notifyUid, {
+        title: "Duel Declined",
+        body: "Your duel challenge was declined.",
+        prefKey: "notificationDuels",
+        data: {
+          pb_route: ROUTE_PLAY_DUEL,
+          pb_type: TYPE_DUEL,
+          challengeId,
+        },
+        category: "pb.duel",
+      });
+    } else if (output.status === "requeued_both" && output.creatorUid) {
+      await safePushToUser(output.creatorUid, {
+        title: "Queue Continuing",
+        body: "Opponent declined. You're back in queue.",
+        prefKey: "notificationDuels",
+        data: {
+          pb_route: ROUTE_PLAY_DUEL,
+          pb_type: TYPE_DUEL,
+          challengeId,
+        },
+        category: "pb.duel",
+      });
+    }
 
     res.status(200).json({ok: true, ...output});
   } catch (error) {
@@ -494,6 +586,74 @@ exports.duelSettleSweep = onSchedule(
     async () => {
       await settleExpiredGlobal();
       logger.info("duelSettleSweep completed");
+    }
+);
+
+exports.onFriendInviteCreated = onDocumentCreated("invites/{inviteId}", async (event) => {
+  try {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data() || {};
+    if (String(data.status || "").toLowerCase() !== "pending") return;
+
+    const toUid = String(data.toUid || "").trim();
+    const fromUid = String(data.fromUid || "").trim();
+    const fromDisplayName = String(data.fromDisplayName || "A PracticeBuddy user").trim();
+    if (!toUid || !fromUid || toUid === fromUid) return;
+
+    await safePushToUser(toUid, {
+      title: "New Friend Request",
+      body: `${fromDisplayName} sent you a friend request.`,
+      prefKey: "notificationFriendRequests",
+      data: {
+        pb_route: ROUTE_SOCIAL_FRIEND_REQUESTS,
+        pb_type: TYPE_FRIEND_REQUEST,
+        friendUid: fromUid,
+      },
+      category: "pb.friend_request",
+    });
+  } catch (error) {
+    logger.error("onFriendInviteCreated failed", error);
+  }
+});
+
+exports.onFriendChatMessageCreated = onDocumentCreated(
+    "friendChats/{threadId}/messages/{messageId}",
+    async (event) => {
+      try {
+        const messageSnap = event.data;
+        if (!messageSnap) return;
+        const message = messageSnap.data() || {};
+
+        const threadId = String(event.params?.threadId || "").trim();
+        const senderUid = String(message.senderUid || "").trim();
+        if (!threadId || !senderUid) return;
+
+        const threadSnap = await db.collection("friendChats").doc(threadId).get();
+        if (!threadSnap.exists) return;
+        const participants = Array.isArray(threadSnap.data()?.participants) ?
+          threadSnap.data().participants : [];
+        const recipientUid = participants.find((uid) => String(uid || "") !== senderUid);
+        if (!recipientUid) return;
+
+        const senderName = String(message.senderName || "New message").trim() || "New message";
+        const text = String(message.text || "").trim();
+        const body = text.length > 120 ? `${text.slice(0, 117)}...` : text;
+        await safePushToUser(String(recipientUid), {
+          title: senderName,
+          body: body || "You received a new message.",
+          prefKey: "notificationMessages",
+          data: {
+            pb_route: ROUTE_SOCIAL_CHAT,
+            pb_type: TYPE_CHAT_MESSAGE,
+            threadId,
+            friendUid: senderUid,
+          },
+          category: "pb.message",
+        });
+      } catch (error) {
+        logger.error("onFriendChatMessageCreated failed", error);
+      }
     }
 );
 
@@ -814,4 +974,82 @@ function clampInt(value, min, max, fallback = min) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+async function safePushToUser(uid, {title, body, prefKey, data, category}) {
+  try {
+    await pushToUser(uid, {title, body, prefKey, data, category});
+  } catch (error) {
+    logger.warn("push notification failed", {uid, error: String(error?.message || error)});
+  }
+}
+
+async function pushToUser(uid, {title, body, prefKey, data, category}) {
+  const normalizedUid = String(uid || "").trim();
+  if (!normalizedUid) return;
+
+  const userSnap = await db.collection("users").doc(normalizedUid).get();
+  if (!userSnap.exists) return;
+  const userData = userSnap.data() || {};
+  if (prefKey && userData[prefKey] === false) return;
+
+  const deviceSnap = await db.collection("users")
+      .doc(normalizedUid)
+      .collection("devices")
+      .get();
+  const tokens = deviceSnap.docs
+      .map((doc) => String(doc.data()?.token || "").trim())
+      .filter((token) => token.length > 0);
+  if (tokens.length === 0) return;
+
+  const payloadData = normalizePushData(data);
+  const response = await admin.messaging().sendEachForMulticast({
+    tokens,
+    notification: {
+      title: String(title || "PracticeBuddy"),
+      body: String(body || ""),
+    },
+    data: payloadData,
+    apns: {
+      payload: {
+        aps: {
+          sound: "default",
+          category: String(category || ""),
+        },
+      },
+    },
+  });
+  await pruneInvalidDeviceTokens(normalizedUid, tokens, response.responses);
+}
+
+function normalizePushData(data) {
+  const output = {};
+  Object.entries(data || {}).forEach(([key, value]) => {
+    if (value == null) return;
+    output[String(key)] = String(value);
+  });
+  return output;
+}
+
+async function pruneInvalidDeviceTokens(uid, tokens, responses) {
+  if (!Array.isArray(tokens) || !Array.isArray(responses)) return;
+  const staleTokens = [];
+  responses.forEach((result, index) => {
+    if (!result || !result.error) return;
+    const code = String(result.error.code || "");
+    if (code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) {
+      staleTokens.push(tokens[index]);
+    }
+  });
+  if (staleTokens.length === 0) return;
+
+  for (const token of staleTokens) {
+    const docs = await db.collection("users")
+        .doc(uid)
+        .collection("devices")
+        .where("token", "==", token)
+        .limit(5)
+        .get();
+    await Promise.all(docs.docs.map((doc) => doc.ref.delete()));
+  }
 }
