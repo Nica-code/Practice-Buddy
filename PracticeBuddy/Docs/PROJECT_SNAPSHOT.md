@@ -818,3 +818,83 @@ What Is Next
 
 35) Build/Verification
 - Latest iOS compile pass: `BUILD SUCCEEDED` after quest/inventory/reward integration.
+
+36) Component Refactor Pass (Maintainability)
+- Extracted large view/component chunks into dedicated files across Home, Journey, History, Practice, Profile, Social, Friends, and Studio.
+- Added reusable component files such as:
+  - `HomeViewComponents.swift`, `HomeViewSubcomponents.swift`
+  - `JourneyViewComponents.swift`, `JourneyDuelRecordingCaptureView.swift`
+  - `HistoryViewComponents.swift`, `PracticeViewComponents.swift`
+  - `ProfileComponents.swift`, `SocialViewComponents.swift`, `FriendsViewComponents.swift`, `StudioHubComponents.swift`
+- Updated call sites to consume shared components and removed duplicated local helper views.
+- Purpose: improve readability, reduce merge risk, and make future UI iteration faster without changing product behavior.
+
+37) Firestore Write Hardening (Race/Mismatch Guard)
+- Added auth UID guardrails before profile writes in:
+  - `FirebasePresenceManager`
+  - `PurchaseManager`
+- Writes to `users/{uid}` are now skipped when runtime auth UID does not match expected UID.
+- Added structured warning logs for UID mismatch cases to simplify diagnosis.
+- Result: previously observed intermittent `Missing or insufficient permissions` profile-write bursts were eliminated in latest device validation.
+
+38) Server-Authoritative Entitlement/Trial Sync
+- Added Cloud Function endpoint: `syncEntitlements` (Node 22, 2nd gen).
+- iOS `PurchaseManager` now performs server sync of active subscription product IDs and optional trial request.
+- Backend now authoritatively writes/returns entitlement fields:
+  - `subscriptionActive`, `subscriptionProductIDs`
+  - `entitlementTier`, `isPro`, `proSince`
+  - `trialUsed`, `trialStartedAt`, `trialEndsAt`
+- Sensitive entitlement fields remain protected by Firestore rules (client cannot self-escalate access).
+- Local fallback behavior remains for resilience when function sync is temporarily unavailable.
+
+39) Cloud Push Notification Path (Production Wiring)
+- Added Firebase Messaging integration in app target and app delegate flow.
+- Implemented full token capture/storage:
+  - APNs token registration
+  - FCM registration token
+  - token persistence under `users/{uid}/devices/{tokenHash}` with `tokenType`.
+- Added Cloud Functions:
+  - `onFriendInviteCreated`
+  - `onFriendChatMessageCreated`
+  - `pushTestNotification`
+- Server push sender now filters non-FCM/APNs-only token entries and sends only valid FCM targets.
+- Chat push payload copy is generic/privacy-preserving (no message body exposure).
+- Settings includes in-app “Send Test Push” trigger for device validation.
+- Device verification status (latest test):
+  - `APNs registration succeeded`
+  - APNs token stored
+  - FCM token stored
+
+40) iOS Capability/Runtime Notes (Current)
+- Push is now working with:
+  - Push Notifications capability
+  - Background Modes -> `remote-notification`
+- Background Modes extras (fetch/processing/location) are intentionally not enabled to avoid unnecessary power/review overhead.
+- App remains portrait-primary in current UX policy.
+
+41) Branding Name Update (Launch Identity)
+- User-facing app branding has been renamed to `PractiQuest`:
+  - iOS Home Screen display name (`CFBundleDisplayName`) updated to `PractiQuest`
+  - App Store Connect app name updated to `PractiQuest`
+- Internal technical identity is intentionally unchanged for continuity:
+  - Xcode project name remains `PracticeBuddy`
+  - repository/workspace naming remains `PracticeBuddy`
+  - bundle identifier remains `com.alexmalaimare.practicebuddy`
+- This preserves update continuity, backend bindings, and existing app listing identity while applying new public branding.
+
+41) Buddy Invite Deep-Link Loop (Viral Growth Slice)
+- Added a one-tap invite entry point in Social -> Friends -> Account:
+  - `Invite` action now sits next to `Copy` for friend code sharing.
+- Invite share payload now includes:
+  - sender friend code
+  - custom-scheme deep link: `practicebuddy://add-buddy?code=...`
+- Added app deep-link handling for buddy invites:
+  - `ContentView` now parses `add-buddy` links
+  - signed-in users auto-send a pending friend invite through existing `FirebaseBuddiesRepository` flow
+  - success state routes user to Social -> Friends pending area with confirmation alert
+  - existing sign-in-required and error alert patterns are reused
+- Added lightweight growth metrics (local counters + logs):
+  - `buddy_invite_share_clicked`
+  - `buddy_invite_auto_sent`
+- Validation:
+  - latest iOS Simulator compile pass after this feature: `BUILD SUCCEEDED`

@@ -161,6 +161,18 @@ struct FriendsView: View {
                         buddiesVM.statusMessage = "Friend code copied."
                     }
                     .buttonStyle(.bordered)
+
+                    ShareLink(item: inviteShareText(for: profile)) {
+                        Text("Invite")
+                            .font(type.footnote)
+                    }
+                    .simultaneousGesture(TapGesture().onEnded {
+                        PBHaptics.tap()
+                        buddiesVM.statusMessage = "Invite link ready to send."
+                        PBGrowthMetrics.record(.buddyInviteShareClicked)
+                    })
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
                 }
                 .padding(10)
                 .pbSurfaceCard(palette: palette)
@@ -466,5 +478,25 @@ struct FriendsView: View {
         default:
             return .brown
         }
+    }
+
+    private func inviteShareText(for profile: FirebaseUserProfile) -> String {
+        let deepLink = buddyInviteURL(for: profile.friendCode)?.absoluteString ?? ""
+        return [
+            "Let's practice together on PracticeBuddy.",
+            "My friend code: \(profile.friendCode)",
+            deepLink.isEmpty ? "" : "Open on iPhone: \(deepLink)",
+            "If the link does not open, paste the code in Social -> Friends."
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+    }
+
+    private func buddyInviteURL(for friendCode: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "practicebuddy"
+        components.host = "add-buddy"
+        components.queryItems = [URLQueryItem(name: "code", value: friendCode)]
+        return components.url
     }
 }

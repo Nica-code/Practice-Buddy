@@ -9,6 +9,11 @@ struct ContentView: View {
         let message: String
     }
 
+    private enum IncomingLinkAction {
+        case joinStudio(inviteCode: String)
+        case addBuddy(friendCode: String)
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -39,6 +44,7 @@ struct ContentView: View {
     @State private var lastPipelineSyncKey: String?
     @State private var lastPipelineSyncAt: Date = .distantPast
     private let studiosRepository = FirebaseStudiosRepository()
+    private let buddiesRepository = FirebaseBuddiesRepository()
 
     var body: some View {
         let fontChoice = PBFontChoice.byID(selectedFontID)
@@ -326,35 +332,80 @@ struct ContentView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        guard let inviteCode = studioInviteCode(from: url) else { return }
+        guard let action = incomingLinkAction(from: url) else { return }
 
         guard let uid = firebase.currentUserID, !firebase.isAnonymousUser else {
+            let itemName: String
+            switch action {
+            case .joinStudio:
+                itemName = "studio invite"
+            case .addBuddy:
+                itemName = "buddy invite"
+            }
             inviteJoinAlert = InviteJoinAlert(
                 title: "Sign In Required",
-                message: "Please sign in first, then open the studio invite link again."
+                message: "Please sign in first, then open the \(itemName) link again."
             )
             return
         }
 
-        Task {
-            do {
-                try await studiosRepository.joinStudio(studentUID: uid, rawInviteCode: inviteCode)
-                await MainActor.run {
-                    inviteJoinAlert = InviteJoinAlert(
-                        title: "Joined Studio",
-                        message: "You have successfully joined the studio."
-                    )
+        switch action {
+        case .joinStudio(let inviteCode):
+            Task {
+                do {
+                    try await studiosRepository.joinStudio(studentUID: uid, rawInviteCode: inviteCode)
+                    await MainActor.run {
+                        inviteJoinAlert = InviteJoinAlert(
+                            title: "Joined Studio",
+                            message: "You have successfully joined the studio."
+                        )
+                    }
+                } catch {
+                    let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    await MainActor.run {
+                        inviteJoinAlert = InviteJoinAlert(
+                            title: "Could Not Join Studio",
+                            message: msg
+                        )
+                    }
                 }
-            } catch {
-                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                await MainActor.run {
-                    inviteJoinAlert = InviteJoinAlert(
-                        title: "Could Not Join Studio",
-                        message: msg
-                    )
+            }
+        case .addBuddy(let friendCode):
+            Task {
+                do {
+                    let profile = try await buddiesRepository.ensureCurrentUserProfile()
+                    _ = try await buddiesRepository.sendInvite(from: profile, friendCode: friendCode)
+                    await MainActor.run {
+                        PBGrowthMetrics.record(.buddyInviteAutoSent)
+                        selectedTab = 2
+                        socialSectionRawValue = "friends"
+                        socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+                        inviteJoinAlert = InviteJoinAlert(
+                            title: "Friend Request Sent",
+                            message: "Your buddy request is now pending."
+                        )
+                    }
+                } catch {
+                    let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    await MainActor.run {
+                        inviteJoinAlert = InviteJoinAlert(
+                            title: "Could Not Send Request",
+                            message: msg
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private func incomingLinkAction(from url: URL) -> IncomingLinkAction? {
+        if let inviteCode = studioInviteCode(from: url) {
+            return .joinStudio(inviteCode: inviteCode)
+        }
+        if let friendCode = buddyInviteCode(from: url) {
+            return .addBuddy(friendCode: friendCode)
+        }
+        return nil
     }
 
     private func studioInviteCode(from url: URL) -> String? {
@@ -383,6 +434,18 @@ struct ContentView: View {
             return code.uppercased()
         }
         return nil
+    }
+
+    private func buddyInviteCode(from url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "practicebuddy" else { return nil }
+        guard let host = url.host?.lowercased(), host == "add-buddy" else { return nil }
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let code = components.queryItems?.first(where: { $0.name.lowercased() == "code" })?.value,
+           !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return code.uppercased()
+        }
+        let pathCode = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return pathCode.isEmpty ? nil : pathCode.uppercased()
     }
 
     private func applyNotificationRoute(_ route: PBNotificationRoute) {
