@@ -1,8 +1,12 @@
 import SwiftUI
 import SwiftData
+import os
 import FirebaseCore
 import UserNotifications
 import UIKit
+#if canImport(FirebaseMessaging)
+import FirebaseMessaging
+#endif
 
 @main
 struct PracticeBuddyApp: App {
@@ -68,6 +72,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         FirebaseApp.configure()
         FirebaseBootstrap.markConfiguredAtLaunch()
+#if canImport(FirebaseMessaging)
+        Messaging.messaging().delegate = self
+#endif
         return true
     }
 
@@ -76,18 +83,33 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        PBLog.firebase.info("APNs registration succeeded. Token length: \(token.count, privacy: .public)")
         Task { @MainActor in
-            await PushTokenManager.shared.upsertCurrentToken(token)
+            await PushTokenManager.shared.upsertCurrentToken(token, kind: .apns)
         }
+#if canImport(FirebaseMessaging)
+        Messaging.messaging().apnsToken = deviceToken
+#endif
     }
 
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        // Non-fatal in dev and simulator contexts.
+        PBLog.firebase.error("APNs registration failed: \(error.localizedDescription, privacy: .public)")
     }
 }
+
+#if canImport(FirebaseMessaging)
+extension AppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken, !fcmToken.isEmpty else { return }
+        Task { @MainActor in
+            await PushTokenManager.shared.upsertCurrentToken(fcmToken, kind: .fcm)
+        }
+    }
+}
+#endif
 
 private enum PBSwiftDataBootstrap {
     static func ensureApplicationSupportDirectory() {

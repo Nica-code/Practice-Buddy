@@ -1,4 +1,5 @@
 import Foundation
+import os
 import FirebaseAuth
 import FirebaseFirestore
 import CryptoKit
@@ -7,24 +8,30 @@ import UIKit
 
 @MainActor
 final class PushTokenManager {
+    enum TokenKind: String {
+        case apns
+        case fcm
+    }
+
     static let shared = PushTokenManager()
 
     private var db: Firestore { Firestore.firestore() }
-    private var pendingToken: String?
-    private var lastPersistedTokenByUID: [String: String] = [:]
+    private let urlSession = URLSession.shared
+    private var pendingToken: (value: String, kind: TokenKind)?
+    private var lastPersistedTokenByUIDAndKind: [String: String] = [:]
     private var lastNotificationPrefsFingerprintByUID: [String: String] = [:]
 
     private init() {}
 
-    func upsertCurrentToken(_ token: String) async {
-        pendingToken = token
+    func upsertCurrentToken(_ token: String, kind: TokenKind = .apns) async {
+        pendingToken = (token, kind)
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        await persistToken(token, for: uid)
+        await persistToken(token, for: uid, kind: kind)
     }
 
     func syncPendingTokenIfPossible() async {
-        guard let token = pendingToken, let uid = Auth.auth().currentUser?.uid else { return }
-        await persistToken(token, for: uid)
+        guard let pendingToken, let uid = Auth.auth().currentUser?.uid else { return }
+        await persistToken(pendingToken.value, for: uid, kind: pendingToken.kind)
     }
 
     func updateNotificationPreferences(
@@ -89,8 +96,53 @@ final class PushTokenManager {
         }
     }
 
-    private func persistToken(_ token: String, for uid: String) async {
-        if lastPersistedTokenByUID[uid] == token {
+    func sendTestPushNotification(route: String = "social_chat") async throws {
+        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
+            throw NSError(
+                domain: "PracticeBuddy.Push",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
+            )
+        }
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(
+                domain: "PracticeBuddy.Push",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "No authenticated Firebase user."]
+            )
+        }
+
+        let token = try await user.getIDToken()
+        let endpoint = baseURL.appendingPathComponent("pushTestNotification")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["route": route], options: [])
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(
+                domain: "PracticeBuddy.Push",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid push test response."]
+            )
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
+        guard (200..<300).contains(http.statusCode), (json?["ok"] as? Bool) == true else {
+            let message = (json?["error"] as? String) ?? "Push test failed (\(http.statusCode))."
+            throw NSError(
+                domain: "PracticeBuddy.Push",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+    }
+
+    private func persistToken(_ token: String, for uid: String, kind: TokenKind) async {
+        let cacheKey = "\(uid)|\(kind.rawValue)"
+        if lastPersistedTokenByUIDAndKind[cacheKey] == token {
             return
         }
         let tokenID = Self.tokenDocumentID(for: token)
@@ -101,12 +153,14 @@ final class PushTokenManager {
                 .document(tokenID)
                 .setData([
                     "token": token,
+                    "tokenType": kind.rawValue,
                     "platform": "ios",
                     "updatedAt": FieldValue.serverTimestamp()
                 ], merge: true)
-            lastPersistedTokenByUID[uid] = token
+            lastPersistedTokenByUIDAndKind[cacheKey] = token
+            PBLog.firebase.info("Stored \(kind.rawValue, privacy: .public) push token for uid=\(uid, privacy: .private)")
         } catch {
-            // no-op for now
+            PBLog.firebase.error("Failed to store \(kind.rawValue, privacy: .public) push token: \(error.localizedDescription, privacy: .public)")
         }
     }
 

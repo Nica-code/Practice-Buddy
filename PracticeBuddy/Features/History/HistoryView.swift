@@ -344,12 +344,12 @@ struct HistoryView: View {
     private var overviewKPISection: some View {
         Section("Overview") {
             HStack {
-                statCard(title: "Total", value: DurationFormatter.string(from: analyticsTotalSeconds), subtitle: "in scope")
-                statCard(title: "Average", value: DurationFormatter.string(from: analyticsAverageSeconds), subtitle: "session")
+                HistoryStatCardView(title: "Total", value: DurationFormatter.string(from: analyticsTotalSeconds), subtitle: "in scope", palette: palette, type: type)
+                HistoryStatCardView(title: "Average", value: DurationFormatter.string(from: analyticsAverageSeconds), subtitle: "session", palette: palette, type: type)
             }
             HStack {
-                statCard(title: "Longest", value: DurationFormatter.string(from: analyticsLongestSeconds), subtitle: "session")
-                statCard(title: "Count", value: "\(filteredSessions.count)", subtitle: "sessions")
+                HistoryStatCardView(title: "Longest", value: DurationFormatter.string(from: analyticsLongestSeconds), subtitle: "session", palette: palette, type: type)
+                HistoryStatCardView(title: "Count", value: "\(filteredSessions.count)", subtitle: "sessions", palette: palette, type: type)
             }
         }
         .listRowBackground(palette.surface)
@@ -491,7 +491,12 @@ struct HistoryView: View {
         let buckets = sessionBuckets
         return Section("Sessions") {
             if visibleSessions.isEmpty {
-                emptyStateRow
+                HistoryEmptyStateRow(
+                    title: "No sessions yet",
+                    subtitle: "Start a timer on Home and save your first session.",
+                    palette: palette,
+                    type: type
+                )
             } else {
                 if !buckets.today.isEmpty {
                     Text("Today")
@@ -920,19 +925,6 @@ struct HistoryView: View {
         filteredSessions.map { max(0, $0.durationSeconds) }.max() ?? 0
     }
 
-    private var emptyStateRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("No sessions yet")
-                .font(type.sectionTitle)
-                .foregroundStyle(palette.textPrimary)
-
-            Text("Start a timer on Home and save your first session.")
-                .font(type.body)
-                .foregroundStyle(palette.textSecondary)
-        }
-        .padding(.vertical, 10)
-    }
-
     private func sessionListRow(_ session: PracticeSessionModel) -> some View {
         sessionRow(session)
             .contentShape(Rectangle())
@@ -992,26 +984,6 @@ struct HistoryView: View {
             }
         }
         .padding(.vertical, 6)
-    }
-
-    private func statCard(title: String, value: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(LocalizedStringKey(title))
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-            Text(value)
-                .font(type.number)
-                .foregroundStyle(palette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text(LocalizedStringKey(subtitle))
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(palette.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var filteredSessions: [PracticeSessionModel] {

@@ -203,8 +203,8 @@ enum PBNotificationCenter {
             }
             await enqueueLocalNotification(
                 identifier: "pb.chat.\(threadID ?? UUID().uuidString)",
-                title: title,
-                body: body,
+                title: "New Message",
+                body: "You received a new message.",
                 category: PBNotificationCategoryID.message,
                 userInfo: userInfo
             )

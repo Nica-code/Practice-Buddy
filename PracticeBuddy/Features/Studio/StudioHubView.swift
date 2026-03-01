@@ -73,20 +73,14 @@ struct StudioHubView: View {
     }
 
     private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Social")
-                .font(type.appTitle)
-                .tracking(type.heroTracking)
-                .foregroundStyle(palette.textPrimary)
-
-            Text(
-                StudioSection(rawValue: sectionRawValue) == .chat
+        StudioHubHeaderCard(
+            palette: palette,
+            type: type,
+            title: "Social",
+            subtitle: StudioSection(rawValue: sectionRawValue) == .chat
                 ? "Studio and friend conversations in one place."
                 : "Manage friends and studio connections."
-            )
-            .font(type.footnote)
-            .foregroundStyle(palette.textSecondary)
-
+        ) {
             Picker("Social", selection: sectionBinding) {
                 ForEach(StudioSection.allCases) { section in
                     Text(sectionTitle(for: section)).tag(section)
@@ -94,11 +88,6 @@ struct StudioHubView: View {
             }
             .pickerStyle(.segmented)
         }
-        .padding(PBLayout.padLG)
-        .pbFlatCard(palette: palette)
-        .padding(.horizontal, PBLayout.padSM)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
         .offset(y: animateHeader ? 0 : 12)
         .opacity(animateHeader ? 1 : 0)
     }

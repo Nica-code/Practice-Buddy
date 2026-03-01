@@ -11,7 +11,10 @@ struct ShopView: View {
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var proProduct: Product? {
-        purchaseManager.availableProducts.first(where: { $0.id == PurchaseManager.proProductID })
+        purchaseManager.availableProducts.first(where: { PurchaseManager.proSubscriptionProductIDs.contains($0.id) })
+    }
+    private var introOffer: Product.SubscriptionOffer? {
+        proProduct?.subscription?.introductoryOffer
     }
 
     var body: some View {
@@ -22,7 +25,7 @@ struct ShopView: View {
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
-                    Text("One-time unlock with Pro tools for student and teacher workflows.")
+                    Text("Auto-renewing monthly subscription with Pro tools for student and teacher workflows.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
@@ -32,44 +35,15 @@ struct ShopView: View {
                 }
                 .padding(.vertical, 4)
 
-                if purchaseManager.hasLifetimePro {
-                    Text("You already own Practice Buddy Pro permanently.")
+                if let intro = introOffer, intro.paymentMode == .freeTrial {
+                    Text(trialSummaryText(for: intro))
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else if purchaseManager.isProTrialActive {
-                    if let end = purchaseManager.proTrialEndsAt {
-                        Text(L10n.f("Trial active until %@.", end.formatted(date: .abbreviated, time: .shortened)))
-                            .font(type.footnote)
-                            .foregroundStyle(theme.accent)
-                    } else {
-                        Text("Trial active.")
-                            .font(type.footnote)
-                            .foregroundStyle(theme.accent)
-                    }
-                } else if purchaseManager.hasUsedProTrial {
-                    Text("Free trial ended. Unlock Practice Buddy Pro to continue using Pro features.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else {
-                    Button {
-                        Task { await purchaseManager.startFreeTrial() }
-                    } label: {
-                        Text("Start 7-Day Free Trial")
-                            .font(type.body)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(theme.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                        .foregroundStyle(theme.accent)
                 }
 
                 Button {
                     Task {
-                        await purchaseManager.buy(productID: PurchaseManager.proProductID)
+                        await purchaseManager.buy(productID: PurchaseManager.proMonthlyProductID)
                     }
                 } label: {
                     Text(primaryCTA)
@@ -84,6 +58,16 @@ struct ShopView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(primaryCTADisabled)
+
+                if trialEligible {
+                    Button("Start 7-Day Trial") {
+                        Task {
+                            _ = await purchaseManager.startServerTrialIfEligible()
+                        }
+                    }
+                    .font(type.body)
+                    .foregroundStyle(theme.accent)
+                }
 
                 Button("Restore Purchases") {
                     Task { await purchaseManager.restore() }
@@ -155,12 +139,15 @@ struct ShopView: View {
 
     private var primaryCTA: String {
         if purchaseManager.isPro {
-            return String(localized: "Pro Unlocked")
+            return String(localized: "Pro Active")
         }
         if let proProduct {
-            return L10n.f("Unlock Pro (%@, One-time)", proProduct.displayPrice)
+            if let intro = introOffer, intro.paymentMode == .freeTrial {
+                return trialCTA(for: intro)
+            }
+            return L10n.f("Subscribe (%@ / month)", proProduct.displayPrice)
         }
-        return String(localized: "Unlock Pro (Unavailable)")
+        return String(localized: "Subscribe (Unavailable)")
     }
 
     private var primaryCTADisabled: Bool {
@@ -168,23 +155,39 @@ struct ShopView: View {
     }
 
     private var statusText: String {
-        if purchaseManager.hasLifetimePro {
-            return String(localized: "Status: Unlocked (Purchased)")
+        if isServerTrialActive {
+            return "Status: Trial Active (\(trialDaysRemainingText) left)"
         }
-        if purchaseManager.isProTrialActive {
-            return String(localized: "Status: Free Trial Active")
-        }
-        if purchaseManager.hasUsedProTrial {
-            return String(localized: "Status: Free (Trial Ended)")
+        if purchaseManager.isPro {
+            return String(localized: "Status: Active")
         }
         return String(localized: "Status: Free")
     }
 
     private var statusColor: Color {
-        if purchaseManager.hasLifetimePro || purchaseManager.isProTrialActive {
+        if isServerTrialActive {
+            return theme.accent
+        }
+        if purchaseManager.isPro {
             return theme.accent
         }
         return palette.textSecondary
+    }
+
+    private var trialEligible: Bool {
+        !purchaseManager.isPro && !purchaseManager.trialUsed
+    }
+
+    private var isServerTrialActive: Bool {
+        guard let trialEndsAt = purchaseManager.trialEndsAt else { return false }
+        return trialEndsAt > Date() && !purchaseManager.hasActiveSubscription
+    }
+
+    private var trialDaysRemainingText: String {
+        guard let trialEndsAt = purchaseManager.trialEndsAt else { return "0d" }
+        let seconds = max(0, Int(trialEndsAt.timeIntervalSinceNow))
+        let days = max(1, Int(ceil(Double(seconds) / 86_400.0)))
+        return "\(days)d"
     }
 
     @ViewBuilder
@@ -203,6 +206,32 @@ struct ShopView: View {
                     .font(type.footnote)
                     .foregroundStyle(theme.accent)
             }
+        }
+    }
+
+    private func trialCTA(for offer: Product.SubscriptionOffer) -> String {
+        let duration = offerDurationText(offer.period)
+        return "Start \(duration) Free Trial"
+    }
+
+    private func trialSummaryText(for offer: Product.SubscriptionOffer) -> String {
+        let duration = offerDurationText(offer.period)
+        return "\(duration) free trial available for eligible users."
+    }
+
+    private func offerDurationText(_ period: Product.SubscriptionPeriod) -> String {
+        let value = period.value
+        switch period.unit {
+        case .day:
+            return value == 1 ? "1-day" : "\(value)-day"
+        case .week:
+            return value == 1 ? "1-week" : "\(value)-week"
+        case .month:
+            return value == 1 ? "1-month" : "\(value)-month"
+        case .year:
+            return value == 1 ? "1-year" : "\(value)-year"
+        @unknown default:
+            return "\(value)-day"
         }
     }
 }

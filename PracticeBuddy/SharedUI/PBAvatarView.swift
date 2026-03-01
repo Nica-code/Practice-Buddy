@@ -72,6 +72,9 @@ struct PBAvatarView: View {
             }
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(displayName) avatar"))
+            .accessibilityValue(Text("\(style.title), \(style.subtitle)"))
         } else {
             ZStack {
                 Circle()
@@ -82,6 +85,9 @@ struct PBAvatarView: View {
                     .foregroundStyle(style.color)
             }
             .frame(width: size, height: size)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(displayName) avatar"))
+            .accessibilityValue(Text("\(style.title), \(style.subtitle)"))
         }
     }
 }
@@ -96,5 +102,7 @@ struct PBLevelBadgeView: View {
             .padding(.vertical, 3)
             .background(Color.primary.opacity(0.12))
             .clipShape(Capsule())
+            .accessibilityLabel(Text("Level"))
+            .accessibilityValue(Text("\(max(1, level))"))
     }
 }

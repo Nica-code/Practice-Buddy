@@ -211,24 +211,13 @@ struct SmartPracticePlanGeneratorView: View {
                 }
 
                 ForEach(generatedPlan.blocks) { block in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(LocalizedStringKey(block.title))
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Spacer()
-                            Text(L10n.f("%@ min", "\(block.minutes)"))
-                                .font(type.number)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
-                        Text(LocalizedStringKey(block.details))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                    .padding(10)
-                    .background(palette.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+                    SmartPracticePlanBlockRow(
+                        title: block.title,
+                        minutes: block.minutes,
+                        details: block.details,
+                        palette: palette,
+                        type: type
+                    )
                 }
             } else {
                 Text("Generate a plan to see adaptive coaching suggestions.")

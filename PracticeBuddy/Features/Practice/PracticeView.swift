@@ -97,39 +97,24 @@ struct PracticeView: View {
     }
 
     private var saveSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Session") {
-                    Text(L10n.f("Duration: %@", DurationFormatter.string(from: currentElapsedSeconds)))
-                }
-                Section("Notes (optional)") {
-                    TextField("What did you practice?", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                }
+        PracticeSaveSheetView(
+            currentElapsedSeconds: currentElapsedSeconds,
+            notes: $notes,
+            onDiscard: {
+                resetSession()
+                showSaveSheet = false
+            },
+            onSave: {
+                store.addSession(
+                    date: Date(),
+                    durationSeconds: currentElapsedSeconds,
+                    notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                resetSession()
+                showSaveSheet = false
+                showSavedAlert = true
             }
-            .navigationTitle("Save Session")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Discard") {
-                        resetSession()
-                        showSaveSheet = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        store.addSession(
-                            date: Date(),
-                            durationSeconds: currentElapsedSeconds,
-                            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
-                        resetSession()
-                        showSaveSheet = false
-                        showSavedAlert = true
-                    }
-                    .disabled(currentElapsedSeconds == 0)
-                }
-            }
-        }
+        )
     }
 
     private func toggleStartPause() {

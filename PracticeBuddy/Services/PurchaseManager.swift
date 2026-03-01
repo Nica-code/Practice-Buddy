@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import os
+import FirebaseAuth
 import FirebaseFirestore
 import StoreKit
 import UIKit
@@ -52,34 +54,32 @@ enum PBEntitlementTier: String, CaseIterable {
 
 @MainActor
 final class PurchaseManager: ObservableObject {
-    static let proProductID = "practicebuddy.pro.lifetime"
-    static let proTrialDurationDays = 7
-    static let proKey = "pb.pro.isUnlocked"
+    static let proMonthlyProductID = "practicebuddy.pro.monthly"
+    static let proSubscriptionProductIDs = [proMonthlyProductID]
+    static let entitlementSyncEndpointName = "syncEntitlements"
+    static let subscriptionActiveKey = "pb.pro.subscriptionActive"
+    static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"
     static let accountTypeKey = "pb.pro.accountType"
     static let primaryFocusKey = "pb.tools.primaryFocus"
     static let showStudentToolsKey = "pb.tools.visibility.student"
     static let showTeacherToolsKey = "pb.tools.visibility.teacher"
     static let entitlementTierKey = "pb.pro.entitlementTier"
-    static let trialUsedKey = "pb.pro.trialUsed"
-    static let trialStartedAtKey = "pb.pro.trialStartedAt"
-    static let trialEndsAtKey = "pb.pro.trialEndsAt"
 
     @Published private(set) var ownedProductIDs: Set<String> = []
     @Published private(set) var isPro: Bool
-    @Published private(set) var hasLifetimePro: Bool
+    @Published private(set) var hasActiveSubscription: Bool
     @Published private(set) var entitlementTier: PBEntitlementTier
-    @Published private(set) var isProTrialActive: Bool
-    @Published private(set) var hasUsedProTrial: Bool
-    @Published private(set) var proTrialStartedAt: Date?
-    @Published private(set) var proTrialEndsAt: Date?
     @Published private(set) var accountType: PBAccountType
     @Published private(set) var primaryFocus: PBPrimaryFocus
     @Published private(set) var showStudentTools: Bool
     @Published private(set) var showTeacherTools: Bool
+    @Published private(set) var trialUsed: Bool = false
+    @Published private(set) var trialEndsAt: Date?
     @Published private(set) var syncStatus: String?
     @Published private(set) var availableProducts: [Product] = []
 
     private var db: Firestore { Firestore.firestore() }
+    private let urlSession = URLSession.shared
     private var userListener: ListenerRegistration?
     private var linkedUID: String?
     private var linkedEmail: String?
@@ -91,11 +91,9 @@ final class PurchaseManager: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
-        let storedLifetimePro = defaults.bool(forKey: Self.proKey)
+        let storedSubscriptionActive = defaults.bool(forKey: Self.subscriptionActiveKey)
+        let storedSubscriptionIDs = Set(defaults.stringArray(forKey: Self.subscriptionProductIDsKey) ?? [])
         let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
-        let storedTrialUsed = defaults.bool(forKey: Self.trialUsedKey)
-        let storedTrialStart = Self.readDateDefault(key: Self.trialStartedAtKey, defaults: defaults)
-        let storedTrialEnd = Self.readDateDefault(key: Self.trialEndsAtKey, defaults: defaults)
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
         let storedPrimaryFocus: PBPrimaryFocus = {
@@ -120,19 +118,16 @@ final class PurchaseManager: ObservableObject {
             fallback: derivedVisibility
         )
 
-        hasLifetimePro = storedLifetimePro
+        hasActiveSubscription = storedSubscriptionActive
         entitlementTier = storedTier
-        hasUsedProTrial = storedTrialUsed
-        proTrialStartedAt = storedTrialStart
-        proTrialEndsAt = storedTrialEnd
-        isProTrialActive = false
         isPro = false
         accountType = storedType
         primaryFocus = storedPrimaryFocus
         showStudentTools = normalizedVisibility.student
         showTeacherTools = normalizedVisibility.teacher
-        if storedLifetimePro {
-            ownedProductIDs = [Self.proProductID]
+        ownedProductIDs = storedSubscriptionIDs
+        if hasActiveSubscription && ownedProductIDs.isEmpty {
+            ownedProductIDs = Set(Self.proSubscriptionProductIDs)
         }
         recalculateProAccess()
 
@@ -159,7 +154,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     func buy(productID: String) async {
-        guard productID == Self.proProductID else { return }
+        guard Self.proSubscriptionProductIDs.contains(productID) else { return }
 
         do {
             if availableProducts.isEmpty {
@@ -228,9 +223,10 @@ final class PurchaseManager: ObservableObject {
                 }
 
                 if !self.isMasterOverride {
-                    let remoteLifetime = (data["hasLifetimePro"] as? Bool) ?? (data["isPro"] as? Bool)
-                    if let remoteLifetime, remoteLifetime != self.hasLifetimePro {
-                        self.applyLifetimeProState(remoteLifetime)
+                    let remoteSubscription = data["subscriptionActive"] as? Bool
+                    if let remoteSubscription, remoteSubscription != self.hasActiveSubscription {
+                        let remoteProductIDs = Set((data["subscriptionProductIDs"] as? [String]) ?? [])
+                        self.applySubscriptionState(remoteSubscription, productIDs: remoteProductIDs)
                     }
 
                     if let tierRaw = data["entitlementTier"] as? String,
@@ -238,19 +234,6 @@ final class PurchaseManager: ObservableObject {
                        tier != self.entitlementTier {
                         self.applyEntitlementTier(tier)
                     }
-                }
-
-                let remoteTrialUsed = (data["trialUsed"] as? Bool) ?? self.hasUsedProTrial
-                let remoteTrialStart = Self.firestoreDate(data["trialStartedAt"])
-                let remoteTrialEnd = Self.firestoreDate(data["trialEndsAt"])
-                self.applyTrialState(
-                    used: remoteTrialUsed,
-                    startedAt: remoteTrialStart ?? self.proTrialStartedAt,
-                    endsAt: remoteTrialEnd ?? self.proTrialEndsAt
-                )
-
-                if let trialMessage = self.expiredTrialMessageIfNeeded() {
-                    self.syncStatus = trialMessage
                 }
 
                 if let raw = data["accountType"] as? String,
@@ -268,6 +251,13 @@ final class PurchaseManager: ObservableObject {
                 if let remoteShowStudent = data["showStudentTools"] as? Bool,
                    let remoteShowTeacher = data["showTeacherTools"] as? Bool {
                     self.applyToolVisibility(showStudent: remoteShowStudent, showTeacher: remoteShowTeacher)
+                }
+
+                self.trialUsed = data["trialUsed"] as? Bool ?? self.trialUsed
+                if let trialTimestamp = data["trialEndsAt"] as? Timestamp {
+                    self.trialEndsAt = trialTimestamp.dateValue()
+                } else {
+                    self.trialEndsAt = nil
                 }
 
                 if self.isMasterOverride {
@@ -338,7 +328,7 @@ final class PurchaseManager: ObservableObject {
 
     func debugUnlockPro() {
         applyEntitlementTier(.allAccess)
-        applyLifetimeProState(true)
+        applySubscriptionState(true, productIDs: Set(Self.proSubscriptionProductIDs))
         Task {
             await pushLocalStateToFirestore()
         }
@@ -346,36 +336,15 @@ final class PurchaseManager: ObservableObject {
 
     func debugLockPro() {
         applyEntitlementTier(.free)
-        applyLifetimeProState(false)
+        applySubscriptionState(false, productIDs: [])
         Task {
             await pushLocalStateToFirestore()
         }
     }
 
-    func startFreeTrial() async {
-        guard !entitlementTier.isUnlocked else {
-            syncStatus = "Pro is already unlocked."
-            return
-        }
-        guard !hasLifetimePro else {
-            syncStatus = "Pro is already unlocked."
-            return
-        }
-        guard !hasUsedProTrial else {
-            syncStatus = "Free trial already used."
-            return
-        }
-
-        let now = Date()
-        let end = Calendar.current.date(byAdding: .day, value: Self.proTrialDurationDays, to: now) ?? now
-        applyTrialState(used: true, startedAt: now, endsAt: end)
-        syncStatus = "7-day free trial started."
-        await pushLocalStateToFirestore()
-    }
-
     func loadProducts() async {
         do {
-            let products = try await Product.products(for: [Self.proProductID])
+            let products = try await Product.products(for: Self.proSubscriptionProductIDs)
             availableProducts = products.sorted(by: { $0.id < $1.id })
         } catch {
             syncStatus = "Could not load products: \(error.localizedDescription)"
@@ -383,12 +352,14 @@ final class PurchaseManager: ObservableObject {
     }
 
     func refreshEntitlements() async {
-        var hasProPurchase = false
+        let now = Date()
+        var activeProductIDs: Set<String> = []
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            if transaction.productID == Self.proProductID {
-                hasProPurchase = true
-            }
+            guard Self.proSubscriptionProductIDs.contains(transaction.productID) else { continue }
+            if let expiration = transaction.expirationDate, expiration <= now { continue }
+            if transaction.revocationDate != nil { continue }
+            activeProductIDs.insert(transaction.productID)
         }
 
         if isMasterOverride {
@@ -397,22 +368,49 @@ final class PurchaseManager: ObservableObject {
             return
         }
 
-        applyLifetimeProState(hasProPurchase)
-        if hasProPurchase && entitlementTier == .free {
-            applyEntitlementTier(.pro)
+        do {
+            let server = try await syncEntitlementsWithServer(activeProductIDs: activeProductIDs, requestTrial: false)
+            applySubscriptionState(server.subscriptionActive, productIDs: server.subscriptionProductIDs)
+            applyEntitlementTier(server.entitlementTier)
+            trialUsed = server.trialUsed
+            trialEndsAt = server.trialEndsAt
+            syncStatus = nil
+        } catch {
+            // Keep local StoreKit-derived access as fallback when endpoint is unreachable.
+            applySubscriptionState(!activeProductIDs.isEmpty, productIDs: activeProductIDs)
+            if !activeProductIDs.isEmpty && entitlementTier == .free {
+                applyEntitlementTier(.pro)
+            }
+            PBLog.firebase.warning("Entitlement server sync failed; using local fallback: \(error.localizedDescription, privacy: .public)")
         }
         await pushLocalStateToFirestore()
     }
 
-    private func applyLifetimeProState(_ value: Bool) {
-        guard hasLifetimePro != value else { return }
-        hasLifetimePro = value
-        if value {
-            ownedProductIDs.insert(Self.proProductID)
-        } else {
-            ownedProductIDs.remove(Self.proProductID)
+    @discardableResult
+    func startServerTrialIfEligible() async -> Bool {
+        do {
+            let server = try await syncEntitlementsWithServer(
+                activeProductIDs: ownedProductIDs,
+                requestTrial: true
+            )
+            applySubscriptionState(server.subscriptionActive, productIDs: server.subscriptionProductIDs)
+            applyEntitlementTier(server.entitlementTier)
+            trialUsed = server.trialUsed
+            trialEndsAt = server.trialEndsAt
+            await pushLocalStateToFirestore()
+            return server.trialStartedNow || (server.trialEndsAt?.timeIntervalSinceNow ?? 0) > 0
+        } catch {
+            syncStatus = "Could not start trial right now."
+            return false
         }
-        UserDefaults.standard.set(value, forKey: Self.proKey)
+    }
+
+    private func applySubscriptionState(_ active: Bool, productIDs: Set<String>) {
+        guard hasActiveSubscription != active || ownedProductIDs != productIDs else { return }
+        hasActiveSubscription = active
+        ownedProductIDs = productIDs
+        UserDefaults.standard.set(active, forKey: Self.subscriptionActiveKey)
+        UserDefaults.standard.set(Array(productIDs).sorted(), forKey: Self.subscriptionProductIDsKey)
         recalculateProAccess()
     }
 
@@ -423,27 +421,9 @@ final class PurchaseManager: ObservableObject {
         recalculateProAccess()
     }
 
-    private func applyTrialState(used: Bool, startedAt: Date?, endsAt: Date?) {
-        guard hasUsedProTrial != used || proTrialStartedAt != startedAt || proTrialEndsAt != endsAt else { return }
-        hasUsedProTrial = used
-        proTrialStartedAt = startedAt
-        proTrialEndsAt = endsAt
-        let defaults = UserDefaults.standard
-        defaults.set(used, forKey: Self.trialUsedKey)
-        Self.writeDateDefault(startedAt, key: Self.trialStartedAtKey, defaults: defaults)
-        Self.writeDateDefault(endsAt, key: Self.trialEndsAtKey, defaults: defaults)
-        recalculateProAccess()
-    }
-
     private func recalculateProAccess(now: Date = Date()) {
-        let newTrialActive: Bool
-        if let end = proTrialEndsAt {
-            newTrialActive = end > now
-        } else {
-            newTrialActive = false
-        }
-        let newPro = isMasterOverride || entitlementTier.isUnlocked || hasLifetimePro || newTrialActive
-        if isProTrialActive != newTrialActive { isProTrialActive = newTrialActive }
+        let _ = now
+        let newPro = isMasterOverride || entitlementTier.isUnlocked || hasActiveSubscription
         if isPro != newPro { isPro = newPro }
     }
 
@@ -460,10 +440,8 @@ final class PurchaseManager: ObservableObject {
             enforceMasterAccessValues()
             syncStatus = nil
         } else {
-            let hasPurchase = ownedProductIDs.contains(Self.proProductID)
-            applyLifetimeProState(hasPurchase)
             if entitlementTier == .allAccess {
-                applyEntitlementTier(hasPurchase ? .pro : .free)
+                applyEntitlementTier(hasActiveSubscription ? .pro : .free)
             }
             recalculateProAccess()
         }
@@ -471,7 +449,6 @@ final class PurchaseManager: ObservableObject {
 
     private func enforceMasterAccessValues() {
         applyEntitlementTier(.allAccess)
-        applyLifetimeProState(true)
         if primaryFocus != .both {
             applyPrimaryFocus(.both, syncLegacyAccountType: false)
         }
@@ -480,12 +457,6 @@ final class PurchaseManager: ObservableObject {
         }
         applyToolVisibility(showStudent: true, showTeacher: true)
         recalculateProAccess()
-    }
-
-    private func expiredTrialMessageIfNeeded(now: Date = Date()) -> String? {
-        guard hasUsedProTrial, !hasLifetimePro, !entitlementTier.isUnlocked else { return nil }
-        guard let end = proTrialEndsAt, end <= now else { return nil }
-        return "Free trial ended. Unlock Practice Buddy Pro to continue."
     }
 
     private func applyAccountType(_ value: PBAccountType) {
@@ -533,11 +504,16 @@ final class PurchaseManager: ObservableObject {
 
     private func pushLocalStateToFirestore() async {
         guard let uid = linkedUID else { return }
+        guard let authUID = Auth.auth().currentUser?.uid, authUID == uid else {
+            PBLog.firebase.warning("Skipped purchase sync: auth user mismatch or missing. uid=\(uid, privacy: .private)")
+            return
+        }
         let fingerprint = localStateFingerprint()
         if lastSyncedUID == uid, lastSyncedStateFingerprint == fingerprint {
             return
         }
         do {
+            // Keep entitlement/subscription fields server-authoritative.
             let payload: [String: Any] = [
                 "accountType": accountType.rawValue,
                 "primaryFocus": primaryFocus.rawValue,
@@ -548,9 +524,7 @@ final class PurchaseManager: ObservableObject {
             try await db.collection("users").document(uid).setData(payload, merge: true)
             lastSyncedUID = uid
             lastSyncedStateFingerprint = fingerprint
-            if syncStatus?.contains("trial ended") != true {
-                syncStatus = nil
-            }
+            syncStatus = nil
         } catch {
             syncStatus = "Pro sync failed: \(error.localizedDescription)"
         }
@@ -563,6 +537,60 @@ final class PurchaseManager: ObservableObject {
             showStudentTools ? "1" : "0",
             showTeacherTools ? "1" : "0"
         ].joined(separator: "|")
+    }
+
+    private func syncEntitlementsWithServer(
+        activeProductIDs: Set<String>,
+        requestTrial: Bool
+    ) async throws -> EntitlementServerState {
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(
+                domain: "PracticeBuddy.Purchase",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "No authenticated Firebase user."]
+            )
+        }
+        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
+            throw NSError(
+                domain: "PracticeBuddy.Purchase",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
+            )
+        }
+        let token = try await user.getIDToken()
+        let endpoint = baseURL.appendingPathComponent(Self.entitlementSyncEndpointName)
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: [
+                "activeProductIDs": Array(activeProductIDs).sorted(),
+                "requestTrial": requestTrial
+            ],
+            options: []
+        )
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(
+                domain: "PracticeBuddy.Purchase",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid entitlement server response."]
+            )
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
+        guard (200..<300).contains(http.statusCode) else {
+            let message = (json?["error"] as? String) ?? "Entitlement sync failed (\(http.statusCode))."
+            throw NSError(
+                domain: "PracticeBuddy.Purchase",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+        return EntitlementServerState(payload: json ?? [:], fallbackProductIDs: activeProductIDs)
     }
 
     private static func defaultVisibility(for focus: PBPrimaryFocus) -> (student: Bool, teacher: Bool) {
@@ -597,36 +625,41 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func applyVerifiedTransaction(_ transaction: StoreKit.Transaction) async {
-        if transaction.productID == Self.proProductID {
+        if Self.proSubscriptionProductIDs.contains(transaction.productID) {
             if entitlementTier == .free {
                 applyEntitlementTier(.pro)
             }
-            applyLifetimeProState(true)
+            applySubscriptionState(true, productIDs: [transaction.productID])
             await pushLocalStateToFirestore()
         }
     }
+}
 
-    private static func readDateDefault(key: String, defaults: UserDefaults) -> Date? {
-        let value = defaults.double(forKey: key)
-        guard value > 0 else { return nil }
-        return Date(timeIntervalSince1970: value)
-    }
+private struct EntitlementServerState {
+    let subscriptionActive: Bool
+    let subscriptionProductIDs: Set<String>
+    let entitlementTier: PBEntitlementTier
+    let trialUsed: Bool
+    let trialEndsAt: Date?
+    let trialStartedNow: Bool
 
-    private static func writeDateDefault(_ value: Date?, key: String, defaults: UserDefaults) {
-        if let value {
-            defaults.set(value.timeIntervalSince1970, forKey: key)
+    init(payload: [String: Any], fallbackProductIDs: Set<String>) {
+        if let rawIDs = payload["subscriptionProductIDs"] as? [String] {
+            subscriptionProductIDs = Set(rawIDs.filter {
+                PurchaseManager.proSubscriptionProductIDs.contains($0)
+            })
         } else {
-            defaults.removeObject(forKey: key)
+            subscriptionProductIDs = fallbackProductIDs
         }
-    }
-
-    private static func firestoreDate(_ value: Any?) -> Date? {
-        if let ts = value as? Timestamp {
-            return ts.dateValue()
+        subscriptionActive = payload["subscriptionActive"] as? Bool ?? !subscriptionProductIDs.isEmpty
+        let tierRaw = (payload["entitlementTier"] as? String ?? PBEntitlementTier.free.rawValue)
+        entitlementTier = PBEntitlementTier(rawValue: tierRaw) ?? .free
+        trialUsed = payload["trialUsed"] as? Bool ?? false
+        if let ms = payload["trialEndsAtMs"] as? NSNumber {
+            trialEndsAt = Date(timeIntervalSince1970: ms.doubleValue / 1000.0)
+        } else {
+            trialEndsAt = nil
         }
-        if let d = value as? Date {
-            return d
-        }
-        return nil
+        trialStartedNow = payload["trialStartedNow"] as? Bool ?? false
     }
 }

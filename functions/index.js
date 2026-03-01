@@ -19,6 +19,10 @@ const ACCEPT_WINDOW_SECONDS = 24 * 60 * 60;
 const SUBMISSION_WINDOW_SECONDS = 24 * 60 * 60;
 const SUBMISSION_SETTLE_GRACE_SECONDS = 30;
 const MAX_PENDING_INVITES_PER_USER = 5;
+const SERVER_TRIAL_DAYS = 7;
+const PRO_SUBSCRIPTION_PRODUCT_IDS = new Set([
+  "practicebuddy.pro.monthly",
+]);
 
 const ROUTE_PLAY_DUEL = "play_duel";
 const ROUTE_SOCIAL_FRIEND_REQUESTS = "social_friend_requests";
@@ -26,6 +30,133 @@ const ROUTE_SOCIAL_CHAT = "social_chat";
 const TYPE_DUEL = "duel";
 const TYPE_FRIEND_REQUEST = "friend_request";
 const TYPE_CHAT_MESSAGE = "chat_message";
+
+exports.syncEntitlements = onRequest(async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+
+  try {
+    const uid = await requireUID(req);
+    const requestTrial = req.body?.requestTrial === true;
+    const activeProductIDs = sanitizeActiveProductIDs(req.body?.activeProductIDs);
+    const nowMs = Date.now();
+
+    const result = await db.runTransaction(async (txn) => {
+      const userRef = db.collection("users").doc(uid);
+      const userSnap = await txn.get(userRef);
+      const userData = userSnap.data() || {};
+
+      const existingIsMaster = userData.isMasterAccount === true;
+      const existingTrialUsed = userData.trialUsed === true;
+      let trialStartedAt = userData.trialStartedAt?.toDate ? userData.trialStartedAt.toDate() : null;
+      let trialEndsAt = userData.trialEndsAt?.toDate ? userData.trialEndsAt.toDate() : null;
+      let trialUsed = existingTrialUsed || !!trialStartedAt || !!trialEndsAt;
+      let trialStartedNow = false;
+
+      if (requestTrial && !trialUsed) {
+        trialStartedAt = new Date(nowMs);
+        trialEndsAt = new Date(nowMs + (SERVER_TRIAL_DAYS * 24 * 60 * 60 * 1000));
+        trialUsed = true;
+        trialStartedNow = true;
+      }
+
+      const trialActive = !!trialEndsAt && trialEndsAt.getTime() > nowMs;
+      const subscriptionActive = activeProductIDs.length > 0;
+
+      let entitlementTier = "free";
+      if (existingIsMaster) {
+        entitlementTier = "all_access";
+      } else if (subscriptionActive || trialActive) {
+        entitlementTier = "pro";
+      }
+      const isPro = entitlementTier !== "free";
+
+      const payload = {
+        subscriptionActive,
+        subscriptionProductIDs: activeProductIDs,
+        entitlementTier,
+        isPro,
+        trialUsed,
+        trialStartedAt: trialStartedAt ? admin.firestore.Timestamp.fromDate(trialStartedAt) : null,
+        trialEndsAt: trialEndsAt ? admin.firestore.Timestamp.fromDate(trialEndsAt) : null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (isPro && !userData.proSince) {
+        payload.proSince = admin.firestore.FieldValue.serverTimestamp();
+      }
+
+      txn.set(userRef, payload, {merge: true});
+
+      return {
+        uid,
+        entitlementTier,
+        isPro,
+        subscriptionActive,
+        subscriptionProductIDs: activeProductIDs,
+        trialUsed,
+        trialActive,
+        trialStartedNow,
+        trialStartedAtMs: trialStartedAt ? trialStartedAt.getTime() : null,
+        trialEndsAtMs: trialEndsAt ? trialEndsAt.getTime() : null,
+        trialSecondsRemaining: trialEndsAt ? Math.max(0, Math.floor((trialEndsAt.getTime() - nowMs) / 1000)) : 0,
+      };
+    });
+
+    res.status(200).json({ok: true, ...result});
+  } catch (error) {
+    logger.error("syncEntitlements failed", error);
+    res.status(400).json({error: String(error.message || error)});
+  }
+});
+
+exports.pushTestNotification = onRequest(async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+
+  try {
+    const uid = await requireUID(req);
+    const route = String(req.body?.route || ROUTE_SOCIAL_CHAT).trim().toLowerCase();
+    let data = {
+      pb_route: ROUTE_SOCIAL_CHAT,
+      pb_type: TYPE_CHAT_MESSAGE,
+    };
+    let category = "pb.message";
+    let prefKey = "notificationMessages";
+    let title = "Test Notification";
+    let body = "Push notifications are configured correctly.";
+
+    if (route === ROUTE_PLAY_DUEL) {
+      data = {
+        pb_route: ROUTE_PLAY_DUEL,
+        pb_type: TYPE_DUEL,
+        challengeId: String(req.body?.challengeId || ""),
+      };
+      category = "pb.duel";
+      prefKey = "notificationDuels";
+      title = "Test Duel Notification";
+      body = "Open Play to verify duel deep-link routing.";
+    } else if (route === ROUTE_SOCIAL_FRIEND_REQUESTS) {
+      data = {
+        pb_route: ROUTE_SOCIAL_FRIEND_REQUESTS,
+        pb_type: TYPE_FRIEND_REQUEST,
+      };
+      category = "pb.friend_request";
+      prefKey = "notificationFriendRequests";
+      title = "Test Friend Request Notification";
+      body = "Open Social to verify friend-request routing.";
+    }
+
+    await safePushToUser(uid, {title, body, prefKey, data, category});
+    res.status(200).json({ok: true});
+  } catch (error) {
+    logger.error("pushTestNotification failed", error);
+    res.status(400).json({error: String(error.message || error)});
+  }
+});
 
 exports.duelQueueJoin = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -703,12 +834,9 @@ exports.onFriendChatMessageCreated = onDocumentCreated(
         const recipientUid = participants.find((uid) => String(uid || "") !== senderUid);
         if (!recipientUid) return;
 
-        const senderName = String(message.senderName || "New message").trim() || "New message";
-        const text = String(message.text || "").trim();
-        const body = text.length > 120 ? `${text.slice(0, 117)}...` : text;
         await safePushToUser(String(recipientUid), {
-          title: senderName,
-          body: body || "You received a new message.",
+          title: "New Message",
+          body: "You received a new message.",
           prefKey: "notificationMessages",
           data: {
             pb_route: ROUTE_SOCIAL_CHAT,
@@ -1148,10 +1276,25 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
       .doc(normalizedUid)
       .collection("devices")
       .get();
-  const tokens = deviceSnap.docs
-      .map((doc) => String(doc.data()?.token || "").trim())
-      .filter((token) => token.length > 0);
-  if (tokens.length === 0) return;
+  const tokenRows = deviceSnap.docs
+      .map((doc) => ({
+        token: String(doc.data()?.token || "").trim(),
+        tokenType: String(doc.data()?.tokenType || "legacy").trim().toLowerCase(),
+      }))
+      .filter((row) => row.token.length > 0);
+  const tokens = tokenRows
+      .filter((row) => {
+        if (row.tokenType === "apns") return false;
+        if (row.tokenType === "fcm") return true;
+        return !isLikelyAPNSToken(row.token);
+      })
+      .map((row) => row.token);
+  if (tokens.length === 0) {
+    if (tokenRows.length > 0) {
+      logger.warn("No FCM-compatible push token available for user", {uid: normalizedUid});
+    }
+    return;
+  }
 
   const payloadData = normalizePushData(data);
   const response = await admin.messaging().sendEachForMulticast({
@@ -1180,6 +1323,20 @@ function normalizePushData(data) {
     output[String(key)] = String(value);
   });
   return output;
+}
+
+function sanitizeActiveProductIDs(value) {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+      .map((item) => String(item || "").trim())
+      .filter((id) => id.length > 0 && PRO_SUBSCRIPTION_PRODUCT_IDS.has(id));
+  return Array.from(new Set(normalized)).sort();
+}
+
+function isLikelyAPNSToken(token) {
+  const trimmed = String(token || "").trim();
+  if (trimmed.length < 64 || trimmed.length > 256) return false;
+  return /^[a-fA-F0-9]+$/.test(trimmed);
 }
 
 async function pruneInvalidDeviceTokens(uid, tokens, responses) {

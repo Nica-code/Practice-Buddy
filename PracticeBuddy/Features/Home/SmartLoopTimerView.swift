@@ -12,7 +12,7 @@ struct SmartLoopTimerView: View {
         case finished
     }
 
-    private enum LoopTag: String, CaseIterable, Identifiable {
+    enum LoopTag: String, CaseIterable, Identifiable {
         case intonation
         case rhythm
         case bowing
@@ -141,7 +141,18 @@ struct SmartLoopTimerView: View {
             Section("Quick Tags") {
                 FlowRow(spacing: 8) {
                     ForEach(LoopTag.allCases) { tag in
-                        tagChip(tag)
+                        SmartLoopTagChip(
+                            tag: tag,
+                            isSelected: selectedTags.contains(tag.rawValue),
+                            palette: palette,
+                            type: type
+                        ) {
+                            if selectedTags.contains(tag.rawValue) {
+                                selectedTags.remove(tag.rawValue)
+                            } else {
+                                selectedTags.insert(tag.rawValue)
+                            }
+                        }
                     }
                 }
             }
@@ -355,27 +366,6 @@ struct SmartLoopTimerView: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func tagChip(_ tag: LoopTag) -> some View {
-        let isSelected = selectedTags.contains(tag.rawValue)
-        Button {
-            if isSelected {
-                selectedTags.remove(tag.rawValue)
-            } else {
-                selectedTags.insert(tag.rawValue)
-            }
-        } label: {
-            Text(LocalizedStringKey(tag.title))
-                .font(type.footnote)
-                .foregroundStyle(isSelected ? palette.accent : palette.textSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background((isSelected ? palette.accent.opacity(0.18) : palette.surfaceAlt))
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 
     private var phaseTitle: String {

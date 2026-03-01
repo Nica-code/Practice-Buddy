@@ -48,27 +48,19 @@ struct RunThroughModeView: View {
             .listRowBackground(palette.surface)
 
             Section("Run-through") {
-                HStack {
-                    Text("Status")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(LocalizedStringKey(recorder.stateTitle))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
+                LabeledValueRow(
+                    title: "Status",
+                    value: recorder.stateTitle,
+                    palette: palette,
+                    type: type
+                )
 
-                HStack {
-                    Text("Timer")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(DurationFormatter.string(from: elapsedSeconds))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
+                LabeledValueRow(
+                    title: "Timer",
+                    value: DurationFormatter.string(from: elapsedSeconds),
+                    palette: palette,
+                    type: type
+                )
 
                 if recorder.isRecording || recorder.isPaused {
                     Picker("Marker", selection: $markerLabel) {

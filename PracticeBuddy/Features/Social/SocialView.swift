@@ -309,7 +309,12 @@ private struct SocialChatThreadView: View {
                                 .padding(.top, 24)
                         } else {
                             ForEach(viewModel.messages) { message in
-                                messageBubble(message)
+                                SocialMessageBubbleView(
+                                    message: message,
+                                    isCurrentUser: message.senderUID == firebase.currentUserID,
+                                    palette: palette,
+                                    type: type
+                                )
                                     .id(message.id)
                             }
                         }
@@ -342,38 +347,6 @@ private struct SocialChatThreadView: View {
         .toolbarColorScheme(colorScheme, for: .navigationBar)
         .task(id: threadID) {
             viewModel.selectThread(threadID)
-        }
-    }
-
-    private func messageBubble(_ message: SocialChatMessage) -> some View {
-        let isMine = message.senderUID == firebase.currentUserID
-        return HStack {
-            if isMine { Spacer(minLength: 40) }
-            HStack(alignment: .top, spacing: 8) {
-                PBAvatarView(avatarID: message.senderAvatarID, displayName: message.senderName, size: 30)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(message.senderName)
-                            .font(type.footnote)
-                            .foregroundStyle(isMine ? palette.textPrimary : palette.textSecondary)
-                        PBLevelBadgeView(level: message.senderLevel)
-                    }
-
-                    Text(message.text)
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-
-                    Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                    .fill(isMine ? palette.accent.opacity(0.22) : palette.surface)
-            )
-            if !isMine { Spacer(minLength: 40) }
         }
     }
 

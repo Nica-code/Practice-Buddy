@@ -225,24 +225,12 @@ struct FriendsView: View {
     }
 
     private var friendCodeEntryRow: some View {
-        HStack(spacing: 8) {
-            TextField("Enter friend code (ABCD-1234)", text: $inviteCodeInput)
-                .textInputAutocapitalization(.characters)
-                .disableAutocorrection(true)
-                .font(type.body)
-                .padding(10)
-                .pbSurfaceCard(palette: palette)
-
-            Button("Add") {
-                PBHaptics.tap()
-                let code = inviteCodeInput
-                inviteCodeInput = ""
-                Task {
-                    _ = await buddiesVM.sendInvite(friendCode: code)
-                    await buddiesVM.refreshLeaderboard()
-                }
+        FriendCodeEntryRow(inviteCodeInput: $inviteCodeInput, palette: palette, type: type) { code in
+            PBHaptics.tap()
+            Task {
+                _ = await buddiesVM.sendInvite(friendCode: code)
+                await buddiesVM.refreshLeaderboard()
             }
-            .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
         }
     }
 

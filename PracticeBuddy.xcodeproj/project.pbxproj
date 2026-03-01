@@ -10,6 +10,7 @@
 		04C7EB572F47CBE100A1FDD4 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB562F47CBE100A1FDD4 /* FirebaseAuth */; };
 		04C7EB592F47CBE100A1FDD4 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB582F47CBE100A1FDD4 /* FirebaseCore */; };
 		04C7EB5B2F47CBE100A1FDD4 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB5A2F47CBE100A1FDD4 /* FirebaseFirestore */; };
+		04C7EB5D2F47CBE100A1FDD4 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 04C7EB5C2F47CBE100A1FDD4 /* FirebaseMessaging */; };
 		7F90489B2F8C3C2300B2C001 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F90489A2F8C3C2300B2C001 /* AppIntents.framework */; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 				04C7EB592F47CBE100A1FDD4 /* FirebaseCore in Frameworks */,
 				04C7EB572F47CBE100A1FDD4 /* FirebaseAuth in Frameworks */,
 				04C7EB5B2F47CBE100A1FDD4 /* FirebaseFirestore in Frameworks */,
+				04C7EB5D2F47CBE100A1FDD4 /* FirebaseMessaging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -102,6 +104,7 @@
 				04C7EB562F47CBE100A1FDD4 /* FirebaseAuth */,
 				04C7EB582F47CBE100A1FDD4 /* FirebaseCore */,
 				04C7EB5A2F47CBE100A1FDD4 /* FirebaseFirestore */,
+				04C7EB5C2F47CBE100A1FDD4 /* FirebaseMessaging */,
 			);
 			productName = PracticeBuddy;
 			productReference = 042C311E2F27FD2F00529D2C /* PracticeBuddy.app */;
@@ -300,7 +303,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = PracticeBuddy/PracticeBuddy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = 73J84HKXBC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -338,7 +341,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = PracticeBuddy/PracticeBuddy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = 73J84HKXBC;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -417,6 +420,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		04C7EB5C2F47CBE100A1FDD4 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 04C7EB552F47CBE100A1FDD4 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

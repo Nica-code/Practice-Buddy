@@ -11,7 +11,10 @@ struct StoreView: View {
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var proProduct: Product? {
-        purchaseManager.availableProducts.first(where: { $0.id == PurchaseManager.proProductID })
+        purchaseManager.availableProducts.first(where: { PurchaseManager.proSubscriptionProductIDs.contains($0.id) })
+    }
+    private var introOffer: Product.SubscriptionOffer? {
+        proProduct?.subscription?.introductoryOffer
     }
 
     var body: some View {
@@ -22,7 +25,7 @@ struct StoreView: View {
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
-                    Text("One-time unlock with account-aware extras.")
+                    Text("Auto-renewing monthly subscription with account-aware extras.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
@@ -34,49 +37,14 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Free Trial") {
-                if purchaseManager.hasLifetimePro {
-                    Text("You already own Practice Buddy Pro permanently.")
+            if let intro = introOffer, intro.paymentMode == .freeTrial {
+                Section("Free Trial") {
+                    Text(trialSummaryText(for: intro))
                         .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else if purchaseManager.isProTrialActive {
-                    if let end = purchaseManager.proTrialEndsAt {
-                        Text(L10n.f("Trial active until %@.", end.formatted(date: .abbreviated, time: .shortened)))
-                            .font(type.footnote)
-                            .foregroundStyle(theme.accent)
-                        Text(trialCountdownText(until: end))
-                            .font(type.footnote)
-                            .foregroundStyle(theme.accent)
-                    } else {
-                        Text("Trial active.")
-                            .font(type.footnote)
-                            .foregroundStyle(theme.accent)
-                    }
-                    Text("After trial, Pro features lock again unless you unlock permanently.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else if purchaseManager.hasUsedProTrial {
-                    Text("Free trial ended. Unlock Practice Buddy Pro to continue using Pro features.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else {
-                    Button {
-                        Task { await purchaseManager.startFreeTrial() }
-                    } label: {
-                        Text("Start 7-Day Free Trial")
-                            .font(type.body)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(theme.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                        .foregroundStyle(theme.accent)
                 }
+                .listRowBackground(palette.surface)
             }
-            .listRowBackground(palette.surface)
 
             Section("Included For Everyone") {
                 featureRow("Advanced analytics and trends")
@@ -128,7 +96,7 @@ struct StoreView: View {
             Section {
                 Button {
                     Task {
-                        await purchaseManager.buy(productID: PurchaseManager.proProductID)
+                        await purchaseManager.buy(productID: PurchaseManager.proMonthlyProductID)
                     }
                 } label: {
                     Text(primaryCTA)
@@ -143,6 +111,16 @@ struct StoreView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(primaryCTADisabled)
+
+                if trialEligible {
+                    Button("Start 7-Day Trial") {
+                        Task {
+                            _ = await purchaseManager.startServerTrialIfEligible()
+                        }
+                    }
+                    .font(type.body)
+                    .foregroundStyle(theme.accent)
+                }
 
                 Button("Restore Purchases") {
                     Task { await purchaseManager.restore() }
@@ -184,12 +162,15 @@ struct StoreView: View {
 
     private var primaryCTA: String {
         if purchaseManager.isPro {
-            return String(localized: "Pro Unlocked")
+            return String(localized: "Pro Active")
         }
         if let proProduct {
-            return L10n.f("Unlock Pro (%@, One-time)", proProduct.displayPrice)
+            if let intro = introOffer, intro.paymentMode == .freeTrial {
+                return trialCTA(for: intro)
+            }
+            return L10n.f("Subscribe (%@ / month)", proProduct.displayPrice)
         }
-        return String(localized: "Unlock Pro (Unavailable)")
+        return String(localized: "Subscribe (Unavailable)")
     }
 
     private var primaryCTADisabled: Bool {
@@ -197,36 +178,64 @@ struct StoreView: View {
     }
 
     private var statusText: String {
-        if purchaseManager.hasLifetimePro {
-            return String(localized: "Status: Unlocked (Purchased)")
+        if isServerTrialActive {
+            return "Status: Trial Active (\(trialDaysRemainingText) left)"
         }
-        if purchaseManager.isProTrialActive {
-            return String(localized: "Status: Free Trial Active")
-        }
-        if purchaseManager.hasUsedProTrial {
-            return String(localized: "Status: Free (Trial Ended)")
+        if purchaseManager.isPro {
+            return String(localized: "Status: Active")
         }
         return String(localized: "Status: Free")
     }
 
     private var statusColor: Color {
-        if purchaseManager.hasLifetimePro || purchaseManager.isProTrialActive {
+        if isServerTrialActive {
+            return theme.accent
+        }
+        if purchaseManager.isPro {
             return theme.accent
         }
         return palette.textSecondary
     }
 
-    private func trialCountdownText(until end: Date) -> String {
-        let now = Date()
-        guard end > now else { return "Trial ended." }
+    private var trialEligible: Bool {
+        !purchaseManager.isPro && !purchaseManager.trialUsed
+    }
 
-        let secondsLeft = end.timeIntervalSince(now)
-        let daysLeft = Int(ceil(secondsLeft / 86_400))
-        if daysLeft >= 1 {
-            return daysLeft == 1 ? "1 day left in trial." : "\(daysLeft) days left in trial."
+    private var isServerTrialActive: Bool {
+        guard let trialEndsAt = purchaseManager.trialEndsAt else { return false }
+        return trialEndsAt > Date() && !purchaseManager.hasActiveSubscription
+    }
+
+    private var trialDaysRemainingText: String {
+        guard let trialEndsAt = purchaseManager.trialEndsAt else { return "0d" }
+        let seconds = max(0, Int(trialEndsAt.timeIntervalSinceNow))
+        let days = max(1, Int(ceil(Double(seconds) / 86_400.0)))
+        return "\(days)d"
+    }
+
+    private func trialCTA(for offer: Product.SubscriptionOffer) -> String {
+        let duration = offerDurationText(offer.period)
+        return "Start \(duration) Free Trial"
+    }
+
+    private func trialSummaryText(for offer: Product.SubscriptionOffer) -> String {
+        let duration = offerDurationText(offer.period)
+        return "\(duration) free trial available for eligible users."
+    }
+
+    private func offerDurationText(_ period: Product.SubscriptionPeriod) -> String {
+        let value = period.value
+        switch period.unit {
+        case .day:
+            return value == 1 ? "1-day" : "\(value)-day"
+        case .week:
+            return value == 1 ? "1-week" : "\(value)-week"
+        case .month:
+            return value == 1 ? "1-month" : "\(value)-month"
+        case .year:
+            return value == 1 ? "1-year" : "\(value)-year"
+        @unknown default:
+            return "\(value)-day"
         }
-
-        let hoursLeft = max(1, Int(ceil(secondsLeft / 3_600)))
-        return hoursLeft == 1 ? "1 hour left in trial." : "\(hoursLeft) hours left in trial."
     }
 }

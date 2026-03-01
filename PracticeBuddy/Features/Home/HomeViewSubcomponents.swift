@@ -1,0 +1,243 @@
+import SwiftUI
+
+struct CompactTimeStatView: View {
+    let title: String
+    let seconds: Int
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(LocalizedStringKey(title))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+            Text(DurationFormatter.string(from: seconds))
+                .font(type.number)
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityValue(Text(DurationFormatter.string(from: seconds)))
+    }
+}
+
+struct PracticeLabCardView: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(palette.accent)
+
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: 220, height: 140, alignment: .topLeading)
+        .padding(12)
+        .pbSurfaceCard(palette: palette, cornerRadius: 14)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityValue(Text(LocalizedStringKey(subtitle)))
+    }
+}
+
+struct PracticeToolCardView: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(palette.accent)
+
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: 220, height: 102, alignment: .topLeading)
+        .padding(12)
+        .pbSurfaceCard(palette: palette, cornerRadius: 14)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityValue(Text(LocalizedStringKey(subtitle)))
+    }
+}
+
+struct StepperMinutesRow: View {
+    let title: String
+    @Binding var value: Int
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            Button {
+                value = max(0, value - 1)
+            } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(palette.textSecondary)
+            .accessibilityLabel(Text("Decrease \(title) minutes"))
+            .accessibilityHint(Text("Reduces by one minute"))
+
+            Text(L10n.f("%@ min", "\(value)"))
+                .font(type.number)
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+                .frame(minWidth: 72, alignment: .center)
+
+            Button {
+                value = min(90, value + 1)
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(palette.accent)
+            .accessibilityLabel(Text("Increase \(title) minutes"))
+            .accessibilityHint(Text("Adds one minute"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityValue(Text(L10n.f("%@ minutes", "\(value)")))
+    }
+}
+
+struct GuidedTemplateSessionSheetView: View {
+    let plan: HomeView.GuidedTemplateSessionPlan
+    let guidance: (
+        currentBlockTitle: String,
+        secondsToNext: Int,
+        nextLabel: String,
+        phaseProgress: Double,
+        totalProgress: Double
+    )
+    let elapsedSeconds: Int
+    let palette: PBTheme.Palette
+    let chrome: Color
+    let type: PBTypography
+    let formatTime: (Int) -> String
+    let onDone: () -> Void
+
+    var body: some View {
+        Form {
+            Section("Session") {
+                HStack {
+                    Text(plan.name)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer()
+                    Text(DurationFormatter.string(from: elapsedSeconds))
+                        .font(type.number)
+                        .foregroundStyle(palette.accent)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Current")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Text(guidance.currentBlockTitle)
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                }
+
+                HStack {
+                    Text(guidance.nextLabel)
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Text(formatTime(guidance.secondsToNext))
+                        .font(type.number)
+                        .foregroundStyle(palette.textPrimary)
+                        .monospacedDigit()
+                }
+            }
+
+            Section("Blocks") {
+                TemplateSessionRow(title: "Warm-up", minutes: plan.warmupMinutes, isActive: guidance.currentBlockTitle == "Warm-up", palette: palette, type: type)
+                TemplateSessionRow(title: "Technique", minutes: plan.techniqueMinutes, isActive: guidance.currentBlockTitle == "Technique", palette: palette, type: type)
+                TemplateSessionRow(title: "Repertoire", minutes: plan.repertoireMinutes, isActive: guidance.currentBlockTitle == "Repertoire", palette: palette, type: type)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(chrome.ignoresSafeArea())
+        .navigationTitle("Template Session")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    onDone()
+                }
+            }
+        }
+    }
+}
+
+private struct TemplateSessionRow: View {
+    let title: String
+    let minutes: Int
+    let isActive: Bool
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        HStack {
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            Text(L10n.f("%@ min", "\(minutes)"))
+                .font(type.number)
+                .foregroundStyle(isActive ? palette.accent : palette.textSecondary)
+                .monospacedDigit()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
+        .accessibilityValue(Text(L10n.f("%@ minutes%@", "\(minutes)", isActive ? ", current" : "")))
+    }
+}

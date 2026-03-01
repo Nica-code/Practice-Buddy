@@ -186,7 +186,12 @@ struct PlanExecuteReflectView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Goal.allCases) { goal in
-                        chip(goal.title, isSelected: selectedGoals.contains(goal.rawValue)) {
+                        PlanExecuteReflectChipView(
+                            title: goal.title,
+                            isSelected: selectedGoals.contains(goal.rawValue),
+                            palette: palette,
+                            type: type
+                        ) {
                             if selectedGoals.contains(goal.rawValue) {
                                 selectedGoals.remove(goal.rawValue)
                             } else if selectedGoals.count < 4 {
@@ -602,19 +607,6 @@ struct PlanExecuteReflectView: View {
         statusMessage = "Template applied."
     }
 
-    @ViewBuilder
-    private func chip(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(LocalizedStringKey(title))
-                .font(type.footnote)
-                .foregroundStyle(isSelected ? palette.accent : palette.textSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(isSelected ? palette.accent.opacity(0.18) : palette.surfaceAlt)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct PracticeToolsQuickPanelView: View {

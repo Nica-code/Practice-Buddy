@@ -47,13 +47,7 @@ struct ProfileTabView: View {
     }
 
     private var guestSignInBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Guest account")
-                .font(type.body)
-                .foregroundStyle(palette.textPrimary)
-            Text("Sign in with Apple to keep your account across devices.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+        GuestAccountBannerView(palette: palette, type: type) {
             SignInWithAppleButton(.continue) { request in
                 firebase.prepareAppleSignInRequest(request)
             } onCompletion: { result in
@@ -63,7 +57,5 @@ struct ProfileTabView: View {
             .frame(height: 42)
             .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
         }
-        .padding(PBLayout.padMD)
-        .pbModernCard(palette: palette)
     }
 }

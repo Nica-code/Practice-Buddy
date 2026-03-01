@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+import os
+import FirebaseAuth
 import FirebaseFirestore
 
 @MainActor
@@ -50,6 +52,10 @@ final class FirebasePresenceManager: ObservableObject {
     }
 
     private func writePresence(uid: String, isOnline: Bool) {
+        guard let authUID = Auth.auth().currentUser?.uid, authUID == uid else {
+            PBLog.firebase.warning("Skipped presence write: auth user mismatch or missing. uid=\(uid, privacy: .private)")
+            return
+        }
         let payload: [String: Any] = [
             "presenceState": isOnline ? "online" : "offline",
             "presenceLastChanged": FieldValue.serverTimestamp(),
