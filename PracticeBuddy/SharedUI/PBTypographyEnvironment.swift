@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Environment Key
 
@@ -28,8 +29,12 @@ extension View {
     ///
     /// This replaces any previous usage of `type.globalDesign` (which no longer exists).
     /// Global font design should be sourced from the *font pack*, not PBTypography.
+    @ViewBuilder
     func pbGlobalFontDesign(_ fontChoice: PBFontChoice) -> some View {
-        // Keep custom font palettes unmodified at the root level.
-        self
+        if let overrideFont = fontChoice.globalOverrideFont() {
+            self.font(overrideFont)
+        } else {
+            self
+        }
     }
 }

@@ -63,17 +63,25 @@ struct ContentView: View {
                     journeyManager.handleSessionSnapshot(sessions)
                 }
             themeManager.refresh()
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
+            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
             syncUserPipelines(force: true)
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
         }
         .onChange(of: colorScheme) {
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
+            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
         }
         .onChange(of: themeManager.theme.id) { _, _ in
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent))
+            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
+        }
+        .onChange(of: selectedFontID) { _, _ in
+            let refreshedChoice = PBFontChoice.byID(selectedFontID)
+            PBTabBarStyle.apply(
+                colorScheme: colorScheme,
+                accent: UIColor(themeManager.theme.accent),
+                fontChoice: refreshedChoice
+            )
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID

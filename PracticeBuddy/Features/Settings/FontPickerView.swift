@@ -51,7 +51,7 @@ struct FontPickerView: View {
                 .foregroundStyle(theme.textSecondary)
 
             Text(previewChoice.resolvedRoleDebugText())
-                .font(.caption2.monospaced())
+                .font(previewChoice.bodyFont(size: 11))
                 .foregroundStyle(theme.textSecondary)
                 .lineLimit(2)
 

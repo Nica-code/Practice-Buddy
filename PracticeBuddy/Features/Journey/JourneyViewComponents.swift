@@ -56,6 +56,7 @@ struct PBRewardConfettiOverlay: View {
 struct PBDuelFinisherOverlay: View {
     let styleID: String
     let token: Int
+    @Environment(\.pbTypography) private var type
 
     @State private var animate = false
 
@@ -86,7 +87,7 @@ struct PBDuelFinisherOverlay: View {
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(highlight)
                     Text("Duel Finalized")
-                        .font(.headline)
+                        .font(type.button)
                         .foregroundStyle(Color.white)
                 }
                 .padding(.horizontal, 18)

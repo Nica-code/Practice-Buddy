@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     let onFinish: () -> Void
+    @Environment(\.pbTypography) private var type
 
     @State private var page: Int = 0
 
@@ -52,11 +53,11 @@ struct OnboardingView: View {
             Spacer()
 
             Text("Practice Buddy")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(type.fontChoice.homeTitleFont(size: 34))
                 .multilineTextAlignment(.center)
 
             Text("Start a timer, save notes, and build a streak—right from Home.")
-                .font(.body)
+                .font(type.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
@@ -104,7 +105,7 @@ struct OnboardingView: View {
             Image(systemName: systemImage)
                 .font(.title3)
             Text(title)
-                .font(.title3.bold())
+                .font(type.sheetTitle)
         }
         .padding(.bottom, 6)
     }
@@ -112,7 +113,7 @@ struct OnboardingView: View {
     private func bullet(_ markdown: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("•")
-                .font(.headline)
+                .font(type.body)
                 .padding(.top, 1)
             Text(markdown)
         }

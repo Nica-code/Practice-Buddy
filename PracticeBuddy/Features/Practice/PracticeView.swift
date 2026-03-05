@@ -3,6 +3,7 @@ import Combine
 
 struct PracticeView: View {
     @EnvironmentObject private var store: SessionStore
+    @Environment(\.pbTypography) private var type
 
     // Persisted state so you can leave and come back ("resume where you left off")
     @AppStorage("pb.practice.accumulatedSeconds") private var accumulatedSeconds: Int = 0
@@ -36,7 +37,7 @@ struct PracticeView: View {
     var body: some View {
         VStack(spacing: 18) {
             Text(DurationFormatter.string(from: currentElapsedSeconds))
-                .font(.system(size: 64, weight: .bold, design: .rounded))
+                .font(type.fontChoice.numberFont(size: 64, weight: .bold))
                 .monospacedDigit()
 
             HStack(spacing: 12) {

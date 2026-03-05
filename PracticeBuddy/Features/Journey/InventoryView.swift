@@ -53,7 +53,7 @@ struct InventoryView: View {
                                 .foregroundStyle(palette.textSecondary)
 
                             Text(slotUsageLabel(for: item.slot))
-                                .font(.caption)
+                                .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
 
                             HStack(spacing: 10) {

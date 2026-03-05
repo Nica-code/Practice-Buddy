@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct HelpView: View {
+    @Environment(\.pbTypography) private var type
+
     var body: some View {
         List {
             Section("Getting started") {
@@ -40,7 +42,7 @@ struct HelpView: View {
     private func bullet(_ markdown: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("•")
-                .font(.headline)
+                .font(type.body)
                 .padding(.top, 1)
             Text(.init(markdown))
                 .foregroundStyle(.primary)

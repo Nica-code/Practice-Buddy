@@ -107,30 +107,25 @@ struct PBFontChoice: Identifiable, Equatable {
     static let playful = PBFontChoice(
         id: "font_google_playful",
         name: "Playful",
-        subtitle: "Fredoka + Quicksand + Nunito Sans",
+        subtitle: "Bina",
         titleRole: .init(
-            preferredNames: ["Fredoka-Regular", "Fredoka"],
-            fileStems: ["Fredoka-Regular"],
+            preferredNames: ["BinaRegularCalligraphr", "Bina Regular", "Bina-Regular"],
+            fileStems: ["Bina"],
             fallbackDesign: .rounded
         ),
         headlineRole: .init(
-            preferredNames: ["Fredoka-Regular", "Fredoka"],
-            fileStems: ["Fredoka-Regular"],
+            preferredNames: ["BinaRegularCalligraphr", "Bina Regular", "Bina-Regular"],
+            fileStems: ["Bina"],
             fallbackDesign: .rounded
         ),
         bodyRole: .init(
-            preferredNames: ["Quicksand-Regular", "Quicksand"],
-            fileStems: ["Quicksand-Regular"],
+            preferredNames: ["BinaRegularCalligraphr", "Bina Regular", "Bina-Regular"],
+            fileStems: ["Bina"],
             fallbackDesign: .rounded
         ),
         numberRole: .init(
-            preferredNames: [
-                "NunitoSans-Regular",
-                "NunitoSans",
-                "NunitoSans10pt-Regular",
-                "Nunito Sans"
-            ],
-            fileStems: ["NunitoSans-VariableFont_YTLC,opsz,wdth,wght"],
+            preferredNames: ["BinaRegularCalligraphr", "Bina Regular", "Bina-Regular"],
+            fileStems: ["Bina"],
             fallbackDesign: .rounded
         )
     )
@@ -143,6 +138,8 @@ struct PBFontChoice: Identifiable, Equatable {
     ]
 
     static let systemDefault = modern
+
+    var isPlayful: Bool { id == PBFontChoice.playful.id }
 
     static func byID(_ id: String) -> PBFontChoice {
         if let found = all.first(where: { $0.id == id }) {
@@ -186,8 +183,29 @@ struct PBFontChoice: Identifiable, Equatable {
         font(for: bodyRole, size: 17, weight: .regular)
     }
 
+    func bodyFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        font(for: bodyRole, size: size, weight: weight)
+    }
+
     func numberFont(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
         font(for: numberRole, size: size, weight: weight)
+    }
+
+    func globalOverrideFont() -> Font? {
+        guard isPlayful, let customName = resolvedFontName(from: bodyRole.preferredNames) else {
+            return nil
+        }
+        return .custom(customName, size: UIFont.preferredFont(forTextStyle: .body).pointSize)
+    }
+
+    // MARK: - UIKit bridge (Tab bar / UIKit surfaces)
+
+    func uiTabBarSelectedFont(size: CGFloat = 10) -> UIFont {
+        uiFont(for: headlineRole, size: size, fallbackWeight: .semibold)
+    }
+
+    func uiTabBarNormalFont(size: CGFloat = 10) -> UIFont {
+        uiFont(for: headlineRole, size: size, fallbackWeight: .medium)
     }
 
     func resolvedRoleDebugText() -> String {
@@ -220,5 +238,13 @@ struct PBFontChoice: Identifiable, Equatable {
         }
 
         return nil
+    }
+
+    private func uiFont(for role: RoleSpec, size: CGFloat, fallbackWeight: UIFont.Weight) -> UIFont {
+        if let customName = resolvedFontName(from: role.preferredNames),
+           let font = UIFont(name: customName, size: size) {
+            return font
+        }
+        return UIFont.systemFont(ofSize: size, weight: fallbackWeight)
     }
 }

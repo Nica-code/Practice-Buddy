@@ -359,7 +359,7 @@ struct FriendsView: View {
                                     .foregroundStyle(theme.textSecondary)
                                 let league = buddiesVM.buddyDisplayLeague(buddy.id)
                                 Text(league)
-                                    .font(.caption2.weight(.semibold))
+                                    .font(type.fontChoice.headlineFont(size: 11, weight: .semibold))
                                     .foregroundStyle(leagueChipTextColor(for: league))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)

@@ -24,7 +24,7 @@ struct PBShortcutBar: View {
                         Image(systemName: item.systemImage)
                             .font(.system(size: 12, weight: .semibold))
                         Text(LocalizedStringKey(item.title))
-                            .font(type.footnote.weight(.semibold))
+                            .font(type.fontChoice.headlineFont(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(item.isDisabled ? palette.textSecondary.opacity(0.72) : palette.textPrimary)
                     .frame(maxWidth: .infinity)

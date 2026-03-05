@@ -57,7 +57,7 @@ struct AboutSectionView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Contact Information & Feedback")
-                        .font(.headline)
+                        .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
                 }
                 .padding(.vertical, 2)

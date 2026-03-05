@@ -285,7 +285,7 @@ struct UserProfileView: View {
                                     PBAvatarView(avatarID: style.id, displayName: style.title, size: 42)
                                     Spacer()
                                     Text(style.availability.label)
-                                        .font(.caption2.weight(.semibold))
+                                        .font(type.fontChoice.headlineFont(size: 11, weight: .semibold))
                                         .foregroundStyle(selected ? palette.accent : palette.textSecondary)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 3)
@@ -297,7 +297,7 @@ struct UserProfileView: View {
                                         .font(type.footnote.weight(.semibold))
                                         .foregroundStyle(palette.textPrimary)
                                     Text(LocalizedStringKey(style.subtitle))
-                                        .font(.caption2)
+                                        .font(type.footnote)
                                         .foregroundStyle(palette.textSecondary)
                                 }
                             }

@@ -46,12 +46,10 @@ struct PBTypography {
     }
 
     var button: Font {
-        switch style {
-        case .concertHall:
-            return .system(.headline, design: .default)
-        default:
-            return .system(.headline, design: .rounded)
-        }
+        fontChoice.headlineFont(
+            size: UIFont.preferredFont(forTextStyle: .headline).pointSize,
+            weight: .semibold
+        )
     }
 
     var statusLabel: Font {
@@ -63,7 +61,10 @@ struct PBTypography {
     }
 
     var footnote: Font {
-        .footnote
+        fontChoice.bodyFont(
+            size: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+            weight: .regular
+        )
     }
 
     // MARK: - Numbers

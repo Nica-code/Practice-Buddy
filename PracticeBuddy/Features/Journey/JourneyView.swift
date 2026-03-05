@@ -479,7 +479,7 @@ struct JourneyView: View {
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
                     Text(duelLeague.leagueTier.title)
-                        .font(.caption.weight(.semibold))
+                        .font(type.fontChoice.headlineFont(size: 12, weight: .semibold))
                         .foregroundStyle(leagueChipTextColor(for: duelLeague.leagueTier))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -1347,7 +1347,7 @@ struct JourneyView: View {
                                 .foregroundStyle(palette.textSecondary)
 
                             Text(item.category.title)
-                                .font(.caption)
+                                .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
 
                         if !item.isOwned {
@@ -1486,6 +1486,5 @@ struct JourneyView: View {
     }
 
 }
-
 
 
