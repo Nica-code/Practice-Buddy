@@ -141,6 +141,10 @@ struct PBFontChoice: Identifiable, Equatable {
 
     var isPlayful: Bool { id == PBFontChoice.playful.id }
 
+    private var sizeMultiplier: CGFloat {
+        isPlayful ? 1.22 : 1.0
+    }
+
     static func byID(_ id: String) -> PBFontChoice {
         if let found = all.first(where: { $0.id == id }) {
             return found
@@ -218,11 +222,12 @@ struct PBFontChoice: Identifiable, Equatable {
     // MARK: - Internals
 
     private func font(for role: RoleSpec, size: CGFloat, weight: Font.Weight) -> Font {
+        let adjustedSize = size * sizeMultiplier
         if let customName = resolvedFontName(from: role.preferredNames) {
-            return .custom(customName, size: size)
+            return .custom(customName, size: adjustedSize)
         }
 
-        return .system(size: size, weight: weight, design: role.fallbackDesign)
+        return .system(size: adjustedSize, weight: weight, design: role.fallbackDesign)
     }
 
     private func resolvedNameOrFallback(for role: RoleSpec) -> String {
@@ -241,10 +246,11 @@ struct PBFontChoice: Identifiable, Equatable {
     }
 
     private func uiFont(for role: RoleSpec, size: CGFloat, fallbackWeight: UIFont.Weight) -> UIFont {
+        let adjustedSize = size * sizeMultiplier
         if let customName = resolvedFontName(from: role.preferredNames),
-           let font = UIFont(name: customName, size: size) {
+           let font = UIFont(name: customName, size: adjustedSize) {
             return font
         }
-        return UIFont.systemFont(ofSize: size, weight: fallbackWeight)
+        return UIFont.systemFont(ofSize: adjustedSize, weight: fallbackWeight)
     }
 }

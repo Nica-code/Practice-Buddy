@@ -11,6 +11,17 @@ Environment
 - Backend: Firebase Auth + Cloud Firestore
 - Build status: project builds successfully in Xcode (latest local build succeeded)
 
+Latest Updates (2026-03-05)
+- Playful font sizing now matches the visual scale of other font themes by applying a calibrated size multiplier across SwiftUI and UIKit bridge paths.
+- Pro product naming updated in UI from `Practice Buddy Pro` to `PractiQuest Pro` (Shop + Settings Store).
+- Home > Studio view UX refinement:
+  - `Studio Manager` and `Studio Planner` are now split into two separate Teacher Tools cards.
+  - Studio-related section cards were normalized to full-width card sizing for consistent alignment in:
+    - Teacher Tools
+    - Student Tools
+    - Today’s Assignments
+    - Warm-up of the Week
+
 Current Product Areas
 
 1) Core App Structure

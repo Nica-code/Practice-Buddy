@@ -1120,6 +1120,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(PBLayout.padMD)
         .pbModernCard(palette: palette)
         .listRowInsets(
@@ -1410,38 +1411,40 @@ struct HomeView: View {
 
     private var teacherToolsSection: some View {
         Section {
-            homeSectionCard {
-                if purchaseManager.isPro {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button {
-                            homeNavigationTarget = .studioManagerTeacher
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Studio Manager")
-                                    .font(type.body)
-                                    .foregroundStyle(palette.textPrimary)
-                                Text("Create your studio, manage roster, and publish assignments.")
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
+            if purchaseManager.isPro {
+                homeSectionCard {
+                    Button {
+                        homeNavigationTarget = .studioManagerTeacher
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Studio Manager")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Create your studio, manage roster, and publish assignments.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
                         }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            homeNavigationTarget = .studioPlanner
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Studio Planner")
-                                    .font(type.body)
-                                    .foregroundStyle(palette.textPrimary)
-                                Text("Plan lessons, studio class, and recital events with calendar sync.")
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
                     }
-                } else {
+                    .buttonStyle(.plain)
+                }
+
+                homeSectionCard {
+                    Button {
+                        homeNavigationTarget = .studioPlanner
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Studio Planner")
+                                .font(type.body)
+                                .foregroundStyle(palette.textPrimary)
+                            Text("Plan lessons, studio class, and recital events with calendar sync.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                homeSectionCard {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Teacher tools are part of Practice Buddy Pro.")
                             .font(type.footnote)

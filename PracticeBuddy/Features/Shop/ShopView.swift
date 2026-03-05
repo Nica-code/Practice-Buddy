@@ -21,7 +21,7 @@ struct ShopView: View {
         List {
             Section("Pro") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Practice Buddy Pro")
+                    Text("PractiQuest Pro")
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
