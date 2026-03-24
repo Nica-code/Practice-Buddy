@@ -186,7 +186,6 @@ struct HomeView: View {
     @State private var templatesLoaded = false
     @State private var editableTemplates: [EditableSessionTemplate] = []
     @State private var activeTemplateSessionPlan: GuidedTemplateSessionPlan?
-    @State private var showAppSelectionPicker = false
     @State private var selectedHomeArea: HomeArea = .dashboard
     @State private var activePracticeToolSheet: PracticeToolSheet?
     @State private var showShopSheet = false
@@ -254,6 +253,11 @@ struct HomeView: View {
             && appShield.isShieldingActive
             && appShield.isAuthorized
             && appShield.selectedAppsCount > 0
+    }
+    private var verificationStatusActive: Bool {
+        verificationEnabledForSession
+            && distractionBlockEnabled
+            && appShield.isVerificationConfigured
     }
     private var checkInFlowEnabled: Bool {
         verificationMechanismActive && checkInsEnabled
@@ -350,7 +354,6 @@ struct HomeView: View {
                 }
             }
         }
-        .practiceAppShieldPicker(isPresented: $showAppSelectionPicker, selection: appShield.selectionBinding)
         .overlay {
             if isRunning && checkInFlowEnabled && checkInManager.isAwaitingResponse {
                 checkInOverlay
@@ -618,10 +621,12 @@ struct HomeView: View {
             checkInsEnabled = true
             checkInNotificationsEnabled = true
             checkInIntervalPresetRaw = CheckInIntervalPreset.relaxed.rawValue
-            if isRunning {
-                Task { await appShield.startShieldingIfPossible() }
-            } else {
-                appShield.refreshState()
+            appShield.refreshState()
+            Task {
+                await appShield.configureAutoVerificationDefaults()
+                if isRunning {
+                    await appShield.startShieldingIfPossible()
+                }
             }
         } else {
             distractionBlockEnabled = false
@@ -1178,11 +1183,11 @@ struct HomeView: View {
                 if verificationEnabledForSession {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(verificationMechanismActive ? Color.green : Color.orange)
+                            .fill(verificationStatusActive ? Color.green : Color.orange)
                             .frame(width: 8, height: 8)
-                        Text(verificationMechanismActive ? "Verification active" : "Verification inactive")
+                        Text(verificationStatusActive ? "Verification active" : "Verification inactive")
                             .font(type.footnote)
-                            .foregroundStyle(verificationMechanismActive ? Color.green : Color.orange)
+                            .foregroundStyle(verificationStatusActive ? Color.green : Color.orange)
                     }
                 }
 
@@ -1210,21 +1215,6 @@ struct HomeView: View {
                     }
 
                     if verificationEnabledForSession {
-                        HStack(spacing: 10) {
-                            Button("Select Apps") {
-                                PBHaptics.tap()
-                                showAppSelectionPicker = true
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!appShield.isAvailable)
-                            Button("Authorize") {
-                                PBHaptics.tap()
-                                Task { await appShield.requestAuthorization() }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!appShield.isAvailable)
-                        }
-
                         Text(LocalizedStringKey(appShield.statusLine))
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
@@ -1345,7 +1335,7 @@ struct HomeView: View {
                                         .font(type.footnote)
                                         .foregroundStyle(palette.accent)
                                 }
-                                .frame(width: 170, alignment: .leading)
+                                .frame(minWidth: 170, idealWidth: 190, maxWidth: 210, alignment: .leading)
                                 .padding(10)
                                 .pbSurfaceCard(palette: palette, cornerRadius: 12)
                             }
@@ -1411,52 +1401,37 @@ struct HomeView: View {
 
     private var teacherToolsSection: some View {
         Section {
-            if purchaseManager.isPro {
-                homeSectionCard {
-                    Button {
-                        homeNavigationTarget = .studioManagerTeacher
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Studio Manager")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Create your studio, manage roster, and publish assignments.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                homeSectionCard {
-                    Button {
-                        homeNavigationTarget = .studioPlanner
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Studio Planner")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Plan lessons, studio class, and recital events with calendar sync.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            } else {
-                homeSectionCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Teacher tools are part of Practice Buddy Pro.")
+            homeSectionCard {
+                Button {
+                    homeNavigationTarget = .studioManagerTeacher
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Studio Manager")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Create your studio, manage roster, and publish assignments.")
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
-                        Button("Open Practice Buddy Pro") {
-                            selectedTab = 4
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.footnote)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            homeSectionCard {
+                Button {
+                    homeNavigationTarget = .studioPlanner
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Studio Planner")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Plan lessons, studio class, and recital events with calendar sync.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
             }
+            .buttonStyle(.plain)
         } header: {
             PBSectionHeaderLabel(title: "Teacher Tools")
         }
@@ -1465,29 +1440,16 @@ struct HomeView: View {
     private var studentToolsSection: some View {
         Section {
             homeSectionCard {
-                if purchaseManager.isPro {
-                    NavigationLink {
-                        PBLazyView(StudioManagerView(entryMode: .student))
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Your Studio")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Text("Join your teacher's studio, review roster, and track assignment progress.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Student studio tools are part of Practice Buddy Pro.")
+                NavigationLink {
+                    PBLazyView(StudioManagerView(entryMode: .student))
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your Studio")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Join your teacher's studio, review roster, and track assignment progress.")
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
-                        Button("Open Practice Buddy Pro") {
-                            selectedTab = 4
-                        }
-                        .buttonStyle(.bordered)
-                        .font(type.footnote)
                     }
                 }
             }
@@ -1676,48 +1638,34 @@ struct HomeView: View {
     private var templatesSection: some View {
         Section {
             homeSectionCard {
-                if purchaseManager.isPro {
-                    ForEach(Array($editableTemplates.enumerated()), id: \.element.id) { idx, $template in
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("Template name", text: $template.name)
-                                .font(type.body)
-
-                            VStack(spacing: 8) {
-                                StepperMinutesRow(title: "Warm-up", value: $template.warmupMinutes, palette: palette, type: type)
-                                StepperMinutesRow(title: "Technique", value: $template.techniqueMinutes, palette: palette, type: type)
-                                StepperMinutesRow(title: "Repertoire", value: $template.repertoireMinutes, palette: palette, type: type)
-                            }
-
-                            HStack {
-                                Spacer()
-                                Button("Start") {
-                                    hapticSoftTap()
-                                    applyTemplate(template.asPracticeTemplate)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .font(type.button)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        if idx < editableTemplates.count - 1 {
-                            Divider()
-                        }
-                    }
-                    .onChange(of: editableTemplates) { _, _ in
-                        persistEditableTemplates()
-                    }
-                } else {
+                ForEach(Array($editableTemplates.enumerated()), id: \.element.id) { idx, $template in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Template-based planning is a Pro feature.")
+                        TextField("Template name", text: $template.name)
                             .font(type.body)
-                            .foregroundStyle(palette.textSecondary)
-                        Button("Unlock Pro") {
-                            selectedTab = 4
+
+                        VStack(spacing: 8) {
+                            StepperMinutesRow(title: "Warm-up", value: $template.warmupMinutes, palette: palette, type: type)
+                            StepperMinutesRow(title: "Technique", value: $template.techniqueMinutes, palette: palette, type: type)
+                            StepperMinutesRow(title: "Repertoire", value: $template.repertoireMinutes, palette: palette, type: type)
                         }
-                        .font(type.button)
-                        .buttonStyle(.borderedProminent)
+
+                        HStack {
+                            Spacer()
+                            Button("Start") {
+                                hapticSoftTap()
+                                applyTemplate(template.asPracticeTemplate)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(type.button)
+                        }
                     }
                     .padding(.vertical, 4)
+                    if idx < editableTemplates.count - 1 {
+                        Divider()
+                    }
+                }
+                .onChange(of: editableTemplates) { _, _ in
+                    persistEditableTemplates()
                 }
             }
         } header: {
@@ -1971,7 +1919,7 @@ struct HomeView: View {
                             mood: saveDraft.noteMood,
                             journal: journal
                         )
-                        let notesToSave = purchaseManager.isPro
+                        let notesToSave = purchaseManager.featuresUnlocked
                             ? appendProSessionSummary(
                                 to: baseNotes,
                                 totalSeconds: currentElapsedSeconds,
@@ -2138,7 +2086,7 @@ struct HomeView: View {
         ].compactMap { $0 }
 
         let summaryLines = [
-            "### Pro Session Summary",
+            "### Session Summary",
             "Total: \(DurationFormatter.string(from: totalSeconds))",
             "Verified: \(DurationFormatter.string(from: verifiedSeconds))",
             "Unverified: \(DurationFormatter.string(from: unverifiedSeconds))",

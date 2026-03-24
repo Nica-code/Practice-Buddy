@@ -186,6 +186,9 @@ struct SocialView: View {
                     Text(thread.title)
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .allowsTightening(true)
                     if viewModel.isThreadPinned(thread.id) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 11, weight: .semibold))
@@ -201,6 +204,7 @@ struct SocialView: View {
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
                     .lineLimit(1)
+                    .allowsTightening(true)
             }
 
             Spacer(minLength: 8)

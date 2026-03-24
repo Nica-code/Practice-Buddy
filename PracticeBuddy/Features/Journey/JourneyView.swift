@@ -16,6 +16,7 @@ struct JourneyView: View {
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var duelLeague: DuelLeagueManager
     @EnvironmentObject private var firebase: FirebaseBootstrap
+    @EnvironmentObject private var adsManager: PBAdsManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -153,8 +154,11 @@ struct JourneyView: View {
             if showDuelFinisherCelebration, let finisherStyle = journey.equippedRewardID(for: .duelFinisherFX) {
                 PBDuelFinisherOverlay(styleID: finisherStyle, token: duelFinisherToken)
                     .allowsHitTesting(false)
-                    .transition(.opacity)
+                .transition(.opacity)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PBAdBannerSlot(placement: .playBottomBanner)
         }
         .onAppear {
             if !animateHeader {
@@ -696,6 +700,9 @@ struct JourneyView: View {
                                     Text(row.displayName)
                                         .font(type.footnote)
                                         .foregroundStyle(palette.textPrimary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.84)
+                                        .allowsTightening(true)
                                     Spacer()
                                     Text(L10n.f("Rating %@", "\(row.rating)"))
                                         .font(type.footnote)
@@ -884,17 +891,49 @@ struct JourneyView: View {
         let delta = challenge.myRatingDelta(for: uid)
 
         return sessionCardSkinContainer {
-            HStack {
-                Text(L10n.f("%@-%@", "\(myScore)", "\(oppScore)"))
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                    .monospacedDigit()
-                Spacer()
-                Text(delta >= 0 ? L10n.f("+%@", "\(delta)") : "\(delta)")
-                    .font(type.number)
-                    .foregroundStyle(delta >= 0 ? palette.accent : palette.textSecondary)
-                    .monospacedDigit()
-                statusBadge(text: "Settled", style: .success)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(L10n.f("%@-%@", "\(myScore)", "\(oppScore)"))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                        .monospacedDigit()
+                    Spacer()
+                    Text(delta >= 0 ? L10n.f("+%@", "\(delta)") : "\(delta)")
+                        .font(type.number)
+                        .foregroundStyle(delta >= 0 ? palette.accent : palette.textSecondary)
+                        .monospacedDigit()
+                    statusBadge(text: "Settled", style: .success)
+                }
+
+                if adsManager.shouldShowRewardedDuelButton(challengeID: challenge.id) {
+                    Button {
+                        PBHaptics.tap()
+                        Task {
+                            let didFinishAd = await adsManager.presentRewardedDuelAd(challengeID: challenge.id)
+                            guard didFinishAd else {
+                                rewardsMessage = "Rewarded ad unavailable right now."
+                                return
+                            }
+
+                            if await journey.claimDuelAdReward(
+                                challengeID: challenge.id,
+                                rewardTokens: adsManager.duelRewardTokenBonus
+                            ) {
+                                adsManager.markDuelRewardClaimed(challengeID: challenge.id)
+                                rewardsMessage = L10n.f("Claimed %@ tokens.", "\(adsManager.duelRewardTokenBonus)")
+                                triggerRewardCelebration()
+                            } else {
+                                rewardsMessage = "Reward already claimed."
+                            }
+                        }
+                    } label: {
+                        Label(L10n.f("Watch Ad +%@", "\(adsManager.duelRewardTokenBonus)"), systemImage: "play.rectangle.fill")
+                            .font(type.footnote)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(journey.isEconomyOperationInProgress)
+                }
             }
             .padding(.vertical, 2)
         }
@@ -1486,5 +1525,3 @@ struct JourneyView: View {
     }
 
 }
-
-

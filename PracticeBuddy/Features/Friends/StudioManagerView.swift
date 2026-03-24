@@ -183,7 +183,7 @@ struct StudioManagerView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        if !purchaseManager.isPro {
+        if !purchaseManager.featuresUnlocked {
             lockedCard
         } else {
             if showsRoleModePicker {
@@ -214,7 +214,7 @@ struct StudioManagerView: View {
                 .font(type.sectionTitle)
                 .foregroundStyle(theme.textPrimary)
 
-            Text("Studio tools are part of Practice Buddy Pro.")
+            Text("Studio tools are currently unavailable for this account.")
                 .font(type.body)
                 .foregroundStyle(theme.textSecondary)
         }

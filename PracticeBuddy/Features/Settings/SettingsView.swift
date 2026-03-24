@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     @EnvironmentObject var store: SessionStore
     @EnvironmentObject var purchaseManager: PurchaseManager
+    @EnvironmentObject var adsManager: PBAdsManager
     @Environment(\.pbTheme) var theme
     @Environment(\.pbTypography) var type
     @Environment(\.colorScheme) var colorScheme
@@ -26,12 +27,15 @@ struct SettingsView: View {
     @AppStorage("pb.notifications.friendRequests") var notifyFriendRequests: Bool = true
     @AppStorage("pb.notifications.studioInvites") var notifyStudioInvites: Bool = true
     @AppStorage("pb.settings.language") var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("pb.onboarding.tutorial.forceReplayToken") var tutorialReplayToken: Int = 0
 
     @State var pendingRetentionTask: Task<Void, Never>?
     @State var animateHeader = false
     @State var scrollAnchorTarget: SettingsAnchor?
     @State var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    #if DEBUG
     @State var pushTestStatus: String?
+    #endif
 
     var goalScopeBinding: Binding<GoalScope> {
         Binding(
@@ -180,6 +184,7 @@ struct SettingsView: View {
         notificationAuthorizationStatus = await PBNotificationCenter.authorizationStatus()
     }
 
+    #if DEBUG
     func sendPushTestNotification() async {
         do {
             try await PushTokenManager.shared.sendTestPushNotification(route: "social_chat")
@@ -188,5 +193,6 @@ struct SettingsView: View {
             pushTestStatus = "Push test failed: \(error.localizedDescription)"
         }
     }
+    #endif
 
 }

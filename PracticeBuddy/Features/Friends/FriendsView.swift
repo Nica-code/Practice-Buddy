@@ -412,6 +412,9 @@ struct FriendsView: View {
                                 Text(row.name)
                                     .font(type.body)
                                     .foregroundStyle(theme.textPrimary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.82)
+                                    .allowsTightening(true)
 
                                 Spacer()
 

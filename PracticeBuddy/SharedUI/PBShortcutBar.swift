@@ -25,6 +25,10 @@ struct PBShortcutBar: View {
                             .font(.system(size: 12, weight: .semibold))
                         Text(LocalizedStringKey(item.title))
                             .font(type.fontChoice.headlineFont(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                            .allowsTightening(true)
+                            .layoutPriority(1)
                     }
                     .foregroundStyle(item.isDisabled ? palette.textSecondary.opacity(0.72) : palette.textPrimary)
                     .frame(maxWidth: .infinity)

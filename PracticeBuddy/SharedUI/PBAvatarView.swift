@@ -11,7 +11,7 @@ struct PBAvatarStyle: Equatable {
         var label: String {
             switch self {
             case .included: return "Included"
-            case .pro: return "Pro"
+            case .pro: return "Ad-Free"
             case .token: return "Tokens"
             case .shop: return "Shop"
             }

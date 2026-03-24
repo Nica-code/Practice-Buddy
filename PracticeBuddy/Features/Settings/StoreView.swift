@@ -10,22 +10,22 @@ struct StoreView: View {
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var proProduct: Product? {
-        purchaseManager.availableProducts.first(where: { PurchaseManager.proSubscriptionProductIDs.contains($0.id) })
+    private var adFreeProduct: Product? {
+        purchaseManager.availableProducts.first(where: { PurchaseManager.adFreeSubscriptionProductIDs.contains($0.id) })
     }
     private var introOffer: Product.SubscriptionOffer? {
-        proProduct?.subscription?.introductoryOffer
+        adFreeProduct?.subscription?.introductoryOffer
     }
 
     var body: some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("PractiQuest Pro")
+                    Text("PractiQuest Ad-Free")
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
-                    Text("Auto-renewing monthly subscription with account-aware extras.")
+                    Text("All features are available to everyone. Subscribe to remove ads.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
@@ -54,18 +54,12 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Teacher Tools (Pro features)") {
-                if purchaseManager.isPro {
-                    Button {
-                        selectedTab = 0
-                    } label: {
-                        Label("Studio Manager", systemImage: "person.3")
-                            .font(type.body)
-                    }
-                } else {
-                    Text("Unlock Pro to open Studio Manager.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+            Section("Teacher Tools") {
+                Button {
+                    selectedTab = 0
+                } label: {
+                    Label("Studio Manager", systemImage: "person.3")
+                        .font(type.body)
                 }
                 featureRow("Studio roster and invites")
                 featureRow("Assignments and submissions")
@@ -73,18 +67,12 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Student Tools (Pro features)") {
-                if purchaseManager.isPro {
-                    NavigationLink {
-                        PBLazyView(StudioManagerView(entryMode: .student))
-                    } label: {
-                        Label("Join Studio", systemImage: "person.3")
-                            .font(type.body)
-                    }
-                } else {
-                    Text("Unlock Pro to join a studio.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+            Section("Student Tools") {
+                NavigationLink {
+                    PBLazyView(StudioManagerView(entryMode: .student))
+                } label: {
+                    Label("Join Studio", systemImage: "person.3")
+                        .font(type.body)
                 }
                 featureRow("Smart Practice Plan Generator")
                 featureRow("Assignment checklist")
@@ -96,17 +84,17 @@ struct StoreView: View {
             Section {
                 Button {
                     Task {
-                        await purchaseManager.buy(productID: PurchaseManager.proMonthlyProductID)
+                        await purchaseManager.buy(productID: PurchaseManager.adFreeMonthlyProductID)
                     }
                 } label: {
                     Text(primaryCTA)
                         .font(type.body)
-                        .foregroundStyle(purchaseManager.isPro ? palette.textSecondary : .white)
+                        .foregroundStyle(purchaseManager.hasAdFree ? palette.textSecondary : .white)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(purchaseManager.isPro ? palette.surfaceAlt : theme.accent)
+                                .fill(purchaseManager.hasAdFree ? palette.surfaceAlt : theme.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -161,44 +149,44 @@ struct StoreView: View {
     }
 
     private var primaryCTA: String {
-        if purchaseManager.isPro {
-            return String(localized: "Pro Active")
+        if purchaseManager.hasAdFree {
+            return String(localized: "Ad-Free Active")
         }
-        if let proProduct {
+        if let adFreeProduct {
             if let intro = introOffer, intro.paymentMode == .freeTrial {
                 return trialCTA(for: intro)
             }
-            return L10n.f("Subscribe (%@ / month)", proProduct.displayPrice)
+            return L10n.f("Subscribe (%@ / month)", adFreeProduct.displayPrice)
         }
         return String(localized: "Subscribe (Unavailable)")
     }
 
     private var primaryCTADisabled: Bool {
-        purchaseManager.isPro || proProduct == nil
+        purchaseManager.hasAdFree || adFreeProduct == nil
     }
 
     private var statusText: String {
         if isServerTrialActive {
             return "Status: Trial Active (\(trialDaysRemainingText) left)"
         }
-        if purchaseManager.isPro {
-            return String(localized: "Status: Active")
+        if purchaseManager.hasAdFree {
+            return String(localized: "Status: Ad-Free Active")
         }
-        return String(localized: "Status: Free")
+        return String(localized: "Status: Ads Enabled")
     }
 
     private var statusColor: Color {
         if isServerTrialActive {
             return theme.accent
         }
-        if purchaseManager.isPro {
+        if purchaseManager.hasAdFree {
             return theme.accent
         }
         return palette.textSecondary
     }
 
     private var trialEligible: Bool {
-        !purchaseManager.isPro && !purchaseManager.trialUsed
+        !purchaseManager.hasAdFree && !purchaseManager.trialUsed
     }
 
     private var isServerTrialActive: Bool {

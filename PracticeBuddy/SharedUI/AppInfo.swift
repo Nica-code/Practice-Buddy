@@ -112,4 +112,51 @@ enum AppInfo {
         }
         return false
     }
+
+    static var isTestFlightBuild: Bool {
+        if let receiptURL = Bundle.main.value(forKey: "appStoreReceiptURL") as? URL {
+            if receiptURL.lastPathComponent.lowercased() == "sandboxreceipt" {
+                return true
+            }
+        }
+        return boolValue(for: "PBIsTestFlightBuild", defaultValue: false)
+    }
+
+    static var adMobAppID: String? {
+        stringValue(for: "GADApplicationIdentifier")
+    }
+
+    static var productionBannerAdUnitID: String? {
+        stringValue(for: "PBAdMobBannerPlayAdUnitID")
+    }
+
+    static var productionRewardedAdUnitID: String? {
+        stringValue(for: "PBAdMobRewardedDuelAdUnitID")
+    }
+
+    static var adsKillSwitchEnabled: Bool {
+        boolValue(for: "PBAdsKillSwitch", defaultValue: false)
+    }
+
+    static var useTestAdsOverride: Bool {
+        boolValue(for: "PBAdsUseTestAds", defaultValue: false)
+    }
+
+    private static func stringValue(for key: String) -> String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func boolValue(for key: String, defaultValue: Bool) -> Bool {
+        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? Bool {
+            return value
+        }
+        if let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String {
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes", "on"].contains(normalized) { return true }
+            if ["0", "false", "no", "off"].contains(normalized) { return false }
+        }
+        return defaultValue
+    }
 }

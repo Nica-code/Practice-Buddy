@@ -9,6 +9,9 @@ extension SettingsView {
                 generalSection
                 toolAccessSection
                 notificationsSection
+                #if DEBUG
+                adsSection
+                #endif
                 historySection
                 AboutSectionView()
                     .listRowBackground(Color.clear)
@@ -105,6 +108,17 @@ extension SettingsView {
                     }
                 }
                 .pickerStyle(.menu)
+
+                Button {
+                    tutorialReplayToken = Int(Date().timeIntervalSince1970)
+                } label: {
+                    settingsLabel("Replay Tutorial", systemImage: "sparkles.rectangle.stack")
+                }
+                .buttonStyle(.plain)
+
+                Text("Reopens the quick in-app walkthrough.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
             }
         } header: {
             PBSectionHeaderLabel(title: "General")
@@ -136,7 +150,7 @@ extension SettingsView {
                 ))
                 .font(type.body)
 
-                Text("Studio Manager is a Pro feature under Teacher Tools.")
+                Text("Studio Manager is available under Teacher Tools.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -185,6 +199,7 @@ extension SettingsView {
                 }
                 .buttonStyle(.bordered)
 
+                #if DEBUG
                 Button("Send Test Push") {
                     Task { await sendPushTestNotification() }
                 }
@@ -195,6 +210,7 @@ extension SettingsView {
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
+                #endif
             }
         } header: {
             PBSectionHeaderLabel(title: "Notifications")
@@ -230,6 +246,67 @@ extension SettingsView {
             }
         } header: {
             PBSectionHeaderLabel(title: "History")
+        }
+    }
+
+    var adsSection: some View {
+        Section {
+            settingsSectionCard {
+                Toggle(
+                    "Show Ad Placeholders",
+                    isOn: Binding(
+                        get: { adsManager.showPlaceholders },
+                        set: { adsManager.setShowPlaceholders($0) }
+                    )
+                )
+                .font(type.body)
+
+                Toggle(
+                    "Enable Banner Ads",
+                    isOn: Binding(
+                        get: { adsManager.enableBannerAds },
+                        set: { adsManager.setEnableBannerAds($0) }
+                    )
+                )
+                .font(type.body)
+
+                Toggle(
+                    "Enable Rewarded Duel Ads",
+                    isOn: Binding(
+                        get: { adsManager.enableRewardedDuels },
+                        set: { adsManager.setEnableRewardedDuels($0) }
+                    )
+                )
+                .font(type.body)
+
+                Toggle(
+                    "Enable Real Ad SDK (Test IDs)",
+                    isOn: Binding(
+                        get: { adsManager.enableRealAdSDK },
+                        set: { adsManager.setEnableRealAdSDK($0) }
+                    )
+                )
+                .font(type.body)
+
+                Toggle(
+                    "Allow Ads",
+                    isOn: Binding(
+                        get: { adsManager.consentAllowsAds },
+                        set: { adsManager.setConsentAllowsAds($0) }
+                    )
+                )
+                .font(type.body)
+
+                Text(adsManager.adsEnabled ? "Ads are currently enabled for this account." : "Ads are disabled (Ad-Free active or ads turned off).")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+
+                Text(adsManager.sdkStatusLine)
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Ads")
         }
     }
 

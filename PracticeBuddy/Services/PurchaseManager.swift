@@ -54,8 +54,11 @@ enum PBEntitlementTier: String, CaseIterable {
 
 @MainActor
 final class PurchaseManager: ObservableObject {
-    static let proMonthlyProductID = "practicebuddy.pro.monthly"
-    static let proSubscriptionProductIDs = [proMonthlyProductID]
+    static let adFreeMonthlyProductID = "practicebuddy.pro.monthly"
+    static let adFreeSubscriptionProductIDs = [adFreeMonthlyProductID]
+    // Backward-compatible aliases kept during migration.
+    static let proMonthlyProductID = adFreeMonthlyProductID
+    static let proSubscriptionProductIDs = adFreeSubscriptionProductIDs
     static let entitlementSyncEndpointName = "syncEntitlements"
     static let subscriptionActiveKey = "pb.pro.subscriptionActive"
     static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"
@@ -77,6 +80,11 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var trialEndsAt: Date?
     @Published private(set) var syncStatus: String?
     @Published private(set) var availableProducts: [Product] = []
+
+    /// Subscription state used for ad removal.
+    var hasAdFree: Bool { isPro }
+    /// Phase 1 rollout: all app features are currently unlocked for everyone.
+    var featuresUnlocked: Bool { true }
 
     private var db: Firestore { Firestore.firestore() }
     private let urlSession = URLSession.shared
@@ -127,7 +135,7 @@ final class PurchaseManager: ObservableObject {
         showTeacherTools = normalizedVisibility.teacher
         ownedProductIDs = storedSubscriptionIDs
         if hasActiveSubscription && ownedProductIDs.isEmpty {
-            ownedProductIDs = Set(Self.proSubscriptionProductIDs)
+            ownedProductIDs = Set(Self.adFreeSubscriptionProductIDs)
         }
         recalculateProAccess()
 
@@ -154,14 +162,14 @@ final class PurchaseManager: ObservableObject {
     }
 
     func buy(productID: String) async {
-        guard Self.proSubscriptionProductIDs.contains(productID) else { return }
+        guard Self.adFreeSubscriptionProductIDs.contains(productID) else { return }
 
         do {
             if availableProducts.isEmpty {
                 await loadProducts()
             }
             guard let product = availableProducts.first(where: { $0.id == productID }) else {
-                syncStatus = "Pro product is not available right now."
+                syncStatus = "Ad-Free subscription is not available right now."
                 return
             }
 
@@ -213,7 +221,7 @@ final class PurchaseManager: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 if let error {
-                    self.syncStatus = "Pro sync error: \(error.localizedDescription)"
+                    self.syncStatus = "Subscription sync error: \(error.localizedDescription)"
                     return
                 }
 
@@ -328,7 +336,7 @@ final class PurchaseManager: ObservableObject {
 
     func debugUnlockPro() {
         applyEntitlementTier(.allAccess)
-        applySubscriptionState(true, productIDs: Set(Self.proSubscriptionProductIDs))
+        applySubscriptionState(true, productIDs: Set(Self.adFreeSubscriptionProductIDs))
         Task {
             await pushLocalStateToFirestore()
         }
@@ -344,7 +352,7 @@ final class PurchaseManager: ObservableObject {
 
     func loadProducts() async {
         do {
-            let products = try await Product.products(for: Self.proSubscriptionProductIDs)
+            let products = try await Product.products(for: Self.adFreeSubscriptionProductIDs)
             availableProducts = products.sorted(by: { $0.id < $1.id })
         } catch {
             syncStatus = "Could not load products: \(error.localizedDescription)"
@@ -356,7 +364,7 @@ final class PurchaseManager: ObservableObject {
         var activeProductIDs: Set<String> = []
         for await result in StoreKit.Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            guard Self.proSubscriptionProductIDs.contains(transaction.productID) else { continue }
+            guard Self.adFreeSubscriptionProductIDs.contains(transaction.productID) else { continue }
             if let expiration = transaction.expirationDate, expiration <= now { continue }
             if transaction.revocationDate != nil { continue }
             activeProductIDs.insert(transaction.productID)
@@ -526,7 +534,7 @@ final class PurchaseManager: ObservableObject {
             lastSyncedStateFingerprint = fingerprint
             syncStatus = nil
         } catch {
-            syncStatus = "Pro sync failed: \(error.localizedDescription)"
+            syncStatus = "Subscription sync failed: \(error.localizedDescription)"
         }
     }
 
@@ -625,7 +633,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func applyVerifiedTransaction(_ transaction: StoreKit.Transaction) async {
-        if Self.proSubscriptionProductIDs.contains(transaction.productID) {
+        if Self.adFreeSubscriptionProductIDs.contains(transaction.productID) {
             if entitlementTier == .free {
                 applyEntitlementTier(.pro)
             }
@@ -646,7 +654,7 @@ private struct EntitlementServerState {
     init(payload: [String: Any], fallbackProductIDs: Set<String>) {
         if let rawIDs = payload["subscriptionProductIDs"] as? [String] {
             subscriptionProductIDs = Set(rawIDs.filter {
-                PurchaseManager.proSubscriptionProductIDs.contains($0)
+                PurchaseManager.adFreeSubscriptionProductIDs.contains($0)
             })
         } else {
             subscriptionProductIDs = fallbackProductIDs

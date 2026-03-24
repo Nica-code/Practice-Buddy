@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
 import Combine
+import os
+import FirebaseAuth
 
 struct ContentView: View {
     private struct InviteJoinAlert: Identifiable {
@@ -19,6 +21,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var purchaseManager: PurchaseManager
+    @EnvironmentObject private var adsManager: PBAdsManager
 
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
     @AppStorage("pb.studio.hub.section") private var socialSectionRawValue: String = "friends"
@@ -26,6 +29,8 @@ struct ContentView: View {
     @AppStorage("pb.social.chat.openFriendUID") private var socialOpenFriendUID: String = ""
     @AppStorage("pb.social.chat.openThreadID") private var socialOpenThreadID: String = ""
     @AppStorage("pb.play.openChallengeID") private var playOpenChallengeID: String = ""
+    @AppStorage("pb.onboarding.tutorial.forceReplayToken") private var tutorialReplayToken: Int = 0
+    @AppStorage("pb.onboarding.tutorial.handledReplayToken") private var handledTutorialReplayToken: Int = 0
     @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
 
     @StateObject private var themeManager = ThemeManager()
@@ -43,6 +48,7 @@ struct ContentView: View {
     @State private var inviteJoinAlert: InviteJoinAlert?
     @State private var lastPipelineSyncKey: String?
     @State private var lastPipelineSyncAt: Date = .distantPast
+    @State private var showFirstRunTutorial: Bool = false
     private let studiosRepository = FirebaseStudiosRepository()
     private let buddiesRepository = FirebaseBuddiesRepository()
 
@@ -64,10 +70,12 @@ struct ContentView: View {
                 }
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
+            adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
             syncUserPipelines(force: true)
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncTutorialPresentation(force: true)
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
@@ -89,19 +97,22 @@ struct ContentView: View {
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncTutorialPresentation(force: true)
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             syncUserPipelines()
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncTutorialPresentation(force: true)
         }
-        .onChange(of: purchaseManager.isPro) { _, isPro in
+        .onChange(of: purchaseManager.hasAdFree) { _, _ in
+            adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
             guard scenePhase == .active, canRunRealtimePipelines else { return }
             warmupOfWeekManager.start(
                 uid: firebase.currentUserID,
                 accountType: .student,
-                isPro: isPro
+                isPro: purchaseManager.featuresUnlocked
             )
             Task { await assignmentLinkManager.flushPendingQueue() }
         }
@@ -111,6 +122,7 @@ struct ContentView: View {
                 syncFriendRequestBadge()
                 syncPresence()
                 syncSocialChatBadge()
+                syncTutorialPresentation()
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
@@ -120,13 +132,37 @@ struct ContentView: View {
                 socialChatManager.stop()
             }
         }
+        .onChange(of: tutorialReplayToken) { _, _ in
+            syncTutorialPresentation(force: true)
+        }
         .onOpenURL { url in
+            if Auth.auth().canHandle(url) {
+                return
+            }
             handleIncomingURL(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .pbNotificationRouteRequested)) { notification in
             guard let route = notification.object as? PBNotificationRoute else { return }
             applyNotificationRoute(route)
         }
+        .overlay {
+            if showFirstRunTutorial {
+                FirstRunTutorialView(
+                    steps: tutorialSteps,
+                    onSelectTab: { tabIndex in
+                        withAnimation(.snappy(duration: 0.2, extraBounce: 0)) {
+                            selectedTab = min(max(tabIndex, 0), 4)
+                        }
+                    },
+                    onComplete: { _, dontShowAgain in
+                        completeTutorial(dontShowAgain: dontShowAgain)
+                    }
+                )
+                .zIndex(1000)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showFirstRunTutorial)
         .environmentObject(store)
         .environmentObject(journeyManager)
         .environmentObject(themeManager)
@@ -247,10 +283,44 @@ struct ContentView: View {
     }
 
     private var theme: PBTheme { themeManager.theme }
+    private var tutorialSteps: [FirstRunTutorialStep] {
+        [
+            FirstRunTutorialStep(
+                id: "home",
+                tabIndex: 0,
+                title: "Home: Start Practice",
+                message: "Use Start Practice for quick sessions, or open Practice for templates and tools."
+            ),
+            FirstRunTutorialStep(
+                id: "play",
+                tabIndex: 1,
+                title: "Play: Duels and Quests",
+                message: "Queue a duel, challenge friends, and complete daily or weekly quests for tokens."
+            ),
+            FirstRunTutorialStep(
+                id: "social",
+                tabIndex: 2,
+                title: "Social: Friends and Chat",
+                message: "Manage requests, open chats, and stay connected with your practice buddies."
+            ),
+            FirstRunTutorialStep(
+                id: "profile",
+                tabIndex: 3,
+                title: "Profile: Track Progress",
+                message: "Check your level, league, and streak progress in one place."
+            ),
+            FirstRunTutorialStep(
+                id: "settings",
+                tabIndex: 4,
+                title: "Settings: Personalize App",
+                message: "Adjust goals, appearance, and notifications. You can replay this tour anytime from Settings."
+            )
+        ]
+    }
 
     private func resumeRealtimeManagers() {
         assignmentLinkManager.start(uid: firebase.currentUserID, accountType: .student)
-        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: .student, isPro: purchaseManager.isPro)
+        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: .student, isPro: purchaseManager.featuresUnlocked)
         Task { await assignmentLinkManager.flushPendingQueue() }
     }
 
@@ -264,7 +334,7 @@ struct ContentView: View {
             scenePhase == .active ? "active" : "inactive",
             firebase.currentUserID ?? "nil",
             firebase.isAnonymousUser ? "anon" : "auth",
-            purchaseManager.isPro ? "pro" : "free",
+            purchaseManager.hasAdFree ? "adfree" : "ads",
             needsAccountSetup ? "setup" : "ready"
         ].joined(separator: "|")
 
@@ -457,6 +527,7 @@ struct ContentView: View {
     }
 
     private func applyNotificationRoute(_ route: PBNotificationRoute) {
+        PBLog.firebase.info("Applying notification route: \(String(describing: route), privacy: .public)")
         switch route {
         case .homeGoals:
             selectedTab = 0
@@ -506,5 +577,39 @@ struct ContentView: View {
         }
 
         UserDefaults.standard.set(true, forKey: key)
+    }
+
+    private func syncTutorialPresentation(force: Bool = false) {
+        guard let uid = firebase.currentUserID, !uid.isEmpty else {
+            showFirstRunTutorial = false
+            return
+        }
+        guard !firebase.isAnonymousUser, !needsAccountSetup else {
+            showFirstRunTutorial = false
+            return
+        }
+
+        if tutorialReplayToken != handledTutorialReplayToken {
+            OnboardingTutorialState.reset(uid: uid)
+            handledTutorialReplayToken = tutorialReplayToken
+            showFirstRunTutorial = true
+            selectedTab = 0
+            return
+        }
+
+        guard !showFirstRunTutorial else { return }
+        guard force || scenePhase == .active else { return }
+
+        if !OnboardingTutorialState.isCompleted(uid: uid) {
+            showFirstRunTutorial = true
+            selectedTab = 0
+        }
+    }
+
+    private func completeTutorial(dontShowAgain: Bool) {
+        if dontShowAgain, let uid = firebase.currentUserID, !uid.isEmpty {
+            OnboardingTutorialState.markCompleted(uid: uid)
+        }
+        showFirstRunTutorial = false
     }
 }

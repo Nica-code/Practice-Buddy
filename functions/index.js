@@ -798,6 +798,7 @@ exports.onFriendInviteCreated = onDocumentCreated("invites/{inviteId}", async (e
     const fromUid = String(data.fromUid || "").trim();
     const fromDisplayName = String(data.fromDisplayName || "A PracticeBuddy user").trim();
     if (!toUid || !fromUid || toUid === fromUid) return;
+    logger.info("friend invite created", {inviteId: event.params?.inviteId || "", fromUid, toUid});
 
     await safePushToUser(toUid, {
       title: "New Friend Request",
@@ -833,6 +834,12 @@ exports.onFriendChatMessageCreated = onDocumentCreated(
           threadSnap.data().participants : [];
         const recipientUid = participants.find((uid) => String(uid || "") !== senderUid);
         if (!recipientUid) return;
+        logger.info("friend chat message created", {
+          threadId,
+          messageId: event.params?.messageId || "",
+          senderUid,
+          recipientUid: String(recipientUid),
+        });
 
         await safePushToUser(String(recipientUid), {
           title: "New Message",
@@ -841,13 +848,61 @@ exports.onFriendChatMessageCreated = onDocumentCreated(
           data: {
             pb_route: ROUTE_SOCIAL_CHAT,
             pb_type: TYPE_CHAT_MESSAGE,
-            threadId,
+            threadId: `friend:${threadId}`,
             friendUid: senderUid,
           },
           category: "pb.message",
         });
       } catch (error) {
         logger.error("onFriendChatMessageCreated failed", error);
+      }
+    }
+);
+
+exports.onStudioChatMessageCreated = onDocumentCreated(
+    "studios/{studioId}/messages/{messageId}",
+    async (event) => {
+      try {
+        const messageSnap = event.data;
+        if (!messageSnap) return;
+        const message = messageSnap.data() || {};
+
+        const studioId = String(event.params?.studioId || "").trim();
+        const senderUid = String(message.senderUid || "").trim();
+        if (!studioId || !senderUid) return;
+
+        const senderName = String(message.senderName || "Studio member").trim();
+        const membersSnap = await db.collection("studios")
+            .doc(studioId)
+            .collection("members")
+            .get();
+        const recipients = membersSnap.docs
+            .map((doc) => String(doc.id || "").trim())
+            .filter((uid) => uid && uid !== senderUid);
+        if (recipients.length === 0) return;
+
+        logger.info("studio chat message created", {
+          studioId,
+          messageId: event.params?.messageId || "",
+          senderUid,
+          recipientCount: recipients.length,
+        });
+
+        await Promise.all(recipients.map((recipientUid) => safePushToUser(recipientUid, {
+          title: `${senderName}`,
+          body: "New studio chat message.",
+          prefKey: "notificationMessages",
+          data: {
+            pb_route: ROUTE_SOCIAL_CHAT,
+            pb_type: TYPE_CHAT_MESSAGE,
+            threadId: `studio:${studioId}`,
+            studioId,
+            friendUid: senderUid,
+          },
+          category: "pb.message",
+        })));
+      } catch (error) {
+        logger.error("onStudioChatMessageCreated failed", error);
       }
     }
 );
@@ -1297,6 +1352,12 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
   }
 
   const payloadData = normalizePushData(data);
+  logger.info("sending push notification", {
+    uid: normalizedUid,
+    tokenCount: tokens.length,
+    prefKey: prefKey || "",
+    category: category || "",
+  });
   const response = await admin.messaging().sendEachForMulticast({
     tokens,
     notification: {
@@ -1312,6 +1373,11 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
         },
       },
     },
+  });
+  logger.info("push send result", {
+    uid: normalizedUid,
+    successCount: response.successCount,
+    failureCount: response.failureCount,
   });
   await pruneInvalidDeviceTokens(normalizedUid, tokens, response.responses);
 }
@@ -1350,6 +1416,7 @@ async function pruneInvalidDeviceTokens(uid, tokens, responses) {
     }
   });
   if (staleTokens.length === 0) return;
+  logger.warn("pruning stale push tokens", {uid, staleCount: staleTokens.length});
 
   for (const token of staleTokens) {
     const docs = await db.collection("users")

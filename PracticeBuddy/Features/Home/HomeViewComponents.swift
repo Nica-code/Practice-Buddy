@@ -129,6 +129,7 @@ final class MetronomeEngine: ObservableObject {
     private var tickBuffer: AVAudioPCMBuffer?
     private var accentBuffer: AVAudioPCMBuffer?
     private var subdivisionBuffer: AVAudioPCMBuffer?
+    private var loopBuffer: AVAudioPCMBuffer?
     private var renderFormat: AVAudioFormat?
     private var timerCancellable: AnyCancellable?
     private var stepIndex: Int = 0
@@ -153,10 +154,10 @@ final class MetronomeEngine: ObservableObject {
         setAudioSessionIfNeeded()
         setupAudioIfNeeded()
         rebuildBuffersIfPossible()
+        scheduleLoopPlaybackIfPossible()
 
         stepIndex = 0
         isRunning = true
-        playTick(isAccent: true)
         currentBeat = 1
         currentSubdivision = 1
         pulseToken += 1
@@ -171,18 +172,17 @@ final class MetronomeEngine: ObservableObject {
         currentBeat = 0
         currentSubdivision = 0
         stepIndex = 0
+        player.stop()
     }
 
     func applyUpdatedConfiguration(beatsPerBar: Int, subdivision: Subdivision, soundStyle: SoundStyle) {
         self.beatsPerBar = Self.clampBeatsPerBar(beatsPerBar)
         self.subdivision = subdivision
-
-        if self.soundStyle != soundStyle {
-            self.soundStyle = soundStyle
-            rebuildBuffersIfPossible()
-        }
+        self.soundStyle = soundStyle
+        rebuildBuffersIfPossible()
 
         guard isRunning else { return }
+        scheduleLoopPlaybackIfPossible()
         startTicker()
     }
 
@@ -207,17 +207,8 @@ final class MetronomeEngine: ObservableObject {
         let stepInBeat = stepIndex % factor
         let beatIndex = stepIndex / factor
 
-        let isDownbeat = (stepIndex == 0)
-        let isBeatBoundary = (stepInBeat == 0)
-
-        if isDownbeat {
-            playTick(isAccent: true)
+        if stepInBeat == 0 {
             pulseToken += 1
-        } else if isBeatBoundary {
-            playTick(isAccent: false)
-            pulseToken += 1
-        } else {
-            playSubdivisionTick()
         }
 
         currentBeat = beatIndex + 1
@@ -272,33 +263,85 @@ final class MetronomeEngine: ObservableObject {
             tickBuffer = makeClickBuffer(format: format, frequency: 860, milliseconds: 34, amplitude: 0.48)
             subdivisionBuffer = makeClickBuffer(format: format, frequency: 700, milliseconds: 24, amplitude: 0.28)
         }
+
+        loopBuffer = makeLoopBuffer(format: format)
     }
 
-    private func playTick(isAccent: Bool) {
-        guard let buffer = isAccent ? accentBuffer : tickBuffer else { return }
+    private func scheduleLoopPlaybackIfPossible() {
+        guard let loopBuffer else { return }
 
         if !engine.isRunning {
             try? engine.start()
         }
+
+        player.stop()
+        player.scheduleBuffer(loopBuffer, at: nil, options: [.loops], completionHandler: nil)
         if !player.isPlaying {
             player.play()
         }
-
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
     }
 
-    private func playSubdivisionTick() {
-        guard subdivision != .none else { return }
-        guard let buffer = subdivisionBuffer else { return }
+    private func makeLoopBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let factor = max(1, subdivision.stepFactor)
+        let totalSteps = max(1, beatsPerBar * factor)
+        let stepSeconds = 60.0 / (Double(max(40, bpm)) * Double(factor))
+        let sampleRate = format.sampleRate
+        let totalFramesInt = max(1, Int((Double(totalSteps) * stepSeconds * sampleRate).rounded()))
+        let totalFrames = AVAudioFrameCount(totalFramesInt)
 
-        if !engine.isRunning {
-            try? engine.start()
-        }
-        if !player.isPlaying {
-            player.play()
+        guard let destination = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else { return nil }
+        destination.frameLength = totalFrames
+        guard let channels = destination.floatChannelData else { return nil }
+        let channelCount = Int(format.channelCount)
+
+        for channelIndex in 0..<channelCount {
+            channels[channelIndex].initialize(repeating: 0, count: totalFramesInt)
         }
 
-        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        for step in 0..<totalSteps {
+            let stepInBeat = step % factor
+            let beatIndex = step / factor
+            let isDownbeat = beatIndex == 0 && stepInBeat == 0
+            let isBeatBoundary = stepInBeat == 0
+
+            let source: AVAudioPCMBuffer?
+            if isDownbeat {
+                source = accentBuffer
+            } else if isBeatBoundary {
+                source = tickBuffer
+            } else {
+                source = subdivision == .none ? nil : subdivisionBuffer
+            }
+
+            guard let source else { continue }
+            let startFrame = Int((Double(step) * stepSeconds * sampleRate).rounded())
+            mix(source: source, into: destination, atFrame: startFrame)
+        }
+
+        return destination
+    }
+
+    private func mix(source: AVAudioPCMBuffer, into destination: AVAudioPCMBuffer, atFrame startFrame: Int) {
+        guard let sourceChannels = source.floatChannelData,
+              let destinationChannels = destination.floatChannelData else { return }
+
+        let sourceFrames = Int(source.frameLength)
+        let destinationFrames = Int(destination.frameLength)
+        let channelCount = min(Int(source.format.channelCount), Int(destination.format.channelCount))
+        guard startFrame < destinationFrames else { return }
+
+        for channelIndex in 0..<channelCount {
+            let sourceChannel = sourceChannels[channelIndex]
+            let destinationChannel = destinationChannels[channelIndex]
+            var destIndex = startFrame
+            var sourceIndex = 0
+
+            while sourceIndex < sourceFrames && destIndex < destinationFrames {
+                destinationChannel[destIndex] += sourceChannel[sourceIndex]
+                sourceIndex += 1
+                destIndex += 1
+            }
+        }
     }
 
     private func makeClickBuffer(
@@ -333,24 +376,50 @@ final class MetronomeEngine: ObservableObject {
 final class PracticeAppShieldManager: ObservableObject {
     private let defaults = UserDefaults.standard
     private let selectionDataKey = "pb.practice.screenTime.selection.v1"
+    private let blockAllAppsKey = "pb.practice.screenTime.blockAllApps.v1"
+    private let setupCompletedKey = "pb.practice.screenTime.setupCompleted.v1"
 
     @Published private(set) var isAvailable: Bool = false
     @Published private(set) var isAuthorized: Bool = false
     @Published private(set) var selectedAppsCount: Int = 0
     @Published private(set) var isShieldingActive: Bool = false
     @Published var statusMessage: String?
+    @Published private(set) var entitlementDetected: Bool = false
     private var hasFamilyControlsEntitlement: Bool {
-        (Bundle.main.object(forInfoDictionaryKey: "PBEnableFamilyControls") as? Bool) == true
+        // Optional manual override from Info.plist for local debug/testing.
+        if let override = Bundle.main.object(forInfoDictionaryKey: "PBEnableFamilyControls") as? Bool {
+            return override
+        }
+        // iOS does not expose a stable runtime entitlement API for this capability.
+#if targetEnvironment(simulator)
+        return false
+#else
+        return true
+#endif
     }
 
 #if canImport(FamilyControls) && canImport(ManagedSettings)
     @Published var selection = FamilyActivitySelection() {
         didSet {
+            if !isRestoringSelection {
+                blockAllAppsSelection = false
+            }
             selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
             persistSelection()
         }
     }
     private var managedStore: ManagedSettingsStore?
+    private var isRestoringSelection = false
+    private var blockAllAppsSelection: Bool = false {
+        didSet {
+            defaults.set(blockAllAppsSelection, forKey: blockAllAppsKey)
+            if blockAllAppsSelection {
+                selectedAppsCount = 1
+            } else {
+                selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+            }
+        }
+    }
 #endif
 
     init() {
@@ -365,49 +434,71 @@ final class PracticeAppShieldManager: ObservableObject {
             return "Screen Time app blocking is unavailable on this device/configuration."
         }
         if !isAuthorized {
-            return "Authorization needed. Tap Authorize, then choose apps to block."
+            if hasCompletedSetup {
+                return "Screen Time access is currently off. Re-enable it in Settings, then toggle Verified Mode again."
+            }
+            return "First-time setup: tap Continue in the iOS Screen Time prompt to finish."
         }
         if selectedAppsCount == 0 {
-            return "No apps/categories selected yet. Tap Select Apps."
+            return "Preparing app blocking setup."
+        }
+        if isAllAppsSelected {
+            return "All apps selected for blocking during verified practice."
         }
         return "\(selectedAppsCount) target(s) selected for blocking during practice."
     }
 
+    var isAllAppsSelected: Bool {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
+        blockAllAppsSelection
+#else
+        false
+#endif
+    }
+
+    var isVerificationConfigured: Bool {
+        isAuthorized && selectedAppsCount > 0
+    }
+
+    private var hasCompletedSetup: Bool {
+        defaults.bool(forKey: setupCompletedKey)
+    }
+
     func refreshState() {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
-        guard hasFamilyControlsEntitlement else {
-            isAvailable = false
-            isAuthorized = false
-            selectedAppsCount = 0
-            isShieldingActive = false
-            return
-        }
+        entitlementDetected = hasFamilyControlsEntitlement
+#if targetEnvironment(simulator)
+        isAvailable = false
+        isAuthorized = false
+        selectedAppsCount = 0
+        isShieldingActive = false
+        statusMessage = "Screen Time app blocking requires a real iPhone."
+#else
         if #available(iOS 16.0, *) {
             isAvailable = true
             isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
             loadSelection()
+            if !entitlementDetected {
+                statusMessage = "Screen Time signing is not detected yet. Authorization may fail until profile refresh."
+            }
         } else {
             isAvailable = false
             isAuthorized = false
             selectedAppsCount = 0
             isShieldingActive = false
         }
+#endif
 #else
         isAvailable = false
         isAuthorized = false
         selectedAppsCount = 0
         isShieldingActive = false
+        entitlementDetected = false
 #endif
     }
 
     func requestAuthorization() async {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
-        guard hasFamilyControlsEntitlement else {
-            isAvailable = false
-            isAuthorized = false
-            statusMessage = "Screen Time blocking isn't available in this build."
-            return
-        }
         guard #available(iOS 16.0, *), isAvailable else {
             statusMessage = "Screen Time blocking isn't available here."
             return
@@ -415,24 +506,50 @@ final class PracticeAppShieldManager: ObservableObject {
         do {
             try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
             isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
+            entitlementDetected = hasFamilyControlsEntitlement
+            if isAuthorized {
+                defaults.set(true, forKey: setupCompletedKey)
+            }
             statusMessage = isAuthorized ? "Screen Time authorization granted." : "Screen Time authorization not granted."
         } catch {
             isAuthorized = AuthorizationCenter.shared.authorizationStatus == .approved
-            statusMessage = L10n.f("Screen Time authorization failed: %@", error.localizedDescription)
+            entitlementDetected = hasFamilyControlsEntitlement
+            if isAuthorized {
+                defaults.set(true, forKey: setupCompletedKey)
+            }
+            if isLikelyEntitlementFailure(error) {
+                statusMessage = "Screen Time signing is missing for this build. Recreate provisioning profile and reinstall."
+            } else {
+                statusMessage = L10n.f("Screen Time authorization failed: %@", error.localizedDescription)
+            }
         }
 #else
         statusMessage = "Screen Time blocking requires FamilyControls support."
 #endif
     }
 
-    func startShieldingIfPossible() async {
+    func configureAutoVerificationDefaults() async {
 #if canImport(FamilyControls) && canImport(ManagedSettings)
-        guard hasFamilyControlsEntitlement else {
-            isAvailable = false
-            isAuthorized = false
-            statusMessage = "Screen Time blocking isn't available in this build."
+        guard #available(iOS 16.0, *), isAvailable else {
+            statusMessage = "Screen Time blocking isn't available here."
             return
         }
+
+        if !isAuthorized {
+            if !hasCompletedSetup {
+                statusMessage = "First-time setup: tap Continue in the iOS Screen Time prompt."
+            }
+            await requestAuthorization()
+        }
+        guard isAuthorized else { return }
+
+        applyAllAppsSelection()
+        statusMessage = "Verified Mode is ready. All apps will be blocked during practice."
+#endif
+    }
+
+    func startShieldingIfPossible() async {
+#if canImport(FamilyControls) && canImport(ManagedSettings)
         guard #available(iOS 16.0, *), isAvailable else {
             statusMessage = "Screen Time blocking isn't available here."
             return
@@ -444,17 +561,27 @@ final class PracticeAppShieldManager: ObservableObject {
         guard isAuthorized else { return }
 
         guard selectedAppsCount > 0 else {
-            statusMessage = "Pick apps or categories first with Select Apps."
+            statusMessage = "Verification setup is incomplete. Toggle Verified Mode off and on again."
             return
         }
 
         let store = managedStore ?? ManagedSettingsStore()
         managedStore = store
-        store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
-        store.shield.applicationCategories = selection.categoryTokens.isEmpty
-            ? nil
-            : .specific(selection.categoryTokens)
-        store.shield.webDomains = selection.webDomainTokens.isEmpty ? nil : selection.webDomainTokens
+        if blockAllAppsSelection {
+            store.shield.applications = nil
+            store.shield.applicationCategories = .all(except: Set())
+            store.shield.webDomains = nil
+            store.shield.webDomainCategories = .all(except: Set())
+            store.webContent.blockedByFilter = .all(except: Set())
+        } else {
+            store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
+            store.shield.applicationCategories = selection.categoryTokens.isEmpty
+                ? nil
+                : .specific(selection.categoryTokens)
+            store.shield.webDomains = selection.webDomainTokens.isEmpty ? nil : selection.webDomainTokens
+            store.shield.webDomainCategories = nil
+            store.webContent.blockedByFilter = nil
+        }
         isShieldingActive = true
         statusMessage = "Distracting apps/categories are blocked while practice is running."
 #else
@@ -470,6 +597,8 @@ final class PracticeAppShieldManager: ObservableObject {
         store.shield.applications = nil
         store.shield.applicationCategories = nil
         store.shield.webDomains = nil
+        store.shield.webDomainCategories = nil
+        store.webContent.blockedByFilter = nil
 #else
         isShieldingActive = false
 #endif
@@ -477,7 +606,7 @@ final class PracticeAppShieldManager: ObservableObject {
 
 #if canImport(FamilyControls) && canImport(ManagedSettings)
     var selectionBinding: Binding<FamilyActivitySelection>? {
-        guard #available(iOS 16.0, *), hasFamilyControlsEntitlement else { return nil }
+        guard #available(iOS 16.0, *) else { return nil }
         return Binding(
             get: { self.selection },
             set: {
@@ -492,18 +621,40 @@ final class PracticeAppShieldManager: ObservableObject {
         defaults.set(data, forKey: selectionDataKey)
     }
 
+    private func applyAllAppsSelection() {
+        isRestoringSelection = true
+        selection = FamilyActivitySelection()
+        isRestoringSelection = false
+        blockAllAppsSelection = true
+    }
+
     private func loadSelection() {
+        blockAllAppsSelection = defaults.bool(forKey: blockAllAppsKey)
         guard let data = defaults.data(forKey: selectionDataKey),
               let decoded = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) else {
-            selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+            selectedAppsCount = blockAllAppsSelection
+                ? 1
+                : selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
             return
         }
+        isRestoringSelection = true
         selection = decoded
-        selectedAppsCount = selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+        isRestoringSelection = false
+        selectedAppsCount = blockAllAppsSelection
+            ? 1
+            : selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
     }
 #else
     var selectionBinding: Binding<Never>? { nil }
 #endif
+
+    private func isLikelyEntitlementFailure(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("entitlement")
+            || message.contains("family controls")
+            || message.contains("not permitted")
+            || message.contains("missing")
+    }
 }
 
 struct PracticeAppShieldPickerModifier: ViewModifier {

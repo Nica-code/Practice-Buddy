@@ -71,7 +71,7 @@ final class WarmupOfWeekManager: ObservableObject {
         steps: [String]
     ) async {
         guard currentIsPro, currentAccountType == .teacher else {
-            statusMessage = "Warm-up push is available for Pro Teacher accounts."
+            statusMessage = "Warm-up push is available for Teacher accounts."
             return
         }
         guard let uid = currentUID, let studioID = currentStudioID else {

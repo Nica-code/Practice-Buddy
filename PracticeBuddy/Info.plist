@@ -28,15 +28,43 @@
 				<string>practicebuddy</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>firebase-auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-906142628563-ios-1a0e1a0ce5158549323226</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>google-signin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.906142628563-548sgm8f19fbtlehlueh49vn7tl93rrg</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-6233840432120177~4024122715</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Practice Buddy uses your calendar to add scheduled lessons, studio classes, and recitals.</string>
+	<string>PractiQuest uses your calendar to add scheduled lessons, studio classes, and recitals.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Practice Buddy uses your microphone for tuner, intonation, rhythm, and duel analysis features.</string>
+	<string>PractiQuest uses your microphone for tuner, intonation, rhythm, and duel analysis features.</string>
+	<key>PBAdMobBannerPlayAdUnitID</key>
+	<string>ca-app-pub-6233840432120177/8238699892</string>
+	<key>PBAdMobRewardedDuelAdUnitID</key>
+	<string>ca-app-pub-6233840432120177/3504547263</string>
+	<key>PBAdsKillSwitch</key>
+	<false/>
+	<key>PBAdsUseTestAds</key>
+	<false/>
+	<key>PBIsTestFlightBuild</key>
+	<false/>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
 	<key>PBMasterEmails</key>

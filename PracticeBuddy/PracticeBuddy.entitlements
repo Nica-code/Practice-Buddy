@@ -12,5 +12,7 @@
 	<array>
 		<string>applinks:practicebuddytracker.web.app</string>
 	</array>
+	<key>com.apple.developer.family-controls</key>
+	<true/>
 </dict>
 </plist>

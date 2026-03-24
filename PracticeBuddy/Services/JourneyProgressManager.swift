@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 import FirebaseFirestore
 import FirebaseAuth
 
@@ -307,6 +308,29 @@ final class JourneyProgressManager: ObservableObject {
         }
 
         return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: max(0, quest.rewardTokens))
+    }
+
+    @discardableResult
+    func claimDuelAdReward(challengeID: String, rewardTokens: Int) async -> Bool {
+        let normalizedID = challengeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedID.isEmpty else { return false }
+        let normalizedReward = max(0, rewardTokens)
+        guard normalizedReward > 0 else { return false }
+
+        let claimKey = "ad:duel:\(normalizedID)"
+        guard beginEconomyOperation("adReward:\(normalizedID)") else { return false }
+        defer { endEconomyOperation("adReward:\(normalizedID)") }
+
+        if let uid = inventoryLinkedUID {
+            let didClaim = await claimQuestRewardCloud(
+                uid: uid,
+                claimKey: claimKey,
+                rewardTokens: normalizedReward
+            )
+            return didClaim
+        }
+
+        return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: normalizedReward)
     }
 
     @discardableResult
@@ -1775,6 +1799,7 @@ final class DuelLeagueManager: ObservableObject {
         defer { isLoading = false }
 
         do {
+            PBLog.firebase.info("Duel queue join start uid=\(uid, privacy: .private) octaves=\(normalizedOctaves.rawValue, privacy: .public)")
             let response = try await callDuelEndpoint(
                 name: "duelQueueJoin",
                 body: ["octaves": normalizedOctaves.rawValue]
@@ -1884,6 +1909,7 @@ final class DuelLeagueManager: ObservableObject {
         }
 
         do {
+            PBLog.firebase.info("Duel invite start uid=\(uid, privacy: .private) target=\(targetUID, privacy: .private) source=\(source.rawValue, privacy: .public)")
             _ = try await callDuelEndpoint(
                 name: "duelInvite",
                 body: [
@@ -1912,6 +1938,7 @@ final class DuelLeagueManager: ObservableObject {
         myOpenChallenge = nil
         do {
             _ = try await callDuelEndpoint(name: "duelQueueCancel", body: [:])
+            PBLog.firebase.info("Duel queue cancel success")
             statusMessage = "Open duel canceled."
             clearRecoverableActionError()
         } catch {
@@ -1937,6 +1964,7 @@ final class DuelLeagueManager: ObservableObject {
                 name: "duelRespond",
                 body: ["challengeId": challengeID, "accept": false]
             )
+            PBLog.firebase.info("Duel invite cancel success challenge=\(challengeID, privacy: .public)")
             statusMessage = "Invite canceled."
             clearRecoverableActionError()
         } catch {
@@ -1960,6 +1988,7 @@ final class DuelLeagueManager: ObservableObject {
                 name: "duelRespond",
                 body: ["challengeId": challengeID, "accept": true]
             )
+            PBLog.firebase.info("Duel invite accept success challenge=\(challengeID, privacy: .public)")
             let status = (result["status"] as? String) ?? ""
             DuelQuestTelemetryStore.shared.record(
                 .acceptEntered,
@@ -1988,6 +2017,7 @@ final class DuelLeagueManager: ObservableObject {
                 name: "duelRespond",
                 body: ["challengeId": challengeID, "accept": false]
             )
+            PBLog.firebase.info("Duel invite decline success challenge=\(challengeID, privacy: .public)")
             let status = (result["status"] as? String) ?? ""
             statusMessage = status == "requeued_both" ? "Match declined. Searching new opponent." : "Invite declined."
             clearRecoverableActionError()
@@ -2021,6 +2051,7 @@ final class DuelLeagueManager: ObservableObject {
                     ]
                 ]
             )
+            PBLog.firebase.info("Duel submit success challenge=\(challengeID, privacy: .public)")
             let now = Date()
             DuelQuestTelemetryStore.shared.record(
                 .takeSubmitted,
@@ -2413,6 +2444,7 @@ final class DuelLeagueManager: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        PBLog.firebase.info("Duel endpoint request name=\(name, privacy: .public)")
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2425,10 +2457,12 @@ final class DuelLeagueManager: ObservableObject {
 
         let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
         if (200..<300).contains(http.statusCode) {
+            PBLog.firebase.info("Duel endpoint success name=\(name, privacy: .public) code=\(http.statusCode, privacy: .public)")
             return json ?? [:]
         }
 
         let errorMessage = (json?["error"] as? String) ?? "Request failed (\(http.statusCode))."
+        PBLog.firebase.error("Duel endpoint failure name=\(name, privacy: .public) code=\(http.statusCode, privacy: .public) error=\(errorMessage, privacy: .public)")
         throw NSError(
             domain: "PracticeBuddy.Duel",
             code: http.statusCode,

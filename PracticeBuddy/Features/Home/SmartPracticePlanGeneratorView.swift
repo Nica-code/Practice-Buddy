@@ -107,9 +107,9 @@ struct SmartPracticePlanGeneratorView: View {
 
     var body: some View {
         List {
-            if purchaseManager.accountType != .student || !purchaseManager.isPro {
-                Section("Practice Lab Pro") {
-                    Text("Smart Practice Plan Generator is a Pro Student feature.")
+            if purchaseManager.accountType != .student || !purchaseManager.featuresUnlocked {
+                Section("Practice Lab") {
+                    Text("Smart Practice Plan Generator is available in Student mode.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
                 }

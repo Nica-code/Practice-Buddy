@@ -319,28 +319,22 @@ struct ScaleIntonationView: View {
                     }
                 }
 
-                if purchaseManager.isPro {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Per-note breakdown")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        ForEach(result.noteScores.prefix(20)) { note in
-                            HStack {
-                                Text(L10n.f("%@ (d%@)", note.noteName, "\(note.degree)"))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textPrimary)
-                                Spacer()
-                                Text(String(format: "%+.1fc", note.meanOffset))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                                    .monospacedDigit()
-                            }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Per-note breakdown")
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                    ForEach(result.noteScores.prefix(20)) { note in
+                        HStack {
+                            Text(L10n.f("%@ (d%@)", note.noteName, "\(note.degree)"))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text(String(format: "%+.1fc", note.meanOffset))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
                         }
                     }
-                } else {
-                    Text("Detailed per-note breakdown is part of Practice Buddy Pro.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
                 }
             } else {
                 Text("Run a take to see your score and note-by-note feedback.")

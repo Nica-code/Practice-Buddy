@@ -909,3 +909,73 @@ What Is Next
   - `buddy_invite_auto_sent`
 - Validation:
   - latest iOS Simulator compile pass after this feature: `BUILD SUCCEEDED`
+
+42) Launch Preparation Status (2026-03-19)
+- App Store Connect launch preparation is in progress and tracked:
+  - App Privacy data categories selected and configured (Step 6 in progress/completion path).
+  - Privacy purpose/linking/tracking mappings were defined for current stack (Firebase + AdMob + chat/profile/subscription flows).
+  - Pricing set to Free app; subscription setup initiated for ad-free monthly.
+  - Screenshot capture process started on iPhone Pro Max simulator for:
+    - App Store product page screenshots
+    - Subscription review screenshot
+- Remaining launch-console items at this point:
+  - upload full screenshot set (product page + subscription review info)
+  - finalize Support URL / Privacy Policy URL entries
+  - attach finalized subscription to app version submission
+
+43) Branding + Auth Gate Reliability Fixes (2026-03-19)
+- Onboarding/login branding text updated from legacy `Practice Buddy` to `PractiQuest` in:
+  - `Features/Onboarding/AccountSetupView.swift`
+  - `Features/Onboarding/OnboardingView.swift`
+- Permission usage copy updated in `Info.plist` from `Practice Buddy` to `PractiQuest` for:
+  - Calendar usage description
+  - Microphone usage description
+- Firebase OAuth callback hardening applied:
+  - Added OAuth callback handling in `ContentView.onOpenURL` via `Auth.auth().canHandle(url)` before app deep-link routing.
+  - This preserves non-deprecated iOS 26+ behavior and helps Google OAuth completion return correctly.
+  - Added Firebase auth callback URL scheme in `Info.plist`:
+    - `app-1-906142628563-ios-1a0e1a0ce5158549323226`
+  - Google OAuth flow now uses an explicit `AuthUIDelegate` presenter (`FirebaseAuthPresentationDelegate`) instead of implicit nil delegate to avoid no-op presentation in SwiftUI lifecycle contexts.
+- Simulator sign-in note captured:
+  - Sign in with Apple may fail on simulator when no Apple ID is signed into the simulator runtime; this is environment-related, not necessarily app logic.
+
+44) Auth Reliability + OAuth Config Sync (2026-03-23)
+- Google sign-in provider now uses Firebase `OAuthProvider(providerID: "google.com")` end-to-end (sign-in + anonymous-link paths), replacing the prior credential continuation path that could hang.
+- Fixed observed runtime issue:
+  - `SWIFT TASK CONTINUATION MISUSE: googleCredential() leaked its continuation`
+  - Root cause removed by deleting the hanging continuation-based `googleCredential()` flow.
+- Updated OAuth callback routing hardening remains in place in `ContentView.onOpenURL`:
+  - `Auth.auth().canHandle(url)` checked first, then app deep-links.
+- Replaced local Firebase config with latest downloaded project file:
+  - `PracticeBuddy/GoogleService-Info.plist`
+- Verification:
+  - latest compile pass after auth refactor: `BUILD SUCCEEDED`
+  - simulator re-test: Google sign-in now proceeds instead of stalling at `Starting Google sign-in...`
+
+45) Tutorial Quick-Tip Persistence Fix (2026-03-23)
+- Fixed first-run tutorial reappearing on every relaunch even when `Don't show again` was enabled.
+- Root cause:
+  - replay token was persisted, but `handledTutorialReplayToken` was only in-memory (`@State`) and reset each launch.
+- Fix applied:
+  - moved handled token to persisted storage:
+    - `@AppStorage("pb.onboarding.tutorial.handledReplayToken")`
+  - file: `App/ContentView.swift`
+- Result:
+  - tutorial replay is now one-shot per replay token, and `Don't show again` remains respected across relaunches.
+- Verification:
+  - latest compile pass after fix: `BUILD SUCCEEDED`
+
+46) Launch Prep Status (Current Snapshot: 2026-03-23)
+- Completed
+  - App branding switched to `PractiQuest` (public-facing naming).
+  - Firebase auth flow stable for Apple/Google (with simulator caveat for Apple ID login state).
+  - APNs/FCM token registration path active and storing tokens.
+  - Core push/chat pipeline implemented (friend invites + friend chat push triggers).
+  - Ad infrastructure integrated in app codebase (banner/rewarded wiring and ad manager present).
+  - First-run tutorial implemented and persistence bug fixed.
+  - Firestore/profile write hardening and entitlement sync path in place.
+- Remaining before release submission finalization
+  - Complete App Store Connect metadata assets (final screenshot set, support/privacy URLs).
+  - Finalize and attach subscription product metadata + review screenshot in App Store Connect.
+  - Perform final 2-device regression matrix (auth, chat/push, duel flow, verified mode, purchase/ad-free gating).
+  - Submit release-candidate build after matrix pass and metadata lock.

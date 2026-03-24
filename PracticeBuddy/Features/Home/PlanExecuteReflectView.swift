@@ -120,24 +120,24 @@ struct PlanExecuteReflectView: View {
             templateBridge.start(
                 uid: firebase.currentUserID,
                 accountType: purchaseManager.accountType,
-                isPro: purchaseManager.isPro
+                isPro: purchaseManager.featuresUnlocked
             )
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             templateBridge.start(
                 uid: newUID,
                 accountType: purchaseManager.accountType,
-                isPro: purchaseManager.isPro
+                isPro: purchaseManager.featuresUnlocked
             )
         }
         .onChange(of: purchaseManager.accountType) { _, newType in
             templateBridge.start(
                 uid: firebase.currentUserID,
                 accountType: newType,
-                isPro: purchaseManager.isPro
+                isPro: purchaseManager.featuresUnlocked
             )
         }
-        .onChange(of: purchaseManager.isPro) { _, isPro in
+        .onChange(of: purchaseManager.featuresUnlocked) { _, isPro in
             templateBridge.start(
                 uid: firebase.currentUserID,
                 accountType: purchaseManager.accountType,
@@ -221,7 +221,7 @@ struct PlanExecuteReflectView: View {
             }
             .listRowBackground(palette.surface)
 
-            if purchaseManager.isPro, purchaseManager.accountType == .teacher {
+            if purchaseManager.featuresUnlocked, purchaseManager.accountType == .teacher {
                 Section("Teacher Tools") {
                     Button("Save As Studio Template") {
                         templateNameInput = ""
@@ -233,7 +233,7 @@ struct PlanExecuteReflectView: View {
                 .listRowBackground(palette.surface)
             }
 
-            if purchaseManager.isPro, purchaseManager.accountType == .student {
+            if purchaseManager.featuresUnlocked, purchaseManager.accountType == .student {
                 Section("Studio Templates") {
                     if templateBridge.templates.isEmpty {
                         Text("No studio templates yet.")
@@ -582,7 +582,7 @@ struct PlanExecuteReflectView: View {
     }
 
     private func saveTemplateToStudio() async {
-        guard purchaseManager.isPro, purchaseManager.accountType == .teacher else { return }
+        guard purchaseManager.featuresUnlocked, purchaseManager.accountType == .teacher else { return }
         let title = templateNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         let goals = selectedGoals.sorted()
@@ -716,7 +716,7 @@ private final class StudioPlanTemplateBridge: ObservableObject {
 
     func saveTemplate(title: String, targetMinutes: Int, goals: [String], blocks: [String]) async {
         guard let uid, let studioID, isPro, accountType == .teacher else {
-            statusMessage = "Template save is available for Pro Teacher studio accounts."
+            statusMessage = "Template save is available for Teacher studio accounts."
             return
         }
         do {

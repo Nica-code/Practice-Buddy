@@ -20,7 +20,7 @@ struct AccountSetupView: View {
                     Spacer(minLength: 8)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Practice Buddy")
+                        Text("PractiQuest")
                             .font(type.appTitle)
                             .foregroundStyle(palette.textPrimary)
                             .tracking(type.heroTracking)

@@ -3,29 +3,28 @@ import StoreKit
 
 struct ShopView: View {
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var journey: JourneyProgressManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var proProduct: Product? {
-        purchaseManager.availableProducts.first(where: { PurchaseManager.proSubscriptionProductIDs.contains($0.id) })
+    private var adFreeProduct: Product? {
+        purchaseManager.availableProducts.first(where: { PurchaseManager.adFreeSubscriptionProductIDs.contains($0.id) })
     }
     private var introOffer: Product.SubscriptionOffer? {
-        proProduct?.subscription?.introductoryOffer
+        adFreeProduct?.subscription?.introductoryOffer
     }
 
     var body: some View {
         List {
-            Section("Pro") {
+            Section("Ad-Free") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("PractiQuest Pro")
+                    Text("PractiQuest Ad-Free")
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
-                    Text("Auto-renewing monthly subscription with Pro tools for student and teacher workflows.")
+                    Text("All features are free. This monthly subscription removes ads.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
@@ -43,17 +42,17 @@ struct ShopView: View {
 
                 Button {
                     Task {
-                        await purchaseManager.buy(productID: PurchaseManager.proMonthlyProductID)
+                        await purchaseManager.buy(productID: PurchaseManager.adFreeMonthlyProductID)
                     }
                 } label: {
                     Text(primaryCTA)
                         .font(type.body)
-                        .foregroundStyle(purchaseManager.isPro ? palette.textSecondary : .white)
+                        .foregroundStyle(purchaseManager.hasAdFree ? palette.textSecondary : .white)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(purchaseManager.isPro ? palette.surfaceAlt : theme.accent)
+                                .fill(purchaseManager.hasAdFree ? palette.surfaceAlt : theme.accent)
                         )
                 }
                 .buttonStyle(.plain)
@@ -79,23 +78,7 @@ struct ShopView: View {
 
             Section("Cosmetics") {
                 VStack(alignment: .leading, spacing: 10) {
-                    cosmeticStatusRow(
-                        title: "Duel Intro Card",
-                        equippedID: journey.equippedRewardID(for: .duelIntroCard),
-                        equippedName: "Spotlight"
-                    )
-                    cosmeticStatusRow(
-                        title: "Duel Finisher FX",
-                        equippedID: journey.equippedRewardID(for: .duelFinisherFX),
-                        equippedName: "Resonance"
-                    )
-                    cosmeticStatusRow(
-                        title: "Session Card Skin",
-                        equippedID: journey.equippedRewardID(for: .sessionCardSkin),
-                        equippedName: "Aurora"
-                    )
-
-                    Text("Unlock and equip cosmetics from Play > Rewards.")
+                    Text("Coming soon")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
 
@@ -110,7 +93,7 @@ struct ShopView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Expressive") {
+            Section("Skins") {
                 Text("Coming soon")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
@@ -138,44 +121,44 @@ struct ShopView: View {
     }
 
     private var primaryCTA: String {
-        if purchaseManager.isPro {
-            return String(localized: "Pro Active")
+        if purchaseManager.hasAdFree {
+            return String(localized: "Ad-Free Active")
         }
-        if let proProduct {
+        if let adFreeProduct {
             if let intro = introOffer, intro.paymentMode == .freeTrial {
                 return trialCTA(for: intro)
             }
-            return L10n.f("Subscribe (%@ / month)", proProduct.displayPrice)
+            return L10n.f("Subscribe (%@ / month)", adFreeProduct.displayPrice)
         }
         return String(localized: "Subscribe (Unavailable)")
     }
 
     private var primaryCTADisabled: Bool {
-        purchaseManager.isPro || proProduct == nil
+        purchaseManager.hasAdFree || adFreeProduct == nil
     }
 
     private var statusText: String {
         if isServerTrialActive {
             return "Status: Trial Active (\(trialDaysRemainingText) left)"
         }
-        if purchaseManager.isPro {
-            return String(localized: "Status: Active")
+        if purchaseManager.hasAdFree {
+            return String(localized: "Status: Ad-Free Active")
         }
-        return String(localized: "Status: Free")
+        return String(localized: "Status: Ads Enabled")
     }
 
     private var statusColor: Color {
         if isServerTrialActive {
             return theme.accent
         }
-        if purchaseManager.isPro {
+        if purchaseManager.hasAdFree {
             return theme.accent
         }
         return palette.textSecondary
     }
 
     private var trialEligible: Bool {
-        !purchaseManager.isPro && !purchaseManager.trialUsed
+        !purchaseManager.hasAdFree && !purchaseManager.trialUsed
     }
 
     private var isServerTrialActive: Bool {
@@ -188,25 +171,6 @@ struct ShopView: View {
         let seconds = max(0, Int(trialEndsAt.timeIntervalSinceNow))
         let days = max(1, Int(ceil(Double(seconds) / 86_400.0)))
         return "\(days)d"
-    }
-
-    @ViewBuilder
-    private func cosmeticStatusRow(title: String, equippedID: String?, equippedName: String) -> some View {
-        HStack {
-            Text(title)
-                .font(type.body)
-                .foregroundStyle(palette.textPrimary)
-            Spacer()
-            if equippedID == nil {
-                Text("Not equipped")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                Text("Equipped: \(equippedName)")
-                    .font(type.footnote)
-                    .foregroundStyle(theme.accent)
-            }
-        }
     }
 
     private func trialCTA(for offer: Product.SubscriptionOffer) -> String {

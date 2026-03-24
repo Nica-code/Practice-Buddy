@@ -45,7 +45,6 @@ struct SmartLoopTimerView: View {
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
-    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
 
     @AppStorage("pb.loop.duration") private var loopDuration: Int = 45
     @AppStorage("pb.loop.rest") private var restDuration: Int = 20
@@ -159,41 +158,32 @@ struct SmartLoopTimerView: View {
             .listRowBackground(palette.surface)
 
             Section("Presets") {
-                if purchaseManager.isPro {
-                    Button("Save Current As Preset") {
-                        newPresetName = ""
-                        showSavedPresetSheet = true
-                    }
-                    .font(type.button)
+                Button("Save Current As Preset") {
+                    newPresetName = ""
+                    showSavedPresetSheet = true
+                }
+                .font(type.button)
 
-                    if decodedPresets.isEmpty {
-                        Text("No saved presets yet.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    } else {
-                        ForEach(decodedPresets) { preset in
-                            Button {
-                                applyPreset(preset)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(preset.name)
-                                        .font(type.body)
-                                        .foregroundStyle(palette.textPrimary)
-                                    Text(L10n.f("%@s loop • %@s rest • %@ loops", "\(preset.loopDuration)", "\(preset.restDuration)", "\(preset.targetLoops)"))
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textSecondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                } else {
-                    Text("Saving/loading loop presets is part of Practice Buddy Pro.")
+                if decodedPresets.isEmpty {
+                    Text("No saved presets yet.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
-                    Button("Unlock Pro") { selectedTab = 4 }
-                        .font(type.button)
-                        .buttonStyle(.borderedProminent)
+                } else {
+                    ForEach(decodedPresets) { preset in
+                        Button {
+                            applyPreset(preset)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.name)
+                                    .font(type.body)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text(L10n.f("%@s loop • %@s rest • %@ loops", "\(preset.loopDuration)", "\(preset.restDuration)", "\(preset.targetLoops)"))
+                                    .font(type.footnote)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .listRowBackground(palette.surface)
@@ -602,7 +592,7 @@ struct SmartLoopTimerView: View {
     }
 
     private func savePreset() {
-        guard purchaseManager.isPro else { return }
+        guard purchaseManager.featuresUnlocked else { return }
         let name = newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 

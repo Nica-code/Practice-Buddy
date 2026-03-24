@@ -13,12 +13,14 @@ struct PracticeBuddyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var firebase: FirebaseBootstrap
     @StateObject private var purchaseManager: PurchaseManager
+    @StateObject private var adsManager: PBAdsManager
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
 
     init() {
         PBSwiftDataBootstrap.ensureApplicationSupportDirectory()
         _firebase = StateObject(wrappedValue: FirebaseBootstrap())
         _purchaseManager = StateObject(wrappedValue: PurchaseManager())
+        _adsManager = StateObject(wrappedValue: PBAdsManager())
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
         PBNotificationCenter.registerCategories()
     }
@@ -36,6 +38,7 @@ struct PracticeBuddyApp: App {
         .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self, ScaleIntonationTakeModel.self])
         .environmentObject(firebase)
         .environmentObject(purchaseManager)
+        .environmentObject(adsManager)
     }
 }
 
@@ -56,10 +59,13 @@ private final class PBNotificationDelegate: NSObject, UNUserNotificationCenterDe
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         if let route = PBNotificationCenter.route(for: response) {
+            PBLog.firebase.info("Notification tap routed: \(String(describing: route), privacy: .public)")
             NotificationCenter.default.post(
                 name: .pbNotificationRouteRequested,
                 object: route
             )
+        } else {
+            PBLog.firebase.info("Notification tap had no route mapping")
         }
         completionHandler()
     }
@@ -72,6 +78,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         FirebaseApp.configure()
         FirebaseBootstrap.markConfiguredAtLaunch()
+        Task { @MainActor in
+            await PushTokenManager.shared.registerForRemoteNotificationsIfAuthorized()
+        }
 #if canImport(FirebaseMessaging)
         Messaging.messaging().delegate = self
 #endif

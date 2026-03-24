@@ -128,7 +128,7 @@ struct HistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        if purchaseManager.isPro {
+                        if purchaseManager.featuresUnlocked {
                             showExportOptions = true
                         } else {
                             showProLockedAlert = true
@@ -178,13 +178,13 @@ struct HistoryView: View {
             } message: {
                 Text(exportErrorMessage ?? "Unknown error.")
             }
-            .alert("PracticeBuddy Pro", isPresented: $showProLockedAlert) {
+            .alert("Feature Unavailable", isPresented: $showProLockedAlert) {
                 Button("Not Now", role: .cancel) {}
-                Button("Open Pro") {
+                Button("Open Subscription") {
                     selectedTab = 4
                 }
             } message: {
-                Text("Export and advanced analytics are part of Pro.")
+                Text("This feature is currently unavailable.")
             }
             .sheet(isPresented: $showShareSheet) {
                 if let exportURL {
@@ -227,7 +227,7 @@ struct HistoryView: View {
     @ViewBuilder
     private var analyticsSection: some View {
         Section("Analytics") {
-            if purchaseManager.isPro {
+            if purchaseManager.featuresUnlocked {
                 HStack {
                     Text("Total time")
                         .font(type.body)
@@ -263,10 +263,10 @@ struct HistoryView: View {
 
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Advanced analytics is part of PracticeBuddy Pro.")
+                    Text("Advanced analytics is currently unavailable.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
-                    Button("Unlock Pro") {
+                    Button("Open Subscription") {
                         selectedTab = 4
                     }
                     .font(type.button)
@@ -390,7 +390,7 @@ struct HistoryView: View {
                                         .foregroundStyle(palette.accent)
                                         .monospacedDigit()
                                 }
-                                .frame(width: 170, alignment: .leading)
+                                .frame(minWidth: 170, idealWidth: 190, maxWidth: 210, alignment: .leading)
                                 .padding(10)
                                 .background(palette.surfaceAlt)
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -431,7 +431,7 @@ struct HistoryView: View {
                                 .foregroundStyle(palette.textSecondary)
                                 .lineLimit(2)
                         }
-                        .frame(width: 190, alignment: .leading)
+                        .frame(minWidth: 180, idealWidth: 200, maxWidth: 220, alignment: .leading)
                         .padding(10)
                         .background(palette.surfaceAlt)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -474,7 +474,7 @@ struct HistoryView: View {
                                     .foregroundStyle(palette.textSecondary)
                                     .monospacedDigit()
                             }
-                            .frame(width: 170, alignment: .leading)
+                            .frame(minWidth: 170, idealWidth: 190, maxWidth: 210, alignment: .leading)
                             .padding(10)
                             .background(palette.surfaceAlt)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -690,7 +690,7 @@ struct HistoryView: View {
                                 .monospacedDigit()
                         }
 
-                        if purchaseManager.isPro, !take.detailJSON.isEmpty {
+                        if purchaseManager.featuresUnlocked, !take.detailJSON.isEmpty {
                             let rows = take.detailJSON
                                 .split(separator: "|")
                                 .map { String($0) }
@@ -725,7 +725,7 @@ struct HistoryView: View {
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             } else {
-                if purchaseManager.isPro, let compareText = runThroughCompareSummaryText {
+                if purchaseManager.featuresUnlocked, let compareText = runThroughCompareSummaryText {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("A/B Compare")
                             .font(type.footnote)
@@ -799,7 +799,7 @@ struct HistoryView: View {
                             .buttonStyle(.bordered)
                             .font(type.footnote)
 
-                            if purchaseManager.isPro {
+                            if purchaseManager.featuresUnlocked {
                                 Button(compareButtonTitle(for: take.id)) {
                                     setCompareTarget(take.id)
                                 }
@@ -814,13 +814,13 @@ struct HistoryView: View {
                     deleteRunThroughs(offsets: offsets, from: visibleRunThroughRows)
                 }
 
-                if !purchaseManager.isPro, filteredRunThroughs.count > visibleRunThroughRows.count {
-                    Text("Free keeps only latest 3 run-through entries. Unlock Pro for full history.")
+                if !purchaseManager.featuresUnlocked, filteredRunThroughs.count > visibleRunThroughRows.count {
+                    Text("Only the latest 3 run-through entries are shown right now.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
                 }
 
-                if purchaseManager.isPro, filteredRunThroughs.count > visibleRunThroughRows.count {
+                if purchaseManager.featuresUnlocked, filteredRunThroughs.count > visibleRunThroughRows.count {
                     Button("Load more run-throughs") {
                         runThroughVisibleLimit += 12
                     }
@@ -888,11 +888,12 @@ struct HistoryView: View {
                                 .lineLimit(2)
                         }
 
-                        if purchaseManager.isPro, let firstRow = parseIntonationRows(take.perNoteJSON).first {
+                        if purchaseManager.featuresUnlocked, let firstRow = parseIntonationRows(take.perNoteJSON).first {
                             Text(L10n.f("Detail: %@", firstRow))
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
-                                .lineLimit(1)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding(.vertical, 4)
@@ -1122,7 +1123,7 @@ struct HistoryView: View {
     }
 
     private var visibleRunThroughRows: [RunThroughModel] {
-        if purchaseManager.isPro {
+        if purchaseManager.featuresUnlocked {
             return Array(filteredRunThroughs.prefix(max(1, runThroughVisibleLimit)))
         }
         return Array(filteredRunThroughs.prefix(3))
@@ -1409,7 +1410,7 @@ struct HistoryView: View {
     }
 
     private func export(format: ExportFormat) {
-        guard purchaseManager.isPro else {
+        guard purchaseManager.featuresUnlocked else {
             showProLockedAlert = true
             return
         }

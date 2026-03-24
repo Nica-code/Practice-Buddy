@@ -52,7 +52,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Spacer()
 
-            Text("Practice Buddy")
+            Text("PractiQuest")
                 .font(type.fontChoice.homeTitleFont(size: 34))
                 .multilineTextAlignment(.center)
 

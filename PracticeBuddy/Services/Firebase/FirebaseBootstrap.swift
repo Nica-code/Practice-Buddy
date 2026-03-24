@@ -25,6 +25,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     private var isStarting = false
     private var currentNonce: String?
     private var activeAppleAuthController: ASAuthorizationController?
+    private let authUIDelegate = FirebaseAuthPresentationDelegate()
 
     func start() async {
         guard !isReady, !isStarting else { return }
@@ -172,16 +173,44 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
 
     func signInWithGoogle() {
-        Task {
-            do {
-                let credential = try await googleCredential()
-                await signInWithCredential(credential, providerName: "Google")
-            } catch {
-                let msg = L10n.f("Google sign-in failed: %@", error.localizedDescription)
-                statusMessage = msg
-                PBLog.firebase.error("\(msg)")
+        statusMessage = "Starting Google sign-in…"
+        PBLog.firebase.info("Starting Google sign-in flow.")
+        let provider = OAuthProvider(providerID: "google.com")
+        provider.customParameters = ["prompt": "select_account"]
+
+        if let user = Auth.auth().currentUser, user.isAnonymous {
+            user.link(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
+                Task { @MainActor in
+                    self?.handleGoogleProviderResult(result: result, error: error)
+                }
+            }
+        } else {
+            Auth.auth().signIn(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
+                Task { @MainActor in
+                    self?.handleGoogleProviderResult(result: result, error: error)
+                }
             }
         }
+    }
+
+    private func handleGoogleProviderResult(result: AuthDataResult?, error: Error?) {
+        if let error {
+            let msg = L10n.f("Google sign-in failed: %@", error.localizedDescription)
+            statusMessage = msg
+            PBLog.firebase.error("\(msg)")
+            return
+        }
+
+        guard let result else {
+            let msg = "Google sign-in failed: No auth result returned."
+            statusMessage = msg
+            PBLog.firebase.error("\(msg)")
+            return
+        }
+
+        refreshAuthState(user: result.user)
+        statusMessage = "Signed in with Google."
+        PBLog.firebase.info("Signed in with Google.")
     }
 
     private func signInWithCredential(_ credential: AuthCredential, providerName: String) async {
@@ -214,28 +243,6 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
             statusMessage = L10n.f("%@ sign-in failed: %@", providerName, error.localizedDescription)
             PBLog.firebase.error("\(providerName) sign-in failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func googleCredential() async throws -> AuthCredential {
-        try await withCheckedThrowingContinuation { continuation in
-            let provider = OAuthProvider(providerID: "google.com")
-            provider.customParameters = ["prompt": "select_account"]
-            provider.getCredentialWith(nil) { credential, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                guard let credential else {
-                    continuation.resume(throwing: NSError(
-                        domain: "PracticeBuddy.FirebaseBootstrap",
-                        code: -5,
-                        userInfo: [NSLocalizedDescriptionKey: "No Google auth credential returned."]
-                    ))
-                    return
-                }
-                continuation.resume(returning: credential)
-            }
         }
     }
 
@@ -348,5 +355,44 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         default:
             return "Firebase auth failed (\(nsError.domain):\(nsError.code)): \(nsError.localizedDescription)"
         }
+    }
+}
+
+private final class FirebaseAuthPresentationDelegate: NSObject, AuthUIDelegate {
+    func present(_ viewController: UIViewController, animated: Bool, completion: (() -> Void)?) {
+        guard let presenter = topViewController() else {
+            completion?()
+            return
+        }
+        presenter.present(viewController, animated: animated, completion: completion)
+    }
+
+    func dismiss(animated: Bool, completion: (() -> Void)?) {
+        guard let presenter = topViewController() else {
+            completion?()
+            return
+        }
+        presenter.dismiss(animated: animated, completion: completion)
+    }
+
+    private func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        let root = windows.first(where: { $0.isKeyWindow })?.rootViewController ?? windows.first?.rootViewController
+        return topMost(from: root)
+    }
+
+    private func topMost(from root: UIViewController?) -> UIViewController? {
+        guard let root else { return nil }
+        if let presented = root.presentedViewController {
+            return topMost(from: presented)
+        }
+        if let nav = root as? UINavigationController {
+            return topMost(from: nav.visibleViewController ?? nav.topViewController)
+        }
+        if let tab = root as? UITabBarController {
+            return topMost(from: tab.selectedViewController)
+        }
+        return root
     }
 }

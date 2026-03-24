@@ -1,4 +1,5 @@
 import Foundation
+import os
 import FirebaseFirestore
 
 struct StudioInfo: Identifiable, Equatable {
@@ -860,7 +861,10 @@ final class FirebaseStudiosRepository {
             .collection("messages")
             .order(by: "createdAt", descending: false)
             .limit(to: max(20, min(limit, 500)))
-            .addSnapshotListener { snap, _ in
+            .addSnapshotListener { snap, error in
+                if let error {
+                    PBLog.firebase.error("Studio chat listen failed studio=\(studioID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
                 Task { @MainActor in
                     let rows = (snap?.documents ?? []).compactMap { self.parseChatMessage(studioID: studioID, document: $0) }
                     onChange(rows)
@@ -891,6 +895,7 @@ final class FirebaseStudiosRepository {
                 "text": String(text.prefix(700)),
                 "createdAt": FieldValue.serverTimestamp()
             ])
+        PBLog.firebase.info("Studio chat sent studio=\(studioID, privacy: .public) sender=\(senderUID, privacy: .private)")
     }
 
     func listenToStudioLatestMessage(
@@ -902,7 +907,10 @@ final class FirebaseStudiosRepository {
             .collection("messages")
             .order(by: "createdAt", descending: true)
             .limit(to: 1)
-            .addSnapshotListener { snap, _ in
+            .addSnapshotListener { snap, error in
+                if let error {
+                    PBLog.firebase.error("Studio latest message listen failed studio=\(studioID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
                 Task { @MainActor in
                     let message = snap?.documents.first.flatMap { self.parseChatMessage(studioID: studioID, document: $0) }
                     onChange(message)
@@ -917,7 +925,10 @@ final class FirebaseStudiosRepository {
         db.collection("friendships")
             .document(uid)
             .collection("buddies")
-            .addSnapshotListener { snap, _ in
+            .addSnapshotListener { snap, error in
+                if let error {
+                    PBLog.firebase.error("Buddy directory listen failed uid=\(uid, privacy: .private): \(error.localizedDescription, privacy: .public)")
+                }
                 Task { @MainActor in
                     let rows: [StudioMemberSummary] = (snap?.documents ?? []).compactMap { doc in
                         let data = doc.data()
@@ -945,7 +956,10 @@ final class FirebaseStudiosRepository {
     ) -> ListenerRegistration {
         db.collection("friendChats")
             .whereField("participants", arrayContains: uid)
-            .addSnapshotListener { snap, _ in
+            .addSnapshotListener { snap, error in
+                if let error {
+                    PBLog.firebase.error("Friend chat thread listen failed uid=\(uid, privacy: .private): \(error.localizedDescription, privacy: .public)")
+                }
                 Task { @MainActor in
                     let rows = (snap?.documents ?? []).compactMap(self.parseFriendChatThread)
                         .sorted { $0.lastMessageAt > $1.lastMessageAt }
@@ -964,7 +978,10 @@ final class FirebaseStudiosRepository {
             .collection("messages")
             .order(by: "createdAt", descending: false)
             .limit(to: max(20, min(limit, 500)))
-            .addSnapshotListener { snap, _ in
+            .addSnapshotListener { snap, error in
+                if let error {
+                    PBLog.firebase.error("Friend message listen failed thread=\(threadID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
                 Task { @MainActor in
                     let rows = (snap?.documents ?? []).compactMap { self.parseFriendMessage(threadID: threadID, document: $0) }
                     onChange(rows)
@@ -1039,6 +1056,7 @@ final class FirebaseStudiosRepository {
             "createdAt": now
         ], forDocument: messageRef, merge: true)
         try await batch.commit()
+        PBLog.firebase.info("Friend chat sent thread=\(threadID, privacy: .public) sender=\(senderUID, privacy: .private)")
     }
 
     func joinStudio(studentUID: String, rawInviteCode: String) async throws {

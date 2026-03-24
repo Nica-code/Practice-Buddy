@@ -117,21 +117,15 @@ struct PulseRhythmAccuracyView: View {
                             .monospacedDigit()
                     }
 
-                    if purchaseManager.isPro {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Detailed breakdown")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            ForEach(Array(summary.windowStats.enumerated()), id: \.offset) { idx, row in
-                                Text(L10n.f("Window %@: %@", "\(idx + 1)", row))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Detailed breakdown")
+                            .font(type.body)
+                            .foregroundStyle(palette.textPrimary)
+                        ForEach(Array(summary.windowStats.enumerated()), id: \.offset) { idx, row in
+                            Text(L10n.f("Window %@: %@", "\(idx + 1)", row))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
                         }
-                    } else {
-                        Text("Detailed per-window rhythm stats are part of Practice Buddy Pro.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
                     }
 
                     if let linked = assignmentLinkManager.linkedAssignment {
@@ -198,7 +192,7 @@ struct PulseRhythmAccuracyView: View {
     }
 
     private func saveTake(summary: RhythmAccuracySummary) {
-        let detail = purchaseManager.isPro ? summary.windowStats.joined(separator: "|") : ""
+        let detail = purchaseManager.featuresUnlocked ? summary.windowStats.joined(separator: "|") : ""
         let log = RhythmAccuracyTakeModel(
             bpm: bpm,
             beatsAnalyzed: summary.beatsAnalyzed,

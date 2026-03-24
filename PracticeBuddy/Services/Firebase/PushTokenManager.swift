@@ -68,8 +68,9 @@ final class PushTokenManager {
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
             lastNotificationPrefsFingerprintByUID[uid] = fingerprint
+            PBLog.firebase.info("Updated notification prefs for uid=\(uid, privacy: .private)")
         } catch {
-            // no-op for now; UI doesn't need a blocking error here
+            PBLog.firebase.error("Failed to update notification prefs: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -93,6 +94,17 @@ final class PushTokenManager {
             }
         @unknown default:
             return false
+        }
+    }
+
+    func registerForRemoteNotificationsIfAuthorized() async {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+            PBLog.firebase.info("Registered for remote notifications (already authorized)")
+        default:
+            break
         }
     }
 
@@ -138,6 +150,7 @@ final class PushTokenManager {
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
         }
+        PBLog.firebase.info("Push test notification request succeeded route=\(route, privacy: .public)")
     }
 
     private func persistToken(_ token: String, for uid: String, kind: TokenKind) async {

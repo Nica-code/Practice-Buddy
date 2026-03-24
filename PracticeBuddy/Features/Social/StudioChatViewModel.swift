@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 import FirebaseFirestore
 
 enum SocialChatThreadKind: String {
@@ -59,6 +60,7 @@ final class StudioChatViewModel: ObservableObject {
     private var pinnedThreadIDs: Set<String> = []
     private var mutedThreadIDs: Set<String> = []
     private var hiddenThreadIDs: Set<String> = []
+    private var pendingOpenThreadID: String?
     private var didReceiveInitialThreadSnapshot = false
     private var previousUnreadByThreadID: [String: Int] = [:]
 
@@ -78,6 +80,7 @@ final class StudioChatViewModel: ObservableObject {
     func start(uid: String) {
         if currentUID == uid { return }
         stop()
+        PBLog.firebase.info("Chat start uid=\(uid, privacy: .private)")
 
         currentUID = uid
         isLoading = true
@@ -116,6 +119,9 @@ final class StudioChatViewModel: ObservableObject {
     }
 
     func stop() {
+        if let currentUID {
+            PBLog.firebase.info("Chat stop uid=\(currentUID, privacy: .private)")
+        }
         userListener?.remove()
         buddiesListener?.remove()
         friendThreadsListener?.remove()
@@ -147,6 +153,7 @@ final class StudioChatViewModel: ObservableObject {
         pinnedThreadIDs = []
         mutedThreadIDs = []
         hiddenThreadIDs = []
+        pendingOpenThreadID = nil
         didReceiveInitialThreadSnapshot = false
         previousUnreadByThreadID = [:]
     }
@@ -159,6 +166,7 @@ final class StudioChatViewModel: ObservableObject {
 
     func openFriendThread(friendUID: String) {
         guard let uid = currentUID else { return }
+        pendingOpenThreadID = nil
         let threadDocID = repository.friendThreadID(uidA: uid, uidB: friendUID)
         let threadID = friendThreadKey(threadDocID)
         hiddenThreadIDs.remove(threadID)
@@ -200,6 +208,7 @@ final class StudioChatViewModel: ObservableObject {
         guard !normalized.isEmpty else { return }
         if threads.contains(where: { $0.id == normalized }) {
             selectedThreadID = normalized
+            pendingOpenThreadID = nil
             attachMessagesListener()
             return
         }
@@ -210,7 +219,9 @@ final class StudioChatViewModel: ObservableObject {
                 let friendUID = parts[0] == uid ? parts[1] : parts[0]
                 openFriendThread(friendUID: friendUID)
             }
+            return
         }
+        pendingOpenThreadID = normalized
     }
 
     func markThreadReadManually(_ threadID: String) {
@@ -273,6 +284,7 @@ final class StudioChatViewModel: ObservableObject {
         let senderName = currentDisplayName.isEmpty ? fallbackName : currentDisplayName
 
         do {
+            PBLog.firebase.info("Chat send start kind=\(selected.kind.rawValue, privacy: .public) thread=\(selected.id, privacy: .public)")
             switch selected.kind {
             case .studio:
                 guard let studioID = selected.studioID else {
@@ -303,8 +315,10 @@ final class StudioChatViewModel: ObservableObject {
             }
             draftMessage = ""
             statusMessage = nil
+            PBLog.firebase.info("Chat send success kind=\(selected.kind.rawValue, privacy: .public) thread=\(selected.id, privacy: .public)")
         } catch {
             statusMessage = error.localizedDescription
+            PBLog.firebase.error("Chat send failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -456,6 +470,7 @@ final class StudioChatViewModel: ObservableObject {
                 let previous = previousUnreadByThreadID[thread.id] ?? 0
                 return thread.unreadCount > previous
             }) {
+                PBLog.firebase.info("Chat unread increment thread=\(newlyUnread.id, privacy: .public)")
                 PBNotificationCenter.maybeScheduleChatNotification(
                     title: newlyUnread.title,
                     body: newlyUnread.lastMessageText.isEmpty ? "New message" : newlyUnread.lastMessageText,
@@ -470,6 +485,14 @@ final class StudioChatViewModel: ObservableObject {
         threads = sorted
         unreadCount = threads.reduce(0) { $0 + $1.unreadCount }
         previousUnreadByThreadID = Dictionary(uniqueKeysWithValues: threads.map { ($0.id, $0.unreadCount) })
+
+        if let pendingOpenThreadID,
+           threads.contains(where: { $0.id == pendingOpenThreadID }) {
+            selectedThreadID = pendingOpenThreadID
+            self.pendingOpenThreadID = nil
+            attachMessagesListener()
+            return
+        }
 
         if let selectedThreadID, threads.contains(where: { $0.id == selectedThreadID }) {
             // keep selection

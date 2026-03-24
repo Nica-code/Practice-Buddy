@@ -45,17 +45,19 @@ struct PracticeLabCardView: View {
                 .font(type.body)
                 .foregroundStyle(palette.textPrimary)
                 .lineLimit(2)
+                .minimumScaleFactor(0.86)
                 .multilineTextAlignment(.leading)
 
             Text(LocalizedStringKey(subtitle))
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
                 .lineLimit(3)
+                .minimumScaleFactor(0.86)
                 .multilineTextAlignment(.leading)
 
             Spacer(minLength: 0)
         }
-        .frame(width: 220, height: 140, alignment: .topLeading)
+        .frame(minWidth: 220, idealWidth: 236, maxWidth: 252, minHeight: 140, maxHeight: 140, alignment: .topLeading)
         .padding(12)
         .pbSurfaceCard(palette: palette, cornerRadius: 14)
         .accessibilityElement(children: .ignore)
@@ -80,15 +82,18 @@ struct PracticeToolCardView: View {
             Text(LocalizedStringKey(title))
                 .font(type.body)
                 .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.86)
 
             Text(LocalizedStringKey(subtitle))
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
                 .lineLimit(2)
+                .minimumScaleFactor(0.86)
 
             Spacer(minLength: 0)
         }
-        .frame(width: 220, height: 102, alignment: .topLeading)
+        .frame(minWidth: 220, idealWidth: 236, maxWidth: 252, minHeight: 102, maxHeight: 102, alignment: .topLeading)
         .padding(12)
         .pbSurfaceCard(palette: palette, cornerRadius: 14)
         .accessibilityElement(children: .ignore)
