@@ -193,6 +193,24 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         }
     }
 
+    @discardableResult
+    func signOutCurrentUser() -> Bool {
+        do {
+            try Auth.auth().signOut()
+            currentUserID = nil
+            currentUserEmail = nil
+            isAnonymousUser = true
+            statusMessage = "Signed out."
+            PBLog.firebase.info("Signed out current Firebase user.")
+            return true
+        } catch {
+            let message = L10n.f("Sign out failed: %@", error.localizedDescription)
+            statusMessage = message
+            PBLog.firebase.error("Sign out failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private func handleGoogleProviderResult(result: AuthDataResult?, error: Error?) {
         if let error {
             let msg = L10n.f("Google sign-in failed: %@", error.localizedDescription)

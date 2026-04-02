@@ -7,6 +7,7 @@ extension SettingsView {
                 goalsSection
                 appearanceSection
                 generalSection
+                accountSection
                 toolAccessSection
                 notificationsSection
                 #if DEBUG
@@ -158,6 +159,32 @@ extension SettingsView {
             }
         } header: {
             PBSectionHeaderLabel(title: "Tool Access")
+        }
+    }
+
+    var accountSection: some View {
+        Section {
+            settingsSectionCard {
+                Button(role: .destructive) {
+                    showSignOutConfirmation = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .foregroundStyle(Color.red)
+                        Text("Sign Out")
+                            .font(type.body)
+                            .foregroundStyle(Color.red)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Text("Sign out to switch accounts.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+            }
+        } header: {
+            PBSectionHeaderLabel(title: "Account")
         }
     }
 

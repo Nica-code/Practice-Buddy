@@ -29,11 +29,13 @@ struct SettingsView: View {
     @AppStorage("pb.notifications.studioInvites") var notifyStudioInvites: Bool = true
     @AppStorage("pb.settings.language") var appLanguageRaw: String = AppLanguage.english.rawValue
     @AppStorage("pb.onboarding.tutorial.forceReplayToken") var tutorialReplayToken: Int = 0
+    @AppStorage("pb.tab.selection") var selectedTab: Int = 0
 
     @State var pendingRetentionTask: Task<Void, Never>?
     @State var animateHeader = false
     @State var scrollAnchorTarget: SettingsAnchor?
     @State var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    @State var showSignOutConfirmation: Bool = false
     #if DEBUG
     @State var pushTestStatus: String?
     #endif
@@ -139,6 +141,15 @@ struct SettingsView: View {
         }
         .onChange(of: notifyStudioInvites) { _, _ in
             Task { await syncNotificationPrefs() }
+        }
+        .alert("Sign Out?", isPresented: $showSignOutConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sign Out", role: .destructive) {
+                selectedTab = 0
+                _ = firebase.signOutCurrentUser()
+            }
+        } message: {
+            Text("You can sign back in anytime with Apple or Google.")
         }
     }
 

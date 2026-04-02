@@ -1003,3 +1003,9 @@
 "Check your level, league, and streak progress in one place." = "한 곳에서 레벨, 리그, 연속 기록을 확인하세요.";
 "Settings: Personalize App" = "설정: 앱 개인화";
 "Adjust goals, appearance, and notifications. You can replay this tour anytime from Settings." = "목표, 외관, 알림을 조정하세요. 이 안내는 설정에서 언제든 다시 볼 수 있습니다.";
+"Sign Out" = "로그아웃";
+"Sign out to switch accounts." = "계정을 전환하려면 로그아웃하세요.";
+"Sign Out?" = "로그아웃할까요?";
+"You can sign back in anytime with Apple or Google." = "Apple 또는 Google로 언제든 다시 로그인할 수 있습니다.";
+"Signed out." = "로그아웃되었습니다.";
+"Sign out failed: %@" = "로그아웃 실패: %@";

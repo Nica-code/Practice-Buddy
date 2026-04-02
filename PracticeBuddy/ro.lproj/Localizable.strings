@@ -1023,3 +1023,9 @@
 "Check your level, league, and streak progress in one place." = "Verifică nivelul, liga și progresul seriei într-un singur loc.";
 "Settings: Personalize App" = "Setări: Personalizează aplicația";
 "Adjust goals, appearance, and notifications. You can replay this tour anytime from Settings." = "Ajustează obiectivele, aspectul și notificările. Poți relua acest tur oricând din Setări.";
+"Sign Out" = "Deconectare";
+"Sign out to switch accounts." = "Deconectează-te pentru a schimba contul.";
+"Sign Out?" = "Te deconectezi?";
+"You can sign back in anytime with Apple or Google." = "Te poți autentifica din nou oricând cu Apple sau Google.";
+"Signed out." = "Te-ai deconectat.";
+"Sign out failed: %@" = "Deconectarea a eșuat: %@";
