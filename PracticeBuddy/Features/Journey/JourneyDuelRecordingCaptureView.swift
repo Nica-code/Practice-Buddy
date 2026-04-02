@@ -8,8 +8,7 @@ struct DuelRecordingCaptureView: View {
     private enum Phase {
         case ready
         case preRoll
-        case intonation
-        case rhythm
+        case recording
         case complete
     }
 
@@ -33,60 +32,57 @@ struct DuelRecordingCaptureView: View {
     @State private var phase: Phase = .ready
     @State private var preRollStartedAt: Date?
     @State private var preRollSeconds: Int = 5
-    @State private var intonationRunning = false
-    @State private var intonationStartedAt: Date?
+    @State private var recordingStartedAt: Date?
     @State private var aggregate = IntonationAggregate()
     @State private var intonationScore: Int = 0
     @State private var intonationConsistency: Int = 0
-    @State private var rhythmRunning = false
     @State private var rhythmBPM: Int = 72
     @State private var statusMessage: String?
     @State private var finalMetrics: DuelDerivedMetrics?
 
     private let ticker = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var intonationDuration: TimeInterval {
+
+    private var takeDuration: TimeInterval {
         switch challenge.octaveCount {
         case 3: return 50
         case 2: return 36
         default: return 24
         }
     }
+
     private var rhythmTargetBeats: Int {
-        let base: Int
         switch challenge.octaveCount {
-        case 3: base = 32
-        case 2: base = 24
-        default: base = 16
-        }
-        switch strictnessTier {
-        case 7: return base + 12
-        case 6: return base + 10
-        case 5: return base + 8
-        case 4: return base + 6
-        case 3: return base + 4
-        default: return base
+        case 3: return 32
+        case 2: return 24
+        default: return 16
         }
     }
+
     private var scaleDescriptor: String {
         let raw = challenge.scaleName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !raw.isEmpty { return raw }
         return challenge.objective.split(separator: "•").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? "C major"
     }
+
     private var allowedPitchClasses: Set<Int> {
         scalePitchClasses(for: scaleDescriptor)
     }
+
     private var allowedPitchNamesText: String {
         let names = allowedPitchClasses.sorted().map(noteName(for:))
         return names.joined(separator: " - ")
     }
+
     private var inScaleRatio: Double {
         guard aggregate.totalSamples > 0 else { return 0 }
         return Double(aggregate.inScaleSamples) / Double(aggregate.totalSamples)
     }
+
     private var minimumRhythmBPM: Int {
         max(50, min(220, challenge.requiredMinTempoBPM > 0 ? challenge.requiredMinTempoBPM : 50))
     }
+
     private var challengeLeagueTier: DuelLeagueTier {
         if let raw = challenge.requiredLeague?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
            let tier = DuelLeagueTier(rawValue: raw) {
@@ -94,11 +90,9 @@ struct DuelRecordingCaptureView: View {
         }
         return DuelLeagueTier.forRating(duelLeague.duelRating)
     }
-    private var strictnessTier: Int {
-        challengeLeagueTier.difficultyRank
-    }
+
     private var strictnessLabel: String {
-        switch strictnessTier {
+        switch challengeLeagueTier.difficultyRank {
         case 7: return "Grandmaster"
         case 6: return "Master"
         case 5: return "Diamond"
@@ -108,34 +102,6 @@ struct DuelRecordingCaptureView: View {
         case 1: return "Silver"
         default: return "Bronze"
         }
-    }
-    private var minIntonationSamples: Int {
-        let base: Int
-        switch challenge.octaveCount {
-        case 3: base = 180
-        case 2: base = 130
-        default: base = 90
-        }
-        let multiplier = 0.80 + (Double(strictnessTier) * 0.07)
-        return Int(Double(base) * multiplier)
-    }
-    private var minUniqueScaleTones: Int {
-        let base: Int
-        switch challenge.octaveCount {
-        case 3: base = 6
-        case 2: base = 5
-        default: base = 4
-        }
-        return min(7, max(3, base - 1 + (strictnessTier / 2)))
-    }
-    private var minInScaleRatio: Double {
-        min(0.82, 0.45 + (Double(strictnessTier) * 0.05))
-    }
-    private var intonationPassed: Bool {
-        aggregate.totalSamples >= minIntonationSamples &&
-            aggregate.inScaleSamples > 0 &&
-            inScaleRatio >= minInScaleRatio &&
-            aggregate.inScalePitchClasses.count >= minUniqueScaleTones
     }
 
     var body: some View {
@@ -150,20 +116,13 @@ struct DuelRecordingCaptureView: View {
                 Text("Analysis mode: \(strictnessLabel)")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
-                if challenge.requiredMinTempoBPM > 0 {
-                    Text("Required tempo floor: \(challenge.requiredMinTempoBPM)+ BPM")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-                Text("Repeats are allowed. Scoring uses in-scale pitch collection match + tuning quality.")
+                Text("Repeats are allowed. Record one combined take for pitch + rhythm.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
             .listRowBackground(Color.clear)
 
-            intonationSection
-            rhythmSection
+            combinedCaptureSection
 
             if let finalMetrics {
                 Section("Ready to Submit") {
@@ -180,7 +139,7 @@ struct DuelRecordingCaptureView: View {
                     .foregroundStyle(palette.textPrimary)
                     .monospacedDigit()
 
-                    Button("Use This Take") {
+                    Button("Submit Take") {
                         onComplete(finalMetrics)
                         dismiss()
                     }
@@ -207,19 +166,17 @@ struct DuelRecordingCaptureView: View {
         .onReceive(ticker) { _ in
             captureTick()
         }
-        .onChange(of: rhythmEngine.summary?.beatsAnalyzed) { _, _ in
-            guard let summary = rhythmEngine.summary else { return }
-            rhythmRunning = false
-            metronome.stop()
-            buildFinalMetrics(rhythmSummary: summary)
-        }
         .onDisappear {
             stopAllCapture()
         }
     }
 
-    private var intonationSection: some View {
-        Section("Step 1 • Intonation") {
+    private var combinedCaptureSection: some View {
+        Section("Record Take") {
+            Stepper(L10n.f("Tempo: %@ BPM", "\(rhythmBPM)"), value: $rhythmBPM, in: minimumRhythmBPM...220)
+                .font(type.body)
+                .disabled(phase == .preRoll || phase == .recording)
+
             switch phase {
             case .preRoll:
                 HStack {
@@ -232,8 +189,8 @@ struct DuelRecordingCaptureView: View {
                         .foregroundStyle(palette.accent)
                         .monospacedDigit()
                 }
-            case .intonation:
-                let remaining = max(0, Int((intonationDuration - Date().timeIntervalSince(intonationStartedAt ?? .now)).rounded()))
+            case .recording:
+                let remaining = max(0, Int((takeDuration - Date().timeIntervalSince(recordingStartedAt ?? .now)).rounded()))
                 HStack {
                     Text("Recording")
                         .font(type.body)
@@ -245,7 +202,7 @@ struct DuelRecordingCaptureView: View {
                         .monospacedDigit()
                 }
             default:
-                Text("Press Record. A 5s countdown starts, then capture begins.")
+                Text("Press Record. A 5s countdown starts, then one combined take is captured.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -293,38 +250,6 @@ struct DuelRecordingCaptureView: View {
                     .monospacedDigit()
             }
 
-            if !intonationRunning && aggregate.totalSamples > 0 {
-                Text("Score \(intonationScore) • Consistency \(intonationConsistency)")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            Button(phase == .preRoll || intonationRunning ? "Stop Intonation" : "Record Intonation") {
-                if phase == .preRoll || intonationRunning {
-                    stopIntonation()
-                    finalizeIntonation()
-                } else {
-                    startIntonationWithPreRoll()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
-            .disabled(!(phase == .ready || phase == .complete || phase == .preRoll || phase == .intonation))
-        }
-        .listRowBackground(Color.clear)
-    }
-
-    private var rhythmSection: some View {
-        Section("Step 2 • Rhythm") {
-            Text("Play with steady pulse. Target beats: \(rhythmTargetBeats).")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-
-            Stepper(L10n.f("Tempo: %@ BPM", "\(rhythmBPM)"), value: $rhythmBPM, in: minimumRhythmBPM...220)
-                .font(type.body)
-                .disabled(rhythmRunning)
-
             if let summary = rhythmEngine.summary {
                 Text(
                     L10n.f(
@@ -337,27 +262,34 @@ struct DuelRecordingCaptureView: View {
                 .font(type.footnote)
                 .foregroundStyle(palette.textSecondary)
                 .monospacedDigit()
-            } else if rhythmRunning {
+            } else if phase == .recording {
                 Text("Listening…")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
 
-            Button(rhythmRunning ? "Stop Rhythm" : "Start Rhythm") {
-                if rhythmRunning {
-                    stopRhythm()
+            if phase == .complete && aggregate.totalSamples > 0 {
+                Text("Intonation \(intonationScore) • Consistency \(intonationConsistency)")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+            }
+
+            Button(phase == .preRoll || phase == .recording ? "Stop Recording" : "Record") {
+                if phase == .preRoll || phase == .recording {
+                    stopRecordingAndFinalize()
                 } else {
-                    startRhythm()
+                    startCombinedRecordingWithPreRoll()
                 }
             }
             .buttonStyle(.borderedProminent)
             .tint(palette.accent)
-            .disabled((phase != .rhythm && phase != .complete) || !intonationPassed)
+            .disabled(!(phase == .ready || phase == .complete || phase == .preRoll || phase == .recording))
         }
         .listRowBackground(Color.clear)
     }
 
-    private func startIntonationWithPreRoll() {
+    private func startCombinedRecordingWithPreRoll() {
         stopAllCapture()
         finalMetrics = nil
         statusMessage = nil
@@ -370,23 +302,29 @@ struct DuelRecordingCaptureView: View {
         tuner.requestMicPermissionAndStart()
     }
 
-    private func startIntonationCaptureNow() {
+    private func startCombinedCaptureNow() {
         preRollStartedAt = nil
         preRollSeconds = 0
-        intonationStartedAt = Date()
-        intonationRunning = true
-        phase = .intonation
+        recordingStartedAt = Date()
+        phase = .recording
+
+        if rhythmBPM < minimumRhythmBPM {
+            rhythmBPM = minimumRhythmBPM
+        }
+
+        rhythmEngine.stop(clear: true)
+        metronome.setBPM(rhythmBPM)
+        metronome.start(
+            beatsPerBar: 4,
+            subdivision: .none,
+            soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click)
+        )
+        rhythmEngine.start(bpm: rhythmBPM, targetBeats: rhythmTargetBeats)
     }
 
-    private func stopIntonation() {
-        intonationRunning = false
-        preRollStartedAt = nil
-        preRollSeconds = 0
-        intonationStartedAt = nil
-        tuner.stopListening()
-        if phase == .preRoll || phase == .intonation {
-            phase = .ready
-        }
+    private func stopRecordingAndFinalize() {
+        stopAllCapture()
+        finalizeCombinedTake()
     }
 
     private func captureTick() {
@@ -395,21 +333,20 @@ struct DuelRecordingCaptureView: View {
             let remaining = max(0, Int(ceil(5.0 - elapsed)))
             preRollSeconds = remaining
             if elapsed >= 5.0 {
-                startIntonationCaptureNow()
+                startCombinedCaptureNow()
             }
             return
         }
 
-        guard intonationRunning, phase == .intonation else { return }
-        guard let started = intonationStartedAt else { return }
+        guard phase == .recording else { return }
+        guard let started = recordingStartedAt else { return }
 
         if let frequency = tuner.detectedFrequency, tuner.inputLevel > 0.003 {
             registerFrequency(frequency)
         }
 
-        if Date().timeIntervalSince(started) >= intonationDuration {
-            stopIntonation()
-            finalizeIntonation()
+        if Date().timeIntervalSince(started) >= takeDuration {
+            stopRecordingAndFinalize()
         }
     }
 
@@ -427,18 +364,19 @@ struct DuelRecordingCaptureView: View {
         }
     }
 
-    private func finalizeIntonation() {
+    private func finalizeCombinedTake() {
         guard aggregate.totalSamples > 0 else {
             statusMessage = "No usable signal captured. Try again."
             return
         }
-        guard aggregate.inScaleSamples > 0 else {
-            statusMessage = "No in-scale notes detected. Try again."
-            return
-        }
 
-        let meanAbs = aggregate.inScaleCents.map { abs($0) }.reduce(0, +) / Double(aggregate.inScaleCents.count)
-        let std = standardDeviation(aggregate.inScaleCents)
+        let cents = aggregate.inScaleCents
+        let meanAbs: Double = {
+            guard !cents.isEmpty else { return 100.0 }
+            return cents.map { abs($0) }.reduce(0, +) / Double(cents.count)
+        }()
+        let std = cents.isEmpty ? 45.0 : standardDeviation(cents)
+
         let ratioScore = inScaleRatio * 100.0
         let tuningScore = max(0.0, 100.0 - meanAbs * 2.0)
         let coverageScore = (Double(aggregate.inScalePitchClasses.count) / Double(max(1, allowedPitchClasses.count))) * 100.0
@@ -446,67 +384,34 @@ struct DuelRecordingCaptureView: View {
         intonationScore = clampScore(Int((ratioScore * 0.45 + tuningScore * 0.40 + coverageScore * 0.15).rounded()))
         intonationConsistency = clampScore(Int((100.0 - std * 1.8).rounded()))
 
-        if !intonationPassed {
-            statusMessage = L10n.f(
-                "Need clearer scale capture: >=%@ samples, >=%@%% in-scale, >=%@ tones.",
-                "\(minIntonationSamples)",
-                "\(Int((minInScaleRatio * 100).rounded()))",
-                "\(minUniqueScaleTones)"
-            )
-            phase = .ready
-            return
-        }
+        let rhythmSummary = rhythmEngine.summary
+        let averageOffsetMs = abs(rhythmSummary?.averageOffsetMs ?? 0)
+        let rawRhythmScore = clampScore(rhythmSummary?.grooveScore ?? 70)
+        let beatsAnalyzed = max(1, rhythmSummary?.beatsAnalyzed ?? Int((takeDuration / 60.0) * Double(max(rhythmBPM, 40)) * 0.25))
+        let beatCoverage = min(1.0, Double(beatsAnalyzed) / Double(max(1, rhythmTargetBeats)))
 
-        phase = .rhythm
-        statusMessage = "Intonation captured. Continue to rhythm."
-    }
-
-    private func startRhythm() {
-        guard intonationPassed else {
-            statusMessage = "Complete intonation first."
-            return
-        }
-        if rhythmBPM < minimumRhythmBPM {
-            rhythmBPM = minimumRhythmBPM
-        }
-        phase = .rhythm
-        finalMetrics = nil
-        rhythmRunning = true
-        rhythmEngine.stop(clear: true)
-        metronome.setBPM(rhythmBPM)
-        metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
-        rhythmEngine.start(bpm: rhythmBPM, targetBeats: rhythmTargetBeats)
-    }
-
-    private func stopRhythm() {
-        rhythmRunning = false
-        metronome.stop()
-        rhythmEngine.stop(clear: false)
-        if let summary = rhythmEngine.summary {
-            buildFinalMetrics(rhythmSummary: summary)
-        } else {
-            statusMessage = "Rhythm capture too short. Try again."
-        }
-    }
-
-    private func buildFinalMetrics(rhythmSummary: RhythmAccuracySummary) {
-        guard intonationPassed else { return }
-        guard rhythmSummary.beatsAnalyzed > 0 else { return }
-
-        let rhythmScore = clampScore(rhythmSummary.grooveScore)
-        let timingConsistency = clampScore(Int((100.0 - min(100.0, abs(rhythmSummary.averageOffsetMs))).rounded()))
+        let rhythmScore = adjustedRhythmScore(
+            rawScore: rawRhythmScore,
+            averageOffsetMs: averageOffsetMs,
+            beatCoverage: beatCoverage
+        )
+        let timingConsistency = adjustedTimingConsistencyScore(
+            averageOffsetMs: averageOffsetMs,
+            beatCoverage: beatCoverage
+        )
         let combinedConsistency = clampScore(Int((Double(intonationConsistency) * 0.6 + Double(timingConsistency) * 0.4).rounded()))
+        let noteCount = max(1, aggregate.inScaleSamples > 0 ? aggregate.inScaleSamples : aggregate.totalSamples)
 
         finalMetrics = DuelDerivedMetrics(
             intonationScore: intonationScore,
             rhythmScore: rhythmScore,
             consistencyScore: combinedConsistency,
-            noteCount: max(1, aggregate.inScaleSamples),
-            beatsAnalyzed: max(1, rhythmSummary.beatsAnalyzed),
+            noteCount: noteCount,
+            beatsAnalyzed: beatsAnalyzed,
             tempoBPM: rhythmBPM
         )
         phase = .complete
-        statusMessage = "Duel take ready. Use this take to submit."
+        statusMessage = "Duel take ready. Submit Take when ready."
     }
 
     private func scalePitchClasses(for descriptor: String) -> Set<Int> {
@@ -572,11 +477,9 @@ struct DuelRecordingCaptureView: View {
     }
 
     private func stopAllCapture() {
-        intonationRunning = false
-        rhythmRunning = false
         preRollStartedAt = nil
         preRollSeconds = 0
-        intonationStartedAt = nil
+        recordingStartedAt = nil
         tuner.stopListening()
         rhythmEngine.stop(clear: false)
         metronome.stop()
@@ -589,6 +492,105 @@ struct DuelRecordingCaptureView: View {
 
     private func clampScore(_ value: Int) -> Int {
         min(100, max(0, value))
+    }
+
+    private func adjustedRhythmScore(rawScore: Int, averageOffsetMs: Double, beatCoverage: Double) -> Int {
+        let normalizedScore = normalizedRhythmScore(for: averageOffsetMs, tier: challengeLeagueTier)
+        let blend = rhythmBlend(for: challengeLeagueTier)
+        var score = Int((Double(rawScore) * blend.raw + Double(normalizedScore) * blend.normalized).rounded())
+        score += rhythmCoverageAdjustment(for: beatCoverage, tier: challengeLeagueTier)
+
+        if beatCoverage >= 0.65 {
+            score = max(score, beginnerRhythmFloor(for: challengeLeagueTier))
+        }
+        if beatCoverage < 0.45 {
+            score = min(score, challengeLeagueTier.difficultyRank >= DuelLeagueTier.diamond.difficultyRank ? 52 : 58)
+        }
+        return clampScore(score)
+    }
+
+    private func adjustedTimingConsistencyScore(averageOffsetMs: Double, beatCoverage: Double) -> Int {
+        let windowMs = timingConsistencyWindowMs(for: challengeLeagueTier)
+        var score = Int((100.0 - min(100.0, (averageOffsetMs / windowMs) * 100.0)).rounded())
+        if beatCoverage < 0.45 {
+            score -= challengeLeagueTier.difficultyRank >= DuelLeagueTier.diamond.difficultyRank ? 16 : 10
+        } else if beatCoverage < 0.60 {
+            score -= 6
+        }
+        return clampScore(score)
+    }
+
+    private func normalizedRhythmScore(for averageOffsetMs: Double, tier: DuelLeagueTier) -> Int {
+        let windowMs = rhythmWindowMs(for: tier)
+        let score = Int((100.0 - min(100.0, (averageOffsetMs / windowMs) * 100.0)).rounded())
+        return clampScore(score)
+    }
+
+    private func rhythmWindowMs(for tier: DuelLeagueTier) -> Double {
+        switch tier {
+        case .bronze: return 120
+        case .silver: return 110
+        case .gold: return 100
+        case .platinum: return 90
+        case .emerald: return 82
+        case .diamond: return 76
+        case .master: return 72
+        case .grandmaster: return 68
+        }
+    }
+
+    private func timingConsistencyWindowMs(for tier: DuelLeagueTier) -> Double {
+        switch tier {
+        case .bronze: return 155
+        case .silver: return 145
+        case .gold: return 135
+        case .platinum: return 125
+        case .emerald: return 115
+        case .diamond: return 105
+        case .master: return 98
+        case .grandmaster: return 92
+        }
+    }
+
+    private func rhythmBlend(for tier: DuelLeagueTier) -> (raw: Double, normalized: Double) {
+        switch tier {
+        case .bronze: return (0.45, 0.55)
+        case .silver: return (0.50, 0.50)
+        case .gold: return (0.56, 0.44)
+        case .platinum: return (0.62, 0.38)
+        case .emerald: return (0.68, 0.32)
+        case .diamond: return (0.72, 0.28)
+        case .master: return (0.75, 0.25)
+        case .grandmaster: return (0.78, 0.22)
+        }
+    }
+
+    private func rhythmCoverageAdjustment(for beatCoverage: Double, tier: DuelLeagueTier) -> Int {
+        let base: Int
+        switch beatCoverage {
+        case 0.90...:
+            base = 3
+        case 0.75..<0.90:
+            base = 1
+        case 0.60..<0.75:
+            base = 0
+        case 0.45..<0.60:
+            base = -6
+        default:
+            base = -12
+        }
+        if tier.difficultyRank >= DuelLeagueTier.diamond.difficultyRank, beatCoverage < 0.60 {
+            return base - 4
+        }
+        return base
+    }
+
+    private func beginnerRhythmFloor(for tier: DuelLeagueTier) -> Int {
+        switch tier {
+        case .bronze: return 34
+        case .silver: return 30
+        default: return 0
+        }
     }
 
     private func standardDeviation(_ values: [Double]) -> Double {

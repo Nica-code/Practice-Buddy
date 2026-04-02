@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject var store: SessionStore
     @EnvironmentObject var purchaseManager: PurchaseManager
     @EnvironmentObject var adsManager: PBAdsManager
+    @EnvironmentObject var firebase: FirebaseBootstrap
     @Environment(\.pbTheme) var theme
     @Environment(\.pbTypography) var type
     @Environment(\.colorScheme) var colorScheme
@@ -26,7 +27,7 @@ struct SettingsView: View {
     @AppStorage("pb.notifications.goals") var notifyGoals: Bool = true
     @AppStorage("pb.notifications.friendRequests") var notifyFriendRequests: Bool = true
     @AppStorage("pb.notifications.studioInvites") var notifyStudioInvites: Bool = true
-    @AppStorage("pb.settings.language") var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("pb.settings.language") var appLanguageRaw: String = AppLanguage.english.rawValue
     @AppStorage("pb.onboarding.tutorial.forceReplayToken") var tutorialReplayToken: Int = 0
 
     @State var pendingRetentionTask: Task<Void, Never>?
@@ -47,7 +48,7 @@ struct SettingsView: View {
     var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     var appLanguageBinding: Binding<AppLanguage> {
         Binding(
-            get: { AppLanguage(rawValue: appLanguageRaw) ?? .system },
+            get: { AppLanguage(rawValue: appLanguageRaw) ?? .english },
             set: { appLanguageRaw = $0.rawValue }
         )
     }
@@ -58,6 +59,13 @@ struct SettingsView: View {
 
     var historyRetentionDisplayStyle: Color {
         historyRetention == 0 ? palette.textPrimary : palette.textSecondary
+    }
+
+    var canShowAdsDebugSection: Bool {
+        AppInfo.isMasterAccount(
+            uid: firebase.currentUserID,
+            email: firebase.currentUserEmail
+        )
     }
     
     func settingsSectionCard<Content: View>(

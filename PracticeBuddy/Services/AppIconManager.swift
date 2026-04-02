@@ -9,8 +9,6 @@ import UIKit
 enum PBAppIcon: String, CaseIterable, Identifiable {
     case primary
     case icon2
-    case icon3
-    case icon4
 
     var id: String { rawValue }
 
@@ -19,8 +17,6 @@ enum PBAppIcon: String, CaseIterable, Identifiable {
         switch self {
         case .primary: return "Default"
         case .icon2: return "Noir"
-        case .icon3: return "Ocean"
-        case .icon4: return "Sunrise"
         }
     }
 
@@ -29,8 +25,6 @@ enum PBAppIcon: String, CaseIterable, Identifiable {
         switch self {
         case .primary: return nil
         case .icon2: return "AppIcon2"
-        case .icon3: return "AppIcon3"
-        case .icon4: return "AppIcon4"
         }
     }
 
@@ -39,8 +33,6 @@ enum PBAppIcon: String, CaseIterable, Identifiable {
         switch self {
         case .primary: return "IconPreviewDefault"
         case .icon2: return "IconPreview2"
-        case .icon3: return "IconPreview3"
-        case .icon4: return "IconPreview4"
         }
     }
 
@@ -48,8 +40,6 @@ enum PBAppIcon: String, CaseIterable, Identifiable {
         guard let name else { return .primary }
         switch name {
         case "AppIcon2": return .icon2
-        case "AppIcon3": return .icon3
-        case "AppIcon4": return .icon4
         default: return .primary
         }
     }
@@ -120,7 +110,7 @@ final class AppIconManager {
                         Attempted: \(icon.assetIconName ?? "Default")
                         Error: \(error.localizedDescription)
 
-                        Check that AppIcon2/AppIcon3/AppIcon4 are iOS App Icon assets with a 1024×1024 image (no transparency).
+                        Check that AppIcon2 is an iOS App Icon asset with a 1024×1024 image (no transparency).
                         """
                     )
                 } else {

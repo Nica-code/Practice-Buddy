@@ -58,10 +58,30 @@ service cloud.firestore {
       ]);
     }
 
+    function isValidDisplayName(name) {
+      return name is string
+        && name.size() >= 2
+        && name.size() <= 30
+        && name.matches('^[\\p{L}\\p{N}]+$');
+    }
+
+    function validDisplayNameOnCreate() {
+      return !("displayName" in request.resource.data) || isValidDisplayName(request.resource.data.displayName);
+    }
+
+    function validDisplayNameOnUpdate() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny(["displayName"])
+        || isValidDisplayName(request.resource.data.displayName);
+    }
+
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSelf(uid) && !touchesRestrictedUserFieldsOnCreate();
-      allow update: if isSelf(uid) && !touchesRestrictedUserFieldsOnUpdate();
+      allow create: if isSelf(uid)
+        && !touchesRestrictedUserFieldsOnCreate()
+        && validDisplayNameOnCreate();
+      allow update: if isSelf(uid)
+        && !touchesRestrictedUserFieldsOnUpdate()
+        && validDisplayNameOnUpdate();
       allow delete: if false;
     }
 

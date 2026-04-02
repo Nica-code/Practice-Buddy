@@ -14,7 +14,7 @@ struct PracticeBuddyApp: App {
     @StateObject private var firebase: FirebaseBootstrap
     @StateObject private var purchaseManager: PurchaseManager
     @StateObject private var adsManager: PBAdsManager
-    @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
 
     init() {
         PBSwiftDataBootstrap.ensureApplicationSupportDirectory()
@@ -26,7 +26,7 @@ struct PracticeBuddyApp: App {
     }
 
     var body: some Scene {
-        let appLanguage = AppLanguage(rawValue: appLanguageRaw) ?? .system
+        let appLanguage = AppLanguage(rawValue: appLanguageRaw) ?? .english
         WindowGroup {
             ContentView()
                 .preferredColorScheme(.light)

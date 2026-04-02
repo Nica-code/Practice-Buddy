@@ -80,7 +80,7 @@ enum FirebaseBuddiesError: LocalizedError {
         case .inviteAlreadySent: return "Invite already sent."
         case .inviteAlreadyReceived: return "That user already sent you an invite."
         case .missingInviteTarget: return "Invite target not found."
-        case .invalidDisplayName: return "Enter a display name (2-30 characters)."
+        case .invalidDisplayName: return "Use 2-30 letters/numbers only (no spaces or symbols)."
         case .displayNameLocked: return "Name can only be changed once."
         }
     }
@@ -107,7 +107,7 @@ final class FirebaseBuddiesRepository {
             return profile
         }
 
-        let defaultDisplayName = "Player \(uid.prefix(4).uppercased())"
+        let defaultDisplayName = "Player\(uid.prefix(4).uppercased())"
 
         for _ in 0..<6 {
             let code = makeFriendCode()
@@ -309,8 +309,12 @@ final class FirebaseBuddiesRepository {
     }
 
     func updateDisplayName(uid: String, rawDisplayName: String) async throws {
-        let cleaned = rawDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedRaw = rawDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = normalizedDisplayName(from: cleanedRaw)
         guard (2...30).contains(cleaned.count) else {
+            throw FirebaseBuddiesError.invalidDisplayName
+        }
+        guard cleaned == cleanedRaw else {
             throw FirebaseBuddiesError.invalidDisplayName
         }
 
@@ -587,6 +591,11 @@ final class FirebaseBuddiesRepository {
         let prefix = String((0..<4).map { _ in letters.randomElement() ?? "A" })
         let suffix = String((0..<4).map { _ in numbers.randomElement() ?? "2" })
         return "\(prefix)-\(suffix)"
+    }
+
+    func normalizedDisplayName(from raw: String) -> String {
+        let scalars = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        return String(String.UnicodeScalarView(scalars)).prefix(30).description
     }
 }
 

@@ -91,6 +91,11 @@ struct FriendsView: View {
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
+    private func normalizedDisplayName(_ raw: String) -> String {
+        let scalars = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        return String(String.UnicodeScalarView(scalars)).prefix(30).description
+    }
+
     private func socialSection<Content: View>(
         _ title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
@@ -195,6 +200,12 @@ struct FriendsView: View {
                             .font(type.body)
                             .padding(10)
                             .pbSurfaceCard(palette: palette)
+                            .onChange(of: displayNameInput) { _, newValue in
+                                let normalized = normalizedDisplayName(newValue)
+                                if normalized != newValue {
+                                    displayNameInput = normalized
+                                }
+                            }
 
                         Button("Save") {
                             Task { await buddiesVM.saveDisplayName(displayNameInput) }

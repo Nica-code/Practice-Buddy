@@ -10,7 +10,9 @@ extension SettingsView {
                 toolAccessSection
                 notificationsSection
                 #if DEBUG
-                adsSection
+                if canShowAdsDebugSection {
+                    adsSection
+                }
                 #endif
                 historySection
                 AboutSectionView()

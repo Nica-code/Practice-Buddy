@@ -1649,6 +1649,7 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var outgoingInvites: [DuelChallenge] = []
     @Published private(set) var activeChallenges: [DuelChallenge] = []
     @Published private(set) var recentCompleted: [DuelChallenge] = []
+    @Published private(set) var matchHistory: [DuelChallenge] = []
     @Published private(set) var userDisplayNames: [String: String] = [:]
     @Published private(set) var friendCandidates: [DuelTargetCandidate] = []
     @Published private(set) var studioCandidates: [DuelTargetCandidate] = []
@@ -1719,6 +1720,7 @@ final class DuelLeagueManager: ObservableObject {
         outgoingInvites = []
         activeChallenges = []
         recentCompleted = []
+        matchHistory = []
         userDisplayNames = [:]
         friendCandidates = []
         studioCandidates = []
@@ -2128,16 +2130,37 @@ final class DuelLeagueManager: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 let data = snap?.data() ?? [:]
-                self.duelRating = max(0, (data["duelRating"] as? Int) ?? 0)
-                self.duelWins = max(0, (data["duelWins"] as? Int) ?? 0)
-                self.duelLosses = max(0, (data["duelLosses"] as? Int) ?? 0)
-                self.duelDraws = max(0, (data["duelDraws"] as? Int) ?? 0)
-                self.seasonKey = (data["duelSeasonKey"] as? String) ?? self.currentSeasonKey()
+                let previousRating = self.duelRating
+                let previousWins = self.duelWins
+                let previousLosses = self.duelLosses
+                let previousDraws = self.duelDraws
+                let previousSeasonKey = self.seasonKey
+
+                let newRating = max(0, (data["duelRating"] as? Int) ?? 0)
+                let newWins = max(0, (data["duelWins"] as? Int) ?? 0)
+                let newLosses = max(0, (data["duelLosses"] as? Int) ?? 0)
+                let newDraws = max(0, (data["duelDraws"] as? Int) ?? 0)
+                let newSeasonKey = (data["duelSeasonKey"] as? String) ?? self.currentSeasonKey()
+
+                self.duelRating = newRating
+                self.duelWins = newWins
+                self.duelLosses = newLosses
+                self.duelDraws = newDraws
+                self.seasonKey = newSeasonKey
                 self.seasonPoints = max(0, (data["duelSeasonPoints"] as? Int) ?? 0)
                 self.seasonMatches = max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
                 self.seasonWins = max(0, (data["duelSeasonWins"] as? Int) ?? 0)
                 self.leaderboardCache = self.leaderboardCache.filter { _, cached in
-                    cached.seasonKey == self.seasonKey
+                    cached.seasonKey == newSeasonKey
+                }
+
+                let duelStatsChanged = previousRating != newRating ||
+                    previousWins != newWins ||
+                    previousLosses != newLosses ||
+                    previousDraws != newDraws ||
+                    previousSeasonKey != newSeasonKey
+                if duelStatsChanged {
+                    self.leaderboardCache.removeAll()
                 }
             }
         }
@@ -2155,7 +2178,26 @@ final class DuelLeagueManager: ObservableObject {
     }
 
     private func handleChallengeSnapshot(uid: String, snapshot: QuerySnapshot?) {
-        let rows = (snapshot?.documents ?? [])
+        let docs = snapshot?.documents ?? []
+        var inlineDisplayNames: [String: String] = [:]
+        for doc in docs {
+            let data = doc.data()
+            let createdByUID = (data["createdByUid"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let createdByName = (data["createdByDisplayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !createdByUID.isEmpty, !createdByName.isEmpty {
+                inlineDisplayNames[createdByUID] = createdByName
+            }
+            let opponentUID = (data["opponentUid"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let opponentName = (data["opponentDisplayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !opponentUID.isEmpty, !opponentName.isEmpty {
+                inlineDisplayNames[opponentUID] = opponentName
+            }
+        }
+        if !inlineDisplayNames.isEmpty {
+            userDisplayNames.merge(inlineDisplayNames) { _, new in new }
+        }
+
+        let rows = docs
             .compactMap(parseChallenge)
             .sorted { lhs, rhs in
                 let l = lhs.completedAt ?? lhs.startedAt ?? lhs.createdAt
@@ -2163,7 +2205,12 @@ final class DuelLeagueManager: ObservableObject {
                 return l > r
             }
 
-        myOpenChallenge = rows.first {
+        prefetchDisplayNames(for: rows)
+
+        let hasPendingActiveForMe = rows.contains {
+            $0.status == .active && $0.myScore(for: uid) == nil
+        }
+        myOpenChallenge = hasPendingActiveForMe ? nil : rows.first {
             $0.status == .open && $0.createdByUID == uid
         }
         incomingInvites = rows.filter {
@@ -2173,7 +2220,9 @@ final class DuelLeagueManager: ObservableObject {
             $0.status == .invited && $0.createdByUID == uid
         }
         activeChallenges = rows.filter { $0.status == .active }
-        recentCompleted = rows.filter { $0.status == .completed }.prefix(8).map { $0 }
+        let completed = rows.filter { $0.status == .completed }
+        matchHistory = completed
+        recentCompleted = completed.prefix(8).map { $0 }
 
         let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
         if didReceiveInitialChallengeSnapshot {
@@ -2183,12 +2232,26 @@ final class DuelLeagueManager: ObservableObject {
                 priorChallengeStatusByID[$0.id] == nil
             }
             if let newlyIncomingInvite {
-                let challengerName = displayName(for: newlyIncomingInvite.createdByUID)
-                PBNotificationCenter.maybeScheduleDuelNotification(
-                    title: "Duel Challenge",
-                    body: "\(challengerName) challenged you.",
-                    challengeID: newlyIncomingInvite.id
-                )
+                let challengerUID = newlyIncomingInvite.createdByUID
+                if let cached = resolvedDisplayName(for: challengerUID) {
+                    PBNotificationCenter.maybeScheduleDuelNotification(
+                        title: "Duel Challenge",
+                        body: "\(cached) challenged you.",
+                        challengeID: newlyIncomingInvite.id
+                    )
+                } else {
+                    Task { [weak self] in
+                        guard let self else { return }
+                        let resolved = await self.fetchDisplayName(uid: challengerUID) ?? self.displayNameFallback(for: challengerUID)
+                        await MainActor.run {
+                            PBNotificationCenter.maybeScheduleDuelNotification(
+                                title: "Duel Challenge",
+                                body: "\(resolved) challenged you.",
+                                challengeID: newlyIncomingInvite.id
+                            )
+                        }
+                    }
+                }
             }
             let newlyActive = rows.first {
                 let previous = priorChallengeStatusByID[$0.id]
@@ -2209,27 +2272,57 @@ final class DuelLeagueManager: ObservableObject {
     }
 
     private func displayName(for uid: String) -> String {
+        resolvedDisplayName(for: uid) ?? displayNameFallback(for: uid)
+    }
+
+    private func resolvedDisplayName(for uid: String) -> String? {
         let resolved = (userDisplayNames[uid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !resolved.isEmpty { return resolved }
-        return uid.count > 8 ? "Player \(uid.prefix(8))" : "Player"
+        guard !resolved.isEmpty else { return nil }
+        return resolved
+    }
+
+    private func displayNameFallback(for uid: String) -> String {
+        uid.count > 8 ? "Player \(uid.prefix(8))" : "Player"
+    }
+
+    private func fetchDisplayName(uid: String) async -> String? {
+        let normalizedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUID.isEmpty else { return nil }
+        do {
+            let doc = try await db.collection("users").document(normalizedUID).getDocument()
+            let displayName = ((doc.data()?["displayName"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !displayName.isEmpty else { return nil }
+            userDisplayNames[normalizedUID] = displayName
+            return displayName
+        } catch {
+            return nil
+        }
     }
 
     private func ensureProfileDefaults(uid: String) async {
         let key = currentSeasonKey()
         do {
-            try await db.collection("users").document(uid).setData([
-                "duelRating": 0,
-                "duelLeague": DuelLeagueTier.bronze.rawValue,
-                "duelWins": 0,
-                "duelLosses": 0,
-                "duelDraws": 0,
-                "duelTokens": 0,
-                "duelSeasonKey": key,
-                "duelSeasonPoints": 0,
-                "duelSeasonMatches": 0,
-                "duelSeasonWins": 0,
-                "updatedAt": FieldValue.serverTimestamp()
-            ], merge: true)
+            let ref = db.collection("users").document(uid)
+            let snap = try await ref.getDocument()
+            let data = snap.data() ?? [:]
+
+            var patch: [String: Any] = [:]
+            if data["duelRating"] == nil { patch["duelRating"] = 0 }
+            if data["duelLeague"] == nil { patch["duelLeague"] = DuelLeagueTier.bronze.rawValue }
+            if data["duelWins"] == nil { patch["duelWins"] = 0 }
+            if data["duelLosses"] == nil { patch["duelLosses"] = 0 }
+            if data["duelDraws"] == nil { patch["duelDraws"] = 0 }
+            if data["duelTokens"] == nil { patch["duelTokens"] = 0 }
+            if data["duelSeasonKey"] == nil { patch["duelSeasonKey"] = key }
+            if data["duelSeasonPoints"] == nil { patch["duelSeasonPoints"] = 0 }
+            if data["duelSeasonMatches"] == nil { patch["duelSeasonMatches"] = 0 }
+            if data["duelSeasonWins"] == nil { patch["duelSeasonWins"] = 0 }
+            if data["duelSeasonRatingDelta"] == nil { patch["duelSeasonRatingDelta"] = 0 }
+
+            guard !patch.isEmpty else { return }
+            patch["updatedAt"] = FieldValue.serverTimestamp()
+            try await ref.setData(patch, merge: true)
         } catch {
             statusMessage = error.localizedDescription
         }

@@ -979,3 +979,42 @@ What Is Next
   - Finalize and attach subscription product metadata + review screenshot in App Store Connect.
   - Perform final 2-device regression matrix (auth, chat/push, duel flow, verified mode, purchase/ad-free gating).
   - Submit release-candidate build after matrix pass and metadata lock.
+
+47) Duel System Reliability Pass (2026-04-01)
+- Backend transaction-order hardening applied in `functions/index.js` to fix intermittent:
+  - `Firebase transactions require all reads to be executed before all writes`
+  - especially during duel submit/finalization and response/requeue paths.
+- Duel UI/flow simplification and resilience updates:
+  - capture/submit path now supports practical beginner-friendly takes while preserving meaningful rhythm grading.
+  - active duel state refresh is triggered after submit so ladder/results update without requiring app restart.
+- Challenge identity clarity:
+  - duel docs now store sender/opponent display names (`createdByDisplayName`, `opponentDisplayName`) in queue/invite paths.
+  - iOS duel surfaces now prefer display names and avoid raw UID-like strings where possible.
+- Username policy hardening:
+  - client filtering + server rule validation now enforce letters/numbers-only display names.
+  - Firestore rules ensure invalid names cannot be persisted by bypassing client checks.
+
+48) Login/Onboarding Launch Polish (2026-04-01)
+- Added launch messaging on sign-in screen to set user expectation that features continue to evolve.
+- Added sign-in screen language selector (EN/KO/RO) with persistence:
+  - language choice applies immediately on auth screen.
+  - selected language persists into post-sign-in app state and across relaunches.
+- Google sign-in enablement finalized with latest Firebase config file sync.
+- Quick Tip replay persistence fix verified (no repeated replay after `Don't show again`).
+
+49) App Icon System Simplification (2026-04-01)
+- Replaced icon set with two final options only:
+  - `Default` -> new light icon asset
+  - `Noir` -> new dark icon asset
+- Removed legacy alternates (`Ocean`, `Sunrise`) from Settings icon picker and asset catalog.
+- Updated icon preview assets to match final two-option configuration.
+- Build verification after icon changes completed successfully.
+
+50) Current Launch-Prep Position (2026-04-01)
+- TestFlight/archive pipeline status:
+  - archive upload to Apple completed successfully.
+  - third-party framework dSYM warnings observed during validation are non-blocking for upload.
+- Firebase deployment status:
+  - duel and notification functions/rules deployment path validated in current project.
+- Remaining operational launch items are primarily App Store Connect metadata/subscription setup/testing execution,
+  not core app-blocking code issues.

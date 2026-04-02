@@ -7,9 +7,21 @@ struct AccountSetupView: View {
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
     @State private var animateIn: Bool = false
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
+    private let onboardingLanguageOptions: [AppLanguage] = [.english, .korean, .romanian]
+
+    private var onboardingLanguageBinding: Binding<AppLanguage> {
+        Binding(
+            get: {
+                let selected = AppLanguage(rawValue: appLanguageRaw) ?? .english
+                return selected == .system ? .english : selected
+            },
+            set: { appLanguageRaw = $0.rawValue }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -37,6 +49,18 @@ struct AccountSetupView: View {
                             .font(type.sectionTitle)
                             .foregroundStyle(palette.textPrimary)
 
+                        HStack(spacing: 10) {
+                            Image(systemName: "globe")
+                                .foregroundStyle(palette.accent)
+                            Picker("Language", selection: onboardingLanguageBinding) {
+                                ForEach(onboardingLanguageOptions) { lang in
+                                    Text(LocalizedStringKey(lang.titleKey)).tag(lang)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                        .font(type.footnote)
+
                         Button {
                             firebase.signInWithGoogle()
                         } label: {
@@ -58,6 +82,11 @@ struct AccountSetupView: View {
                         .signInWithAppleButtonStyle(.black)
                         .frame(height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+
+                        Text("PractiQuest is actively improving with frequent updates and new features.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         if let status = firebase.statusMessage, !status.isEmpty {
                             Text(LocalizedStringKey(status))

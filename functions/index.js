@@ -169,6 +169,7 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
     const requestedOctaves = parseOctaves(req.body?.octaves);
     const requesterSnap = await db.collection("users").doc(uid).get();
     const requesterRating = clampInt(requesterSnap.data()?.duelRating, 0, 1000000, 0);
+    const requesterDisplayName = String(requesterSnap.data()?.displayName || "").trim() || "Player";
     const requesterRequirement = duelRequirementForRating(requesterRating);
     const octaves = Math.max(requestedOctaves, requesterRequirement.octaves);
 
@@ -232,6 +233,7 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
         const creatorOctaves = parseOctaves(latestData.octaveCount);
         const creatorSnap = await txn.get(db.collection("users").doc(creatorUID));
         const creatorRating = clampInt(creatorSnap.data()?.duelRating, 0, 1000000, 0);
+        const creatorDisplayName = String(creatorSnap.data()?.displayName || "").trim() || "Player";
         const creatorRequirement = duelRequirementForRating(creatorRating);
         const matchRequirement = maxDuelRequirement(creatorRequirement, requesterRequirement);
         const matchOctaves = Math.max(creatorOctaves, matchRequirement.octaves);
@@ -244,6 +246,8 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
           creatorAccepted: true,
           opponentAccepted: false,
           opponentRequestedOctaves: octaves,
+          createdByDisplayName: creatorDisplayName,
+          opponentDisplayName: requesterDisplayName,
           octaveCount: matchOctaves,
           requiredLeague: matchRequirement.league,
           requiredMinTempoBPM: matchRequirement.minTempoBPM,
@@ -265,7 +269,9 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
       const ref = db.collection("duelChallenges").doc();
       txn.set(ref, {
         createdByUid: uid,
+        createdByDisplayName: requesterDisplayName,
         opponentUid: null,
+        opponentDisplayName: null,
         participants: [uid],
         status: "open",
         queueType: "open",
@@ -365,6 +371,8 @@ exports.duelInvite = onRequest(async (req, res) => {
       db.collection("users").doc(uid).get(),
       db.collection("users").doc(targetUID).get(),
     ]);
+    const senderDisplayName = String(senderSnap.data()?.displayName || "").trim() || "Player";
+    const targetDisplayName = String(targetSnap.data()?.displayName || "").trim() || "Player";
     const senderRequirement = duelRequirementForRating(clampInt(senderSnap.data()?.duelRating, 0, 1000000, 0));
     const targetRequirement = duelRequirementForRating(clampInt(targetSnap.data()?.duelRating, 0, 1000000, 0));
     const matchRequirement = maxDuelRequirement(senderRequirement, targetRequirement);
@@ -432,7 +440,9 @@ exports.duelInvite = onRequest(async (req, res) => {
     const ref = db.collection("duelChallenges").doc();
     await ref.set({
       createdByUid: uid,
+      createdByDisplayName: senderDisplayName,
       opponentUid: targetUID,
+      opponentDisplayName: targetDisplayName,
       participants: [uid, targetUID],
       status: "invited",
       queueType: source,
@@ -505,6 +515,10 @@ exports.duelRespond = onRequest(async (req, res) => {
 
       if (!accept) {
         if (queueType === "open" && uid !== createdByUid) {
+          const responderSnap = await txn.get(db.collection("users").doc(uid));
+          const responderRating = clampInt(responderSnap.data()?.duelRating, 0, 1000000, 0);
+          const responderDisplayName = String(responderSnap.data()?.displayName || "").trim() || "Player";
+          const responderRequirement = duelRequirementForRating(responderRating);
           const creatorOctaves = parseOctaves(data.octaveCount);
           const responderOctaves = parseOctaves(data.opponentRequestedOctaves || creatorOctaves);
           const creatorMinTempo = clampInt(data.requiredMinTempoBPM, 0, 240, 0);
@@ -512,6 +526,8 @@ exports.duelRespond = onRequest(async (req, res) => {
           txn.update(ref, {
             status: "open",
             opponentUid: null,
+            opponentDisplayName: null,
+            createdByDisplayName: String(data.createdByDisplayName || "").trim() || "Player",
             participants: [createdByUid],
             creatorAccepted: true,
             opponentAccepted: false,
@@ -531,14 +547,13 @@ exports.duelRespond = onRequest(async (req, res) => {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          const responderRequirement = duelRequirementForRating(
-              clampInt((await txn.get(db.collection("users").doc(uid))).data()?.duelRating, 0, 1000000, 0)
-          );
           const responderMinTempo = responderRequirement.minTempoBPM;
           const newOpenRef = db.collection("duelChallenges").doc();
           txn.set(newOpenRef, {
             createdByUid: uid,
+            createdByDisplayName: responderDisplayName,
             opponentUid: null,
+            opponentDisplayName: null,
             participants: [uid],
             status: "open",
             queueType: "open",
@@ -705,15 +720,6 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
       if (deadlineMs != null && Date.now() > deadlineMs + (SUBMISSION_SETTLE_GRACE_SECONDS * 1000)) {
         throw new Error("Submission window is closed for this duel.");
       }
-      const requiredMinTempoBPM = clampInt(challenge.requiredMinTempoBPM, 0, 240, 0);
-      if (requiredMinTempoBPM > 0 && tempoBPM < requiredMinTempoBPM) {
-        throw new Error(`Tempo too low for this league duel. Required: ${requiredMinTempoBPM}+ BPM.`);
-      }
-      const quality = duelQualityThresholdForLeague(String(challenge.requiredLeague || "bronze"));
-      if (noteCount < quality.minNotes || beatsAnalyzed < quality.minBeats) {
-        throw new Error(`Capture too short for this league duel. Need at least ${quality.minNotes} notes and ${quality.minBeats} beats.`);
-      }
-
       const participants = Array.isArray(challenge.participants) ? challenge.participants : [];
       const createdByUid = String(challenge.createdByUid || "");
       if (participants.length !== 2 || !participants.includes(uid)) {
@@ -721,6 +727,39 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
       }
       const opponentUid = participants.find((p) => p !== uid);
       if (!opponentUid) throw new Error("Missing opponent");
+
+      let creatorScore = challenge.creatorScore == null ? null : clampInt(challenge.creatorScore, 0, 100, 0);
+      let opponentScore = challenge.opponentScore == null ? null : clampInt(challenge.opponentScore, 0, 100, 0);
+      if (uid === createdByUid) {
+        creatorScore = derivedScore;
+      } else {
+        opponentScore = derivedScore;
+      }
+
+      if (creatorScore != null && opponentScore != null) {
+        await applyMatchOutcome({
+          txn,
+          challengeRef,
+          challengeData: challenge,
+          createdByUid,
+          opponentUid,
+          creatorScore,
+          opponentScore,
+          forceDraw: false,
+        });
+        txn.set(myAttemptRef, {
+          uid,
+          intonationScore,
+          rhythmScore,
+          consistencyScore,
+          noteCount,
+          beatsAnalyzed,
+          tempoBPM,
+          derivedScore,
+          submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        return {finalized: true, derivedScore};
+      }
 
       txn.set(myAttemptRef, {
         uid,
@@ -734,17 +773,13 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
         submittedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, {merge: true});
 
-      let creatorScore = challenge.creatorScore == null ? null : clampInt(challenge.creatorScore, 0, 100, 0);
-      let opponentScore = challenge.opponentScore == null ? null : clampInt(challenge.opponentScore, 0, 100, 0);
       if (uid === createdByUid) {
-        creatorScore = derivedScore;
         txn.update(challengeRef, {
           creatorScore: derivedScore,
           lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       } else {
-        opponentScore = derivedScore;
         txn.update(challengeRef, {
           opponentScore: derivedScore,
           lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -752,21 +787,7 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
         });
       }
 
-      if (creatorScore == null || opponentScore == null) {
-        return {finalized: false, derivedScore};
-      }
-
-      await applyMatchOutcome({
-        txn,
-        challengeRef,
-        challengeData: challenge,
-        createdByUid,
-        opponentUid,
-        creatorScore,
-        opponentScore,
-        forceDraw: false,
-      });
-      return {finalized: true, derivedScore};
+      return {finalized: false, derivedScore};
     });
 
     res.status(200).json({ok: true, ...output});
@@ -1130,6 +1151,7 @@ async function applyMatchOutcome({
     opponentScore: opponentScore < 0 ? null : opponentScore,
     creatorRatingDelta: creatorDelta,
     opponentRatingDelta: opponentDelta,
+    lastSubmissionAt: admin.firestore.FieldValue.serverTimestamp(),
     completedAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });

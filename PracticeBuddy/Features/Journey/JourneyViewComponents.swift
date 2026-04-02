@@ -11,6 +11,7 @@ struct PBRewardConfettiOverlay: View {
     let token: Int
 
     @State private var animate = false
+    private let dotCount = 16
 
     private var colors: [Color] {
         if styleID == "reward_confetti_spark" {
@@ -22,21 +23,8 @@ struct PBRewardConfettiOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ForEach(0..<16, id: \.self) { index in
-                    let xSeed = Double((index * 37) % 100) / 100.0
-                    let ySeed = Double((index * 53) % 100) / 100.0
-                    Circle()
-                        .fill(colors[index % colors.count].opacity(0.9))
-                        .frame(width: 7, height: 7)
-                        .position(
-                            x: animate ? proxy.size.width * xSeed : proxy.size.width * 0.5,
-                            y: animate ? proxy.size.height * (0.16 + ySeed * 0.42) : proxy.size.height * 0.1
-                        )
-                        .opacity(animate ? 0 : 1)
-                        .animation(
-                            .easeOut(duration: 0.95).delay(Double(index) * 0.01),
-                            value: animate
-                        )
+                ForEach(0..<dotCount, id: \.self) { index in
+                    confettiDot(index: index, size: proxy.size)
                 }
             }
         }
@@ -50,6 +38,28 @@ struct PBRewardConfettiOverlay: View {
             animate = true
         }
         .accessibilityHidden(true)
+    }
+
+    private func confettiDot(index: Int, size: CGSize) -> some View {
+        let xSeed = Double((index * 37) % 100) / 100.0
+        let ySeed = Double((index * 53) % 100) / 100.0
+        let startX = size.width * 0.5
+        let startY = size.height * 0.1
+        let endX = size.width * xSeed
+        let endY = size.height * (0.16 + ySeed * 0.42)
+
+        return Circle()
+            .fill(colors[index % colors.count].opacity(0.9))
+            .frame(width: 7, height: 7)
+            .position(
+                x: animate ? endX : startX,
+                y: animate ? endY : startY
+            )
+            .opacity(animate ? 0 : 1)
+            .animation(
+                .easeOut(duration: 0.95).delay(Double(index) * 0.01),
+                value: animate
+            )
     }
 }
 
