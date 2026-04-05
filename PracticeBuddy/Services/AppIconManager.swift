@@ -8,40 +8,24 @@ import UIKit
 
 enum PBAppIcon: String, CaseIterable, Identifiable {
     case primary
-    case icon2
 
     var id: String { rawValue }
 
-    // ✅ Change these names to whatever you want
     var displayName: String {
-        switch self {
-        case .primary: return "Default"
-        case .icon2: return "Noir"
-        }
+        "Default"
     }
 
-    /// Must match the App Icon set names in Assets.xcassets exactly.
     var assetIconName: String? {
-        switch self {
-        case .primary: return nil
-        case .icon2: return "AppIcon2"
-        }
+        nil
     }
 
-    /// Thumbnail image set names (Image Sets in Assets.xcassets)
     var previewImageName: String {
-        switch self {
-        case .primary: return "IconPreviewDefault"
-        case .icon2: return "IconPreview2"
-        }
+        "IconPreviewDefault"
     }
 
     static func fromUIKitAlternateName(_ name: String?) -> PBAppIcon {
-        guard let name else { return .primary }
-        switch name {
-        case "AppIcon2": return .icon2
-        default: return .primary
-        }
+        _ = name
+        return .primary
     }
 }
 

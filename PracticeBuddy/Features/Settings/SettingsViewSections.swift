@@ -90,12 +90,6 @@ extension SettingsView {
                     settingsLabel("Fonts", systemImage: "textformat")
                 }
             }
-
-            settingsSectionCard {
-                NavigationLink { PBLazyView(AppIconPickerView()) } label: {
-                    settingsLabel("App Icon", systemImage: "app.badge")
-                }
-            }
         } header: {
             PBSectionHeaderLabel(title: "Appearance")
         }
