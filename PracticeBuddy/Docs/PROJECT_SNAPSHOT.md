@@ -1018,3 +1018,54 @@ What Is Next
   - duel and notification functions/rules deployment path validated in current project.
 - Remaining operational launch items are primarily App Store Connect metadata/subscription setup/testing execution,
   not core app-blocking code issues.
+
+51) Subscription Product ID Alignment + Trial Preservation (2026-04-06)
+- Resolved App Store Connect product-id mismatch for monthly ad-free subscription.
+- Canonical product id now aligned across iOS + backend:
+  - `com.alexmalaimare.practicebuddy.adfree.monthly`
+- Updated files:
+  - `Services/PurchaseManager.swift`
+  - `functions/index.js`
+- 7-day trial remains active and unchanged:
+  - server trial duration still `SERVER_TRIAL_DAYS = 7`
+  - in-app trial CTA remains available in Shop/Store surfaces.
+
+52) Email/Password Auth Added (Launch Access Expansion) (2026-04-06)
+- Added a full Email auth path on onboarding in addition to Google/Apple:
+  - `Sign up with Email` entry point
+  - modal sheet with:
+    - `Sign Up` mode
+    - `Sign In` mode
+  - explicit validation and user-facing error messaging.
+- Firebase wiring added in `FirebaseBootstrap`:
+  - create user with email/password
+  - sign in with email/password
+  - anonymous-user link path support
+  - profile `displayName` write on sign-up when provided.
+- Password policy currently enforced in app:
+  - minimum 8 chars
+  - at least 1 letter
+  - at least 1 number
+  - symbols optional.
+- Build verification after auth changes: `BUILD SUCCEEDED`.
+
+53) Display Name Propagation + Validation Hardening (2026-04-06)
+- Fixed issue where email sign-up display name was ignored and users still appeared as generated `PlayerXXXX`.
+- Profile bootstrap now prefers Firebase Auth display name when creating the Firestore user profile.
+- Existing profiles with auto-generated fallback names can auto-adopt Auth display name when appropriate.
+- Unified display-name normalization/validation across onboarding + profile edit paths.
+- New display-name policy:
+  - length: `2...16`
+  - allowed chars: letters, numbers, space, `.`, `_`, `-`
+  - must contain at least one letter/number
+  - emoji and unsupported symbols are rejected.
+- Firestore rules updated to enforce same constraints server-side:
+  - `isValidDisplayName` now caps at 16 and allows only approved character class.
+- Updated files:
+  - `Services/Firebase/FirebaseBuddiesRepository.swift`
+  - `Features/Onboarding/AccountSetupView.swift`
+  - `Features/Friends/FriendsView.swift`
+  - `firestore.rules`
+- Operational status:
+  - Firestore rules deployed successfully.
+  - Firebase `Email/Password` provider enabled in console.

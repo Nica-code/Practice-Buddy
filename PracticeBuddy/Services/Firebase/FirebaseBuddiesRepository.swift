@@ -80,13 +80,16 @@ enum FirebaseBuddiesError: LocalizedError {
         case .inviteAlreadySent: return "Invite already sent."
         case .inviteAlreadyReceived: return "That user already sent you an invite."
         case .missingInviteTarget: return "Invite target not found."
-        case .invalidDisplayName: return "Use 2-30 letters/numbers only (no spaces or symbols)."
+        case .invalidDisplayName: return "Use 2-16 characters: letters, numbers, spaces, dot, underscore, or hyphen."
         case .displayNameLocked: return "Name can only be changed once."
         }
     }
 }
 
 final class FirebaseBuddiesRepository {
+    static let minDisplayNameLength = 2
+    static let maxDisplayNameLength = 16
+
     private lazy var db = Firestore.firestore()
     private let usersCollection = "users"
     private let invitesCollection = "invites"
@@ -104,10 +107,28 @@ final class FirebaseBuddiesRepository {
         let ref = db.collection(usersCollection).document(uid)
         let existing = try await ref.getDocument()
         if let profile = parseUserProfile(uid: uid, data: existing.data()) {
+            if let preferred = preferredInitialDisplayNameFromAuth(),
+               shouldAdoptAuthDisplayName(current: profile.displayName, uid: uid) {
+                try await ref.setData([
+                    "displayName": preferred,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], merge: true)
+                return FirebaseUserProfile(
+                    uid: uid,
+                    displayName: preferred,
+                    friendCode: profile.friendCode,
+                    nameEditUsed: profile.nameEditUsed,
+                    avatarID: profile.avatarID,
+                    bio: profile.bio,
+                    instrument: profile.instrument,
+                    publicLevel: profile.publicLevel
+                )
+            }
             return profile
         }
 
-        let defaultDisplayName = "Player\(uid.prefix(4).uppercased())"
+        let defaultDisplayName = generatedDefaultDisplayName(for: uid)
+        let initialDisplayName = preferredInitialDisplayNameFromAuth() ?? defaultDisplayName
 
         for _ in 0..<6 {
             let code = makeFriendCode()
@@ -119,7 +140,7 @@ final class FirebaseBuddiesRepository {
             if !query.documents.isEmpty { continue }
 
             try await ref.setData([
-                "displayName": defaultDisplayName,
+                "displayName": initialDisplayName,
                 "friendCode": code,
                 "nameEditUsed": false,
                 "avatarID": "avatar_note",
@@ -133,7 +154,7 @@ final class FirebaseBuddiesRepository {
 
             return FirebaseUserProfile(
                 uid: uid,
-                displayName: defaultDisplayName,
+                displayName: initialDisplayName,
                 friendCode: code,
                 nameEditUsed: false,
                 avatarID: "avatar_note",
@@ -310,11 +331,7 @@ final class FirebaseBuddiesRepository {
 
     func updateDisplayName(uid: String, rawDisplayName: String) async throws {
         let cleanedRaw = rawDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleaned = normalizedDisplayName(from: cleanedRaw)
-        guard (2...30).contains(cleaned.count) else {
-            throw FirebaseBuddiesError.invalidDisplayName
-        }
-        guard cleaned == cleanedRaw else {
+        guard Self.isValidDisplayName(cleanedRaw) else {
             throw FirebaseBuddiesError.invalidDisplayName
         }
 
@@ -326,7 +343,7 @@ final class FirebaseBuddiesRepository {
         }
 
         try await db.collection(usersCollection).document(uid).setData([
-            "displayName": cleaned,
+            "displayName": cleanedRaw,
             "nameEditUsed": true,
             "updatedAt": FieldValue.serverTimestamp()
         ], merge: true)
@@ -594,8 +611,62 @@ final class FirebaseBuddiesRepository {
     }
 
     func normalizedDisplayName(from raw: String) -> String {
-        let scalars = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars)).prefix(30).description
+        Self.normalizedDisplayName(from: raw)
+    }
+
+    static func normalizedDisplayName(from raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowedSpecial = CharacterSet(charactersIn: " ._-")
+        let scalars = trimmed.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) || allowedSpecial.contains($0)
+        }
+        let filtered = String(String.UnicodeScalarView(scalars))
+        let collapsedSpaces = filtered.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        let cleaned = collapsedSpaces.trimmingCharacters(in: CharacterSet(charactersIn: " ._-"))
+        return String(cleaned.prefix(Self.maxDisplayNameLength))
+    }
+
+    static func isValidDisplayName(_ raw: String) -> Bool {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned == raw else { return false }
+        guard (Self.minDisplayNameLength...Self.maxDisplayNameLength).contains(cleaned.count) else { return false }
+        guard cleaned.matches(pattern: "^[\\p{L}\\p{N}._\\- ]+$") else { return false }
+        guard cleaned.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else { return false }
+        return true
+    }
+
+    private func preferredInitialDisplayNameFromAuth() -> String? {
+        guard let raw = Auth.auth().currentUser?.displayName else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if Self.isValidDisplayName(trimmed) {
+            return trimmed
+        }
+
+        let normalized = Self.normalizedDisplayName(from: trimmed)
+        guard Self.isValidDisplayName(normalized) else { return nil }
+        return normalized
+    }
+
+    private func shouldAdoptAuthDisplayName(current: String, uid: String) -> Bool {
+        let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        return trimmed == generatedDefaultDisplayName(for: uid)
+    }
+
+    private func generatedDefaultDisplayName(for uid: String) -> String {
+        "Player\(uid.prefix(4).uppercased())"
+    }
+}
+
+private extension String {
+    func matches(pattern: String) -> Bool {
+        range(of: pattern, options: .regularExpression) != nil
     }
 }
 

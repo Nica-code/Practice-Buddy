@@ -69,6 +69,7 @@
 	<string>https://practicebuddytracker.web.app</string>
 	<key>PBMasterEmails</key>
 	<array>
+		<string>contact@alexmalaimare.com</string>
 		<string>nicaviolin@icloud.com</string>
 	</array>
 	<key>PBMasterUIDs</key>

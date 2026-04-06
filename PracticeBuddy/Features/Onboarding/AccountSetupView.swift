@@ -271,6 +271,12 @@ private struct EmailAuthSheet: View {
                         TextField("Display name (optional)", text: $displayName)
                             .textInputAutocapitalization(.words)
                             .autocorrectionDisabled(true)
+                            .onChange(of: displayName) { _, newValue in
+                                let normalized = FirebaseBuddiesRepository.normalizedDisplayName(from: newValue)
+                                if normalized != newValue {
+                                    displayName = normalized
+                                }
+                            }
                     }
                 }
 
@@ -279,6 +285,13 @@ private struct EmailAuthSheet: View {
                         Text("At least 8 characters, with at least 1 letter and 1 number.")
                             .font(type.footnote)
                             .foregroundStyle(palette.textSecondary)
+                    }
+                    if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Section("Display name") {
+                            Text("2-16 chars. Letters, numbers, spaces, dot, underscore, or hyphen.")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                        }
                     }
                 }
 
@@ -334,6 +347,11 @@ private struct EmailAuthSheet: View {
             }
             guard password == confirmPassword else {
                 localErrorMessage = "Passwords do not match."
+                return
+            }
+            let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedDisplayName.isEmpty && !FirebaseBuddiesRepository.isValidDisplayName(trimmedDisplayName) {
+                localErrorMessage = "Display name must be 2-16 chars and use only letters, numbers, spaces, dot, underscore, or hyphen."
                 return
             }
         } else if password.isEmpty {

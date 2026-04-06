@@ -92,8 +92,7 @@ struct FriendsView: View {
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     private func normalizedDisplayName(_ raw: String) -> String {
-        let scalars = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars)).prefix(30).description
+        FirebaseBuddiesRepository.normalizedDisplayName(from: raw)
     }
 
     private func socialSection<Content: View>(

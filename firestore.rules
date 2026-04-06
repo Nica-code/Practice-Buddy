@@ -61,8 +61,9 @@ service cloud.firestore {
     function isValidDisplayName(name) {
       return name is string
         && name.size() >= 2
-        && name.size() <= 30
-        && name.matches('^[\\p{L}\\p{N}]+$');
+        && name.size() <= 16
+        && name.matches('^[\\p{L}\\p{N}._\\- ]+$')
+        && name.matches('.*[\\p{L}\\p{N}].*');
     }
 
     function validDisplayNameOnCreate() {
