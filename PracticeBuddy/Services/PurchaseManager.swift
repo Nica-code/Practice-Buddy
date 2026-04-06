@@ -54,7 +54,7 @@ enum PBEntitlementTier: String, CaseIterable {
 
 @MainActor
 final class PurchaseManager: ObservableObject {
-    static let adFreeMonthlyProductID = "practicebuddy.pro.monthly"
+    static let adFreeMonthlyProductID = "com.alexmalaimare.practicebuddy.adfree.monthly"
     static let adFreeSubscriptionProductIDs = [adFreeMonthlyProductID]
     // Backward-compatible aliases kept during migration.
     static let proMonthlyProductID = adFreeMonthlyProductID

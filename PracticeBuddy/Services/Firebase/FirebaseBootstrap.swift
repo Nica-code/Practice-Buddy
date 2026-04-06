@@ -73,7 +73,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     private func signInAnonymously() async throws -> AuthDataResult {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AuthDataResult, Error>) in
             Auth.auth().signInAnonymously { result, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -194,6 +194,74 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     @discardableResult
+    func signUpWithEmail(email: String, password: String, displayName: String?) async -> Bool {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedEmail.isEmpty else {
+            statusMessage = "Please enter an email address."
+            return false
+        }
+
+        do {
+            let result: AuthDataResult
+            if let user = Auth.auth().currentUser, user.isAnonymous {
+                let credential = EmailAuthProvider.credential(withEmail: normalizedEmail, password: password)
+                result = try await linkCurrentUser(with: credential)
+            } else {
+                result = try await createUser(withEmail: normalizedEmail, password: password)
+            }
+
+            try await updateDisplayNameIfNeeded(normalizedName, for: result.user)
+            refreshAuthState(user: result.user)
+            statusMessage = "Email account created."
+            PBLog.firebase.info("Signed up with email/password.")
+            return true
+        } catch {
+            let ns = error as NSError
+            if ns.domain == AuthErrorDomain,
+               ns.code == AuthErrorCode.credentialAlreadyInUse.rawValue {
+                do {
+                    let result = try await signIn(withEmail: normalizedEmail, password: password)
+                    refreshAuthState(user: result.user)
+                    statusMessage = "Signed in with Email."
+                    PBLog.firebase.info("Credential already in use; signed in with existing email account.")
+                    return true
+                } catch {
+                    statusMessage = L10n.f("Email sign-up failed: %@", error.localizedDescription)
+                    PBLog.firebase.error("Email sign-up fallback sign-in failed: \(error.localizedDescription)")
+                    return false
+                }
+            }
+
+            statusMessage = L10n.f("Email sign-up failed: %@", error.localizedDescription)
+            PBLog.firebase.error("Email sign-up failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func signInWithEmail(email: String, password: String) async -> Bool {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedEmail.isEmpty else {
+            statusMessage = "Please enter an email address."
+            return false
+        }
+
+        do {
+            let result = try await signIn(withEmail: normalizedEmail, password: password)
+            refreshAuthState(user: result.user)
+            statusMessage = "Signed in with Email."
+            PBLog.firebase.info("Signed in with email/password.")
+            return true
+        } catch {
+            statusMessage = L10n.f("Email sign-in failed: %@", error.localizedDescription)
+            PBLog.firebase.error("Email sign-in failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
     func signOutCurrentUser() -> Bool {
         do {
             try Auth.auth().signOut()
@@ -265,7 +333,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     private func signIn(with credential: AuthCredential) async throws -> AuthDataResult {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AuthDataResult, Error>) in
             Auth.auth().signIn(with: credential) { result, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -281,6 +349,46 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
                     return
                 }
 
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func createUser(withEmail email: String, password: String) async throws -> AuthDataResult {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AuthDataResult, Error>) in
+            Auth.auth().createUser(withEmail: email, password: password) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result else {
+                    continuation.resume(throwing: NSError(
+                        domain: "PracticeBuddy.FirebaseBootstrap",
+                        code: -5,
+                        userInfo: [NSLocalizedDescriptionKey: "No create-user result returned."]
+                    ))
+                    return
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func signIn(withEmail email: String, password: String) async throws -> AuthDataResult {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AuthDataResult, Error>) in
+            Auth.auth().signIn(withEmail: email, password: password) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let result else {
+                    continuation.resume(throwing: NSError(
+                        domain: "PracticeBuddy.FirebaseBootstrap",
+                        code: -6,
+                        userInfo: [NSLocalizedDescriptionKey: "No email sign-in result returned."]
+                    ))
+                    return
+                }
                 continuation.resume(returning: result)
             }
         }
@@ -312,6 +420,21 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
                 }
 
                 continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func updateDisplayNameIfNeeded(_ displayName: String?, for user: User) async throws {
+        guard let displayName, !displayName.isEmpty else { return }
+        let request = user.createProfileChangeRequest()
+        request.displayName = displayName
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            request.commitChanges { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
             }
         }
     }

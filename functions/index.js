@@ -21,7 +21,7 @@ const SUBMISSION_SETTLE_GRACE_SECONDS = 30;
 const MAX_PENDING_INVITES_PER_USER = 5;
 const SERVER_TRIAL_DAYS = 7;
 const PRO_SUBSCRIPTION_PRODUCT_IDS = new Set([
-  "practicebuddy.pro.monthly",
+  "com.alexmalaimare.practicebuddy.adfree.monthly",
 ]);
 
 const ROUTE_PLAY_DUEL = "play_duel";
