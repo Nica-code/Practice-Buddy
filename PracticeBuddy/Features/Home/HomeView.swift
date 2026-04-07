@@ -213,6 +213,7 @@ struct HomeView: View {
     @State private var showGoalReachedBanner = false
     @State private var showSessionBuilder = true
     @State private var lastSessionNotificationSignature: String = ""
+    @State private var sessionBuilderNotificationSyncTask: Task<Void, Never>?
     @State private var homeNavigationTarget: HomeNavigationTarget?
 
     // Haptics
@@ -496,7 +497,7 @@ struct HomeView: View {
             .onChange(of: metronomeSubdivisionRaw) { _, _ in applyMetronomeConfiguration() }
             .onChange(of: metronomeSoundStyleRaw) { _, _ in applyMetronomeConfiguration() }
             .onChange(of: activeSessionBuilderPlan) { _, _ in
-                Task { await syncSessionBuilderNotifications() }
+                queueSessionBuilderNotificationSync()
             }
             .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
                 guard token > 0 else { return }
@@ -567,6 +568,8 @@ struct HomeView: View {
         tuner.stopListening()
         tuner.stopReferenceTone()
         appShield.stopShielding()
+        sessionBuilderNotificationSyncTask?.cancel()
+        sessionBuilderNotificationSyncTask = nil
     }
 
     private func handleIsRunningChange(_: Bool, running: Bool) {
@@ -647,7 +650,7 @@ struct HomeView: View {
             applyBackgroundElapsedCatchUp()
             clearPendingCheckInNotifications()
             if isRunning, activeSessionBuilderPlan != nil {
-                Task { await syncSessionBuilderNotifications(force: true) }
+                queueSessionBuilderNotificationSync(force: true)
             }
         } else if isRunning {
             if backgroundEnteredAt == nil {
@@ -1741,7 +1744,7 @@ struct HomeView: View {
                 scheduleBackgroundCheckInNotification()
             }
         }
-        Task { await syncSessionBuilderNotifications() }
+        queueSessionBuilderNotificationSync()
     }
 
     private func stopTapped() {
@@ -1758,7 +1761,7 @@ struct HomeView: View {
         if saveDraft.pieces.isEmpty {
             saveDraft.pieces = [makeEmptyPiece()]
         }
-        Task { await syncSessionBuilderNotifications() }
+        queueSessionBuilderNotificationSync()
         showSaveSheet = true
     }
 
@@ -1788,7 +1791,7 @@ struct HomeView: View {
         )
         activeSessionBuilderPlan = nil
         lastSessionNotificationSignature = ""
-        Task { await syncSessionBuilderNotifications() }
+        queueSessionBuilderNotificationSync()
         isSavingSession = false
     }
 
@@ -2291,7 +2294,7 @@ struct HomeView: View {
             name: sessionName,
             tasks: tasks
         )
-        Task { await syncSessionBuilderNotifications() }
+        queueSessionBuilderNotificationSync()
     }
 
     private func sessionTaskProgressRows(
@@ -2325,6 +2328,7 @@ struct HomeView: View {
     }
 
     private func syncSessionBuilderNotifications(force: Bool = false) async {
+        guard !Task.isCancelled else { return }
         let center = UNUserNotificationCenter.current()
         let prefix = "pb.practice.session.task."
 
@@ -2333,6 +2337,7 @@ struct HomeView: View {
             let existing = await center.pendingNotificationRequests()
                 .map(\.identifier)
                 .filter { $0.hasPrefix(prefix) }
+            guard !Task.isCancelled else { return }
             if !existing.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: existing)
             }
@@ -2340,6 +2345,7 @@ struct HomeView: View {
         }
 
         let status = await center.notificationSettings().authorizationStatus
+        guard !Task.isCancelled else { return }
         guard status == .authorized || status == .provisional || status == .ephemeral else { return }
 
         let elapsed = max(0, currentElapsedSeconds)
@@ -2358,6 +2364,7 @@ struct HomeView: View {
         let existing = await center.pendingNotificationRequests()
             .map(\.identifier)
             .filter { $0.hasPrefix(prefix) }
+        guard !Task.isCancelled else { return }
         if !existing.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: existing)
         }
@@ -2384,6 +2391,14 @@ struct HomeView: View {
                 trigger: trigger
             )
             try? await center.add(request)
+            guard !Task.isCancelled else { return }
+        }
+    }
+
+    private func queueSessionBuilderNotificationSync(force: Bool = false) {
+        sessionBuilderNotificationSyncTask?.cancel()
+        sessionBuilderNotificationSyncTask = Task {
+            await syncSessionBuilderNotifications(force: force)
         }
     }
 
