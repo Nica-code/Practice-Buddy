@@ -22,10 +22,13 @@ struct ThemePickerView: View {
                         .foregroundStyle(currentTheme.textPrimary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                    customColorSection
+
                     LazyVStack(spacing: 10) {
                         ForEach(PBTheme.all) { theme in
                             themeRow(theme)
                         }
+                        themeRow(themeManager.customTheme)
                     }
                 }
                 .padding(.bottom, 24)
@@ -47,6 +50,36 @@ struct ThemePickerView: View {
             )
             .pbTheme(theme)
         }
+    }
+
+    private var customColorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Custom Accent")
+                .font(type.body)
+                .foregroundStyle(currentTheme.textPrimary)
+
+            HStack(spacing: 10) {
+                ColorPicker(
+                    "Pick color",
+                    selection: Binding(
+                        get: { themeManager.customAccentColor },
+                        set: { newColor in
+                            themeManager.updateCustomAccent(newColor, applyImmediately: false)
+                        }
+                    ),
+                    supportsOpacity: false
+                )
+                .font(type.footnote)
+
+                Button(themeManager.isUsingCustomTheme ? "Applied" : "Use Custom") {
+                    themeManager.updateCustomAccent(themeManager.customAccentColor, applyImmediately: true)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(themeManager.isUsingCustomTheme)
+            }
+        }
+        .padding(12)
+        .pbSurfaceCard(palette: currentTheme.resolvedPalette(for: colorScheme), cornerRadius: 14)
     }
 
     @ViewBuilder

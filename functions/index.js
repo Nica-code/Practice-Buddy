@@ -855,6 +855,8 @@ exports.onFriendChatMessageCreated = onDocumentCreated(
           threadSnap.data().participants : [];
         const recipientUid = participants.find((uid) => String(uid || "") !== senderUid);
         if (!recipientUid) return;
+        const senderName = String(message.senderName || "Practice buddy").trim();
+        const messageText = String(message.text || "").trim();
         logger.info("friend chat message created", {
           threadId,
           messageId: event.params?.messageId || "",
@@ -863,8 +865,8 @@ exports.onFriendChatMessageCreated = onDocumentCreated(
         });
 
         await safePushToUser(String(recipientUid), {
-          title: "New Message",
-          body: "You received a new message.",
+          title: senderName || "New Message",
+          body: messageText ? messageText.slice(0, 120) : "You received a new message.",
           prefKey: "notificationMessages",
           data: {
             pb_route: ROUTE_SOCIAL_CHAT,
@@ -893,6 +895,7 @@ exports.onStudioChatMessageCreated = onDocumentCreated(
         if (!studioId || !senderUid) return;
 
         const senderName = String(message.senderName || "Studio member").trim();
+        const messageText = String(message.text || "").trim();
         const membersSnap = await db.collection("studios")
             .doc(studioId)
             .collection("members")
@@ -911,7 +914,7 @@ exports.onStudioChatMessageCreated = onDocumentCreated(
 
         await Promise.all(recipients.map((recipientUid) => safePushToUser(recipientUid, {
           title: `${senderName}`,
-          body: "New studio chat message.",
+          body: messageText ? messageText.slice(0, 120) : "New studio chat message.",
           prefKey: "notificationMessages",
           data: {
             pb_route: ROUTE_SOCIAL_CHAT,
@@ -1391,6 +1394,7 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
       payload: {
         aps: {
           sound: "default",
+          badge: 1,
           category: String(category || ""),
         },
       },

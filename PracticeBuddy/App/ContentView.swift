@@ -3,6 +3,8 @@ import SwiftData
 import Combine
 import os
 import FirebaseAuth
+import UIKit
+import UserNotifications
 
 struct ContentView: View {
     private struct InviteJoinAlert: Identifiable {
@@ -75,6 +77,8 @@ struct ContentView: View {
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncPushPipeline()
+            updateAppIconBadge()
             syncTutorialPresentation(force: true)
         }
         .onChange(of: colorScheme) {
@@ -97,6 +101,8 @@ struct ContentView: View {
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncPushPipeline()
+            updateAppIconBadge()
             syncTutorialPresentation(force: true)
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
@@ -104,6 +110,8 @@ struct ContentView: View {
             syncFriendRequestBadge()
             syncPresence()
             syncSocialChatBadge()
+            syncPushPipeline()
+            updateAppIconBadge()
             syncTutorialPresentation(force: true)
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
@@ -122,6 +130,8 @@ struct ContentView: View {
                 syncFriendRequestBadge()
                 syncPresence()
                 syncSocialChatBadge()
+                syncPushPipeline()
+                updateAppIconBadge()
                 syncTutorialPresentation()
             } else {
                 assignmentLinkManager.pauseRealtime()
@@ -131,6 +141,12 @@ struct ContentView: View {
                 presenceManager.stop()
                 socialChatManager.stop()
             }
+        }
+        .onChange(of: friendRequestBadgeManager.incomingCount) { _, _ in
+            updateAppIconBadge()
+        }
+        .onChange(of: socialChatManager.unreadCount) { _, _ in
+            updateAppIconBadge()
         }
         .onChange(of: tutorialReplayToken) { _, _ in
             syncTutorialPresentation(force: true)
@@ -289,7 +305,7 @@ struct ContentView: View {
                 id: "home",
                 tabIndex: 0,
                 title: "Home: Start Practice",
-                message: "Use Start Practice for quick sessions, or open Practice for templates and tools."
+                message: "Use Start Practice for quick sessions. Practice tools and Session Builder are on Dashboard."
             ),
             FirstRunTutorialStep(
                 id: "play",
@@ -407,6 +423,56 @@ struct ContentView: View {
             return
         }
         socialChatManager.start(uid: uid)
+    }
+
+    private func syncPushPipeline() {
+        guard scenePhase == .active else { return }
+        guard let uid = firebase.currentUserID, !uid.isEmpty else { return }
+        guard !firebase.isAnonymousUser else { return }
+
+        Task { @MainActor in
+            let defaults = UserDefaults.standard
+            let promptKey = "pb.notifications.prompted.\(uid)"
+            let hasPrompted = defaults.bool(forKey: promptKey)
+
+            if !hasPrompted {
+                _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
+                defaults.set(true, forKey: promptKey)
+            } else {
+                await PushTokenManager.shared.registerForRemoteNotificationsIfAuthorized()
+            }
+
+            await PushTokenManager.shared.syncPendingTokenIfPossible()
+            await PushTokenManager.shared.updateNotificationPreferences(
+                duelsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.duels) as? Bool ?? true,
+                messagesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.messages) as? Bool ?? true,
+                goalsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.goals) as? Bool ?? true,
+                friendRequestsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.friendRequests) as? Bool ?? true,
+                studioInvitesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.studioInvites) as? Bool ?? true,
+                assignmentsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.assignments) as? Bool ?? true,
+                buddiesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.buddies) as? Bool ?? true
+            )
+        }
+    }
+
+    private func updateAppIconBadge() {
+        guard scenePhase == .active else { return }
+        let badgeCount: Int
+        guard !firebase.isAnonymousUser, firebase.currentUserID != nil else {
+            badgeCount = 0
+            if #available(iOS 17.0, *) {
+                UNUserNotificationCenter.current().setBadgeCount(badgeCount) { _ in }
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = badgeCount
+            }
+            return
+        }
+        badgeCount = friendRequestBadgeManager.incomingCount + socialChatManager.unreadCount
+        if #available(iOS 17.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(badgeCount) { _ in }
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = badgeCount
+        }
     }
 
     private func handleIncomingURL(_ url: URL) {

@@ -58,6 +58,9 @@ struct HomeView: View {
     @StateObject private var appShield = PracticeAppShieldManager()
     @StateObject private var checkInManager = PracticeCheckInManager()
     @State private var metronomePulseScale: CGFloat = 1.0
+    @State private var metronomeTempoDraft: Double = 80
+    @State private var isDraggingMetronomeTempo: Bool = false
+    @State private var tapTempoMarks: [Date] = []
     @State private var selectedCheckInFocusTag: String = ""
     @State private var checkInStatusMessage: String?
     @State private var backgroundEnteredAt: Date?
@@ -69,12 +72,12 @@ struct HomeView: View {
         static let titleTopPadding: CGFloat = 18
         static let titleBottomPadding: CGFloat = 8
         static let checkInFocusTags: [String] = ["Intonation", "Rhythm", "Bow", "Shifts", "Vibrato", "Run-through"]
-        static let templatesStorageKey = "pb.home.editableSessionTemplates.v1"
+        static let sessionBuilderStorageKey = "pb.home.sessionBuilderTemplate.v1"
+        static let legacyTemplatesStorageKey = "pb.home.editableSessionTemplates.v1"
     }
 
     private enum HomeArea: String, CaseIterable, Identifiable {
         case dashboard = "Dashboard"
-        case practice = "Practice"
         case studio = "Studio"
 
         var id: String { rawValue }
@@ -118,52 +121,60 @@ struct HomeView: View {
         var id: String { rawValue }
     }
 
-    private struct PracticeTemplate: Identifiable {
-        let id: String
-        let name: String
-        let focus: String
-        let warmupMinutes: Int
-        let etudeMinutes: Int
-        let repertoireMinutes: Int
-    }
-
-    private struct EditableSessionTemplate: Identifiable, Codable, Equatable {
+    private struct LegacyEditableSessionTemplate: Codable {
         let id: String
         var name: String
         var warmupMinutes: Int
         var techniqueMinutes: Int
         var repertoireMinutes: Int
+    }
 
-        var totalMinutes: Int { warmupMinutes + techniqueMinutes + repertoireMinutes }
+    struct SessionBuilderTask: Identifiable, Codable, Equatable {
+        let id: String
+        var title: String
+        var minutes: Int
+    }
 
-        var focusSummary: String {
-            "Warm-up \(warmupMinutes) • Technique \(techniqueMinutes) • Repertoire \(repertoireMinutes)"
+    struct SessionBuilderTemplate: Identifiable, Codable, Equatable {
+        let id: String
+        var name: String
+        var tasks: [SessionBuilderTask]
+
+        var normalizedTasks: [SessionBuilderTask] {
+            tasks
+                .map { task in
+                    SessionBuilderTask(
+                        id: task.id,
+                        title: task.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        minutes: max(0, task.minutes)
+                    )
+                }
+                .filter { !$0.title.isEmpty && $0.minutes > 0 }
         }
 
-        var asPracticeTemplate: PracticeTemplate {
-            PracticeTemplate(
-                id: id,
-                name: name,
-                focus: focusSummary,
-                warmupMinutes: warmupMinutes,
-                etudeMinutes: techniqueMinutes,
-                repertoireMinutes: repertoireMinutes
-            )
+        var totalMinutes: Int {
+            normalizedTasks.reduce(0) { $0 + $1.minutes }
         }
     }
 
-    struct GuidedTemplateSessionPlan: Identifiable {
-        let id = UUID()
+    struct ActiveSessionBuilderPlan: Identifiable, Equatable {
+        let id: String
         let name: String
-        let warmupMinutes: Int
-        let techniqueMinutes: Int
-        let repertoireMinutes: Int
+        let tasks: [SessionBuilderTask]
 
         var totalSeconds: Int {
-            max(0, warmupMinutes) * 60
-            + max(0, techniqueMinutes) * 60
-            + max(0, repertoireMinutes) * 60
+            tasks.reduce(0) { $0 + max(0, $1.minutes) * 60 }
         }
+    }
+
+    private struct SessionTaskProgressRow: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let minutes: Int
+        let progress: Double
+        let isCurrent: Bool
+        let isComplete: Bool
+        let remainingSeconds: Int
     }
 
     private struct SessionSaveDraft {
@@ -185,13 +196,23 @@ struct HomeView: View {
     @State private var pendingSessionResetAfterSave = false
     @State private var pendingSavedAlertAfterDismiss = false
     @State private var templatesLoaded = false
-    @State private var editableTemplates: [EditableSessionTemplate] = []
-    @State private var activeTemplateSessionPlan: GuidedTemplateSessionPlan?
+    @State private var sessionBuilderTemplate = SessionBuilderTemplate(
+        id: "session_builder",
+        name: "Practice Session",
+        tasks: [
+            SessionBuilderTask(id: "builder_task_warmup", title: "Warm-up", minutes: 10),
+            SessionBuilderTask(id: "builder_task_technique", title: "Technique", minutes: 15),
+            SessionBuilderTask(id: "builder_task_repertoire", title: "Repertoire", minutes: 20)
+        ]
+    )
+    @State private var activeSessionBuilderPlan: ActiveSessionBuilderPlan?
     @State private var selectedHomeArea: HomeArea = .dashboard
     @State private var activePracticeToolSheet: PracticeToolSheet?
     @State private var showShopSheet = false
     @State private var showVerificationInfoSheet = false
     @State private var showGoalReachedBanner = false
+    @State private var showSessionBuilder = true
+    @State private var lastSessionNotificationSignature: String = ""
     @State private var homeNavigationTarget: HomeNavigationTarget?
 
     // Haptics
@@ -204,13 +225,6 @@ struct HomeView: View {
         Binding(
             get: { GoalScope(rawValue: goalScopeRaw) ?? .today },
             set: { goalScopeRaw = $0.rawValue }
-        )
-    }
-
-    private var metronomeBPMDouble: Binding<Double> {
-        Binding(
-            get: { Double(metronomeBPM) },
-            set: { metronomeBPM = Int($0.rounded()) }
         )
     }
 
@@ -340,21 +354,6 @@ struct HomeView: View {
         } message: {
             Text(LocalizedStringKey(lastSaveMessage))
         }
-        .sheet(item: $activeTemplateSessionPlan) { plan in
-            NavigationStack {
-                GuidedTemplateSessionSheetView(
-                    plan: plan,
-                    guidance: templateGuidance(for: plan, elapsedSeconds: currentElapsedSeconds),
-                    elapsedSeconds: currentElapsedSeconds,
-                    palette: palette,
-                    chrome: chrome,
-                    type: type,
-                    formatTime: mmss
-                ) {
-                    activeTemplateSessionPlan = nil
-                }
-            }
-        }
         .overlay {
             if isRunning && checkInFlowEnabled && checkInManager.isAwaitingResponse {
                 checkInOverlay
@@ -442,10 +441,6 @@ struct HomeView: View {
                     goalSection
                     practiceTimeSection
                     recentHistorySection
-                case .practice:
-                    templatesSection
-                    practiceToolsSection
-                    practiceLabSection
                 case .studio:
                     if purchaseManager.canAccessTeacherTools {
                         teacherToolsSection
@@ -500,6 +495,13 @@ struct HomeView: View {
             .onChange(of: metronomeBeatsPerBar, handleMetronomeBeatsChange)
             .onChange(of: metronomeSubdivisionRaw) { _, _ in applyMetronomeConfiguration() }
             .onChange(of: metronomeSoundStyleRaw) { _, _ in applyMetronomeConfiguration() }
+            .onChange(of: activeSessionBuilderPlan) { _, _ in
+                Task { await syncSessionBuilderNotifications() }
+            }
+            .onChange(of: currentElapsedSeconds) { _, _ in
+                guard isRunning, activeSessionBuilderPlan != nil else { return }
+                Task { await syncSessionBuilderNotifications() }
+            }
             .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
                 guard token > 0 else { return }
                 withAnimation(.easeOut(duration: 0.08)) {
@@ -531,6 +533,7 @@ struct HomeView: View {
         notify.prepare()
         sanitizeMetronomeSettings()
         metronome.setBPM(metronomeBPM)
+        syncMetronomeTempoDraft(force: true)
         applyMetronomeConfiguration()
         if verifiedModeEnabled {
             distractionBlockEnabled = true
@@ -545,7 +548,7 @@ struct HomeView: View {
             didRunInitialHomeBootstrap = true
             if !templatesLoaded {
                 templatesLoaded = true
-                loadEditableTemplates()
+                loadSessionBuilderTemplate()
             }
             Task { @MainActor in
                 await Task.yield()
@@ -679,6 +682,7 @@ struct HomeView: View {
             metronomeBPM = clamped
             return
         }
+        syncMetronomeTempoDraft()
         metronome.setBPM(clamped)
         applyMetronomeConfiguration()
     }
@@ -829,13 +833,48 @@ struct HomeView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
-                    Text(L10n.f("%@ BPM", "\(metronomeBPM)"))
-                        .font(type.number)
+                    Text(L10n.f("%@ BPM", "\(Int(metronomeTempoDraft.rounded()))"))
+                        .font(type.timer)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
                 }
 
-                Slider(value: metronomeBPMDouble, in: 40...220, step: 1)
+                HStack(spacing: 10) {
+                    tempoNudgeButton(label: "-5", delta: -5)
+                    tempoNudgeButton(label: "-1", delta: -1)
+                    tempoNudgeButton(label: "+1", delta: 1)
+                    tempoNudgeButton(label: "+5", delta: 5)
+                }
+
+                Slider(
+                    value: $metronomeTempoDraft,
+                    in: 40...220,
+                    step: 1,
+                    onEditingChanged: { editing in
+                        isDraggingMetronomeTempo = editing
+                        if !editing {
+                            commitMetronomeTempoDraft()
+                        }
+                    }
+                )
+
+                HStack(spacing: 8) {
+                    ForEach([60, 72, 80, 96, 120], id: \.self) { value in
+                        Button("\(value)") {
+                            hapticSoftTap()
+                            setMetronomeTempo(value)
+                        }
+                        .font(type.footnote)
+                        .buttonStyle(.bordered)
+                    }
+                    Spacer()
+                    Button("Tap Tempo") {
+                        hapticSoftTap()
+                        registerTapTempo()
+                    }
+                    .font(type.footnote)
+                    .buttonStyle(.borderedProminent)
+                }
 
                 Picker("Time Signature", selection: $metronomeBeatsPerBar) {
                     Text("2/4").tag(2)
@@ -1225,11 +1264,220 @@ struct HomeView: View {
                         .font(type.footnote)
                         .foregroundStyle(palette.textPrimary)
                 }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                DisclosureGroup(isExpanded: $showSessionBuilder) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach($sessionBuilderTemplate.tasks) { $task in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    TextField(
+                                        "Task name",
+                                        text: Binding(
+                                            get: { task.title },
+                                            set: { task.title = String($0.prefix(28)) }
+                                        )
+                                    )
+                                    .font(type.body)
+
+                                    Button(role: .destructive) {
+                                        hapticSoftTap()
+                                        removeSessionTask(id: task.id)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(sessionBuilderTemplate.tasks.count <= 1)
+                                }
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        hapticSoftTap()
+                                        task.minutes = max(1, task.minutes - 1)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .font(.system(size: 19, weight: .semibold))
+                                            .foregroundStyle(palette.textSecondary)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Text(L10n.f("%@ min", "\(task.minutes)"))
+                                        .font(type.number)
+                                        .foregroundStyle(palette.textPrimary)
+                                        .monospacedDigit()
+                                        .frame(minWidth: 84, alignment: .center)
+
+                                    Button {
+                                        hapticSoftTap()
+                                        task.minutes = min(240, task.minutes + 1)
+                                    } label: {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 19, weight: .semibold))
+                                            .foregroundStyle(palette.accent)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Spacer()
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 10)
+                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+                        }
+
+                        HStack {
+                            Button {
+                                hapticSoftTap()
+                                addSessionTask()
+                            } label: {
+                                Label("Add Task", systemImage: "plus.circle")
+                                    .font(type.footnote)
+                            }
+                            .buttonStyle(.bordered)
+                            Spacer()
+                        }
+
+                        HStack {
+                            Text(L10n.f("%@ min total", "\(sessionBuilderTemplate.totalMinutes)"))
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                            Spacer()
+                            Button("Start Session") {
+                                hapticSoftTap()
+                                startSessionFromBuilder()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .font(type.button)
+                            .disabled(sessionBuilderTemplate.normalizedTasks.isEmpty)
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    HStack {
+                        Text("Practice Session Builder")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textPrimary)
+                        Spacer()
+                        Text(L10n.f("%@ min", "\(sessionBuilderTemplate.totalMinutes)"))
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
+                    }
+                }
+                .onChange(of: sessionBuilderTemplate) { _, _ in
+                    persistSessionBuilderTemplate()
+                }
+
+                if let plan = activeSessionBuilderPlan {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Session Progress")
+                                .font(type.footnote)
+                                .foregroundStyle(palette.textSecondary)
+                            Spacer()
+                            Button("End") {
+                                hapticSoftTap()
+                                activeSessionBuilderPlan = nil
+                            }
+                            .buttonStyle(.bordered)
+                            .font(type.footnote)
+                        }
+
+                        let rows = sessionTaskProgressRows(for: plan, elapsedSeconds: currentElapsedSeconds)
+                        ForEach(rows) { row in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(row.title)
+                                        .font(type.body)
+                                        .foregroundStyle(palette.textPrimary)
+                                    Spacer()
+                                    if row.isComplete {
+                                        Text("Done")
+                                            .font(type.footnote)
+                                            .foregroundStyle(.green)
+                                    } else {
+                                        Text(L10n.f("%@ left", mmss(row.remainingSeconds)))
+                                            .font(type.footnote)
+                                            .foregroundStyle(row.isCurrent ? palette.accent : palette.textSecondary)
+                                            .monospacedDigit()
+                                    }
+                                }
+
+                                ProgressView(value: row.progress)
+                                    .tint(row.isCurrent ? palette.accent : palette.textSecondary.opacity(0.45))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 10)
+                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+                        }
+                    }
+                }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Practice Tools")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+
+                    HStack(spacing: 10) {
+                        practiceToolQuickButton(
+                            title: "Metronome",
+                            subtitle: L10n.f("%@ BPM", "\(metronomeBPM)"),
+                            icon: "metronome",
+                            action: { activePracticeToolSheet = .metronome }
+                        )
+                        practiceToolQuickButton(
+                            title: "Tuner",
+                            subtitle: L10n.f("A=%@", "\(tunerReferenceHz)"),
+                            icon: "tuningfork",
+                            action: { activePracticeToolSheet = .tuner }
+                        )
+                    }
+                }
             }
         }
         header: {
             PBSectionHeaderLabel(title: "Practice Timer")
         }
+    }
+
+    private func practiceToolQuickButton(
+        title: String,
+        subtitle: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                        .lineLimit(1)
+                    Text(LocalizedStringKey(subtitle))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+        }
+        .buttonStyle(.plain)
     }
 
     private var practiceTimeSection: some View {
@@ -1357,49 +1605,6 @@ struct HomeView: View {
         }
     }
 
-    private var practiceToolsSection: some View {
-        Section {
-            homeSectionCard {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        Button {
-                            activePracticeToolSheet = .metronome
-                        } label: {
-                            PracticeToolCardView(
-                                title: "Metronome",
-                                subtitle: L10n.f("%@ BPM • %@", "\(metronomeBPM)", metronome.isRunning ? "Running" : "Tap to start"),
-                                icon: "metronome",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            activePracticeToolSheet = .tuner
-                        } label: {
-                            PracticeToolCardView(
-                                title: "Tuner",
-                                subtitle: L10n.f(
-                                    "A=%@ • %@",
-                                    "\(tunerReferenceHz)",
-                                    tuner.isListening ? "Listening" : "Tap to tune"
-                                ),
-                                icon: "tuningfork",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Practice Tools")
-        }
-    }
-
     private var teacherToolsSection: some View {
         Section {
             homeSectionCard {
@@ -1468,71 +1673,6 @@ struct HomeView: View {
             }
         } header: {
             PBSectionHeaderLabel(title: "Studio")
-        }
-    }
-
-    private var practiceLabSection: some View {
-        Section {
-            homeSectionCard {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        NavigationLink {
-                            PBLazyView(PlanExecuteReflectView())
-                        } label: {
-                            PracticeLabCardView(
-                                title: "Plan → Execute → Reflect",
-                                subtitle: "Build goals, run timed blocks, and save reflection notes.",
-                                icon: "list.bullet.clipboard",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            PBLazyView(WarmUpGeneratorView())
-                        } label: {
-                            PracticeLabCardView(
-                                title: "Warm-up Generator",
-                                subtitle: "Create a warm-up plan.",
-                                icon: "figure.run",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            PBLazyView(ScaleIntonationView())
-                        } label: {
-                            PracticeLabCardView(
-                                title: "Scale Intonation Score",
-                                subtitle: "Play scales and get note-by-note pitch feedback.",
-                                icon: "tuningfork",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            PBLazyView(RunThroughModeView())
-                        } label: {
-                            PracticeLabCardView(
-                                title: "Run-through Mode",
-                                subtitle: "Record one-take performances with quick self-review.",
-                                icon: "record.circle",
-                                palette: palette,
-                                type: type
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Practice Lab")
         }
     }
 
@@ -1635,45 +1775,6 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private var templatesSection: some View {
-        Section {
-            homeSectionCard {
-                ForEach(Array($editableTemplates.enumerated()), id: \.element.id) { idx, $template in
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("Template name", text: $template.name)
-                            .font(type.body)
-
-                        VStack(spacing: 8) {
-                            StepperMinutesRow(title: "Warm-up", value: $template.warmupMinutes, palette: palette, type: type)
-                            StepperMinutesRow(title: "Technique", value: $template.techniqueMinutes, palette: palette, type: type)
-                            StepperMinutesRow(title: "Repertoire", value: $template.repertoireMinutes, palette: palette, type: type)
-                        }
-
-                        HStack {
-                            Spacer()
-                            Button("Start") {
-                                hapticSoftTap()
-                                applyTemplate(template.asPracticeTemplate)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .font(type.button)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    if idx < editableTemplates.count - 1 {
-                        Divider()
-                    }
-                }
-                .onChange(of: editableTemplates) { _, _ in
-                    persistEditableTemplates()
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Session Templates")
-        }
-    }
-
     private var centsLabel: String {
         guard tuner.detectedFrequency != nil else { return "-- cents" }
         return String(format: "%+.1f cents", tuner.detectedCents)
@@ -1686,7 +1787,7 @@ struct HomeView: View {
             }
             return L10n.f("Beat %@/%@", "\(metronome.currentBeat)", "\(metronomeBeatsPerBar)")
         }
-        return String(localized: "Ready")
+        return String(localized: "Stopped")
     }
 
     @ViewBuilder
@@ -1741,6 +1842,7 @@ struct HomeView: View {
                 scheduleBackgroundCheckInNotification()
             }
         }
+        Task { await syncSessionBuilderNotifications() }
     }
 
     private func stopTapped() {
@@ -1757,6 +1859,7 @@ struct HomeView: View {
         if saveDraft.pieces.isEmpty {
             saveDraft.pieces = [makeEmptyPiece()]
         }
+        Task { await syncSessionBuilderNotifications() }
         showSaveSheet = true
     }
 
@@ -1784,7 +1887,9 @@ struct HomeView: View {
             pieces: [makeEmptyPiece()],
             reflection: ""
         )
-        activeTemplateSessionPlan = nil
+        activeSessionBuilderPlan = nil
+        lastSessionNotificationSignature = ""
+        Task { await syncSessionBuilderNotifications() }
         isSavingSession = false
     }
 
@@ -2116,6 +2221,7 @@ struct HomeView: View {
         if metronome.isRunning {
             metronome.stop()
         } else {
+            commitMetronomeTempoDraft()
             let effectiveSoundRaw = JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? metronomeSoundStyleRaw
             metronome.start(
                 beatsPerBar: metronomeBeatsPerBar,
@@ -2131,78 +2237,144 @@ struct HomeView: View {
         metronomeSubdivisionRaw = (MetronomeEngine.Subdivision(rawValue: metronomeSubdivisionRaw) ?? .none).rawValue
         let preferred = JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? metronomeSoundStyleRaw
         metronomeSoundStyleRaw = (MetronomeEngine.SoundStyle(rawValue: preferred) ?? .click).rawValue
+        syncMetronomeTempoDraft(force: true)
     }
 
-    private var defaultEditableTemplates: [EditableSessionTemplate] {
-        [
-            EditableSessionTemplate(
-                id: "template_quick_reset",
-                name: String(localized: "Short Session"),
-                warmupMinutes: 5,
-                techniqueMinutes: 7,
-                repertoireMinutes: 8
-            ),
-            EditableSessionTemplate(
-                id: "template_balanced_session",
-                name: String(localized: "Standard Session"),
-                warmupMinutes: 10,
-                techniqueMinutes: 15,
-                repertoireMinutes: 20
-            ),
-            EditableSessionTemplate(
-                id: "template_deep_work",
-                name: String(localized: "Deep Focus"),
-                warmupMinutes: 10,
-                techniqueMinutes: 20,
-                repertoireMinutes: 30
+    private func tempoNudgeButton(label: String, delta: Int) -> some View {
+        Button(label) {
+            hapticSoftTap()
+            setMetronomeTempo(Int(metronomeTempoDraft.rounded()) + delta)
+        }
+        .font(type.footnote)
+        .buttonStyle(.bordered)
+    }
+
+    private func setMetronomeTempo(_ newTempo: Int) {
+        let clamped = min(max(newTempo, 40), 220)
+        metronomeTempoDraft = Double(clamped)
+        isDraggingMetronomeTempo = false
+        if metronomeBPM != clamped {
+            metronomeBPM = clamped
+        } else {
+            metronome.setBPM(clamped)
+            applyMetronomeConfiguration()
+        }
+    }
+
+    private func commitMetronomeTempoDraft() {
+        setMetronomeTempo(Int(metronomeTempoDraft.rounded()))
+    }
+
+    private func syncMetronomeTempoDraft(force: Bool = false) {
+        guard force || !isDraggingMetronomeTempo else { return }
+        metronomeTempoDraft = Double(min(max(metronomeBPM, 40), 220))
+    }
+
+    private func registerTapTempo() {
+        let now = Date()
+        tapTempoMarks.append(now)
+        tapTempoMarks = tapTempoMarks.filter { now.timeIntervalSince($0) <= 3.0 }
+        guard tapTempoMarks.count >= 2 else { return }
+
+        let recent = Array(tapTempoMarks.suffix(5))
+        let intervals = zip(recent.dropFirst(), recent).map { $0.timeIntervalSince($1) }
+        guard !intervals.isEmpty else { return }
+
+        let average = intervals.reduce(0, +) / Double(intervals.count)
+        guard average > 0 else { return }
+        let bpm = Int((60.0 / average).rounded())
+        setMetronomeTempo(bpm)
+    }
+
+    private var defaultSessionBuilderTemplate: SessionBuilderTemplate {
+        SessionBuilderTemplate(
+            id: "session_builder",
+            name: String(localized: "Practice Session"),
+            tasks: [
+                SessionBuilderTask(id: "builder_task_warmup", title: String(localized: "Warm-up"), minutes: 10),
+                SessionBuilderTask(id: "builder_task_technique", title: String(localized: "Technique"), minutes: 15),
+                SessionBuilderTask(id: "builder_task_repertoire", title: String(localized: "Repertoire"), minutes: 20)
+            ]
+        )
+    }
+
+    private func loadSessionBuilderTemplate() {
+        let defaults = UserDefaults.standard
+
+        if let data = defaults.data(forKey: Constants.sessionBuilderStorageKey),
+           let decoded = try? JSONDecoder().decode(SessionBuilderTemplate.self, from: data) {
+            let sanitized = SessionBuilderTemplate(
+                id: "session_builder",
+                name: String(localized: "Practice Session"),
+                tasks: decoded.tasks.isEmpty ? defaultSessionBuilderTemplate.tasks : decoded.tasks
             )
-        ]
-    }
-
-    private func loadEditableTemplates() {
-        guard let data = UserDefaults.standard.data(forKey: Constants.templatesStorageKey),
-              let decoded = try? JSONDecoder().decode([EditableSessionTemplate].self, from: data),
-              !decoded.isEmpty else {
-            editableTemplates = defaultEditableTemplates
-            persistEditableTemplates()
+            sessionBuilderTemplate = sanitized
+            persistSessionBuilderTemplate()
             return
         }
-        editableTemplates = decoded
-    }
 
-    private func persistEditableTemplates() {
-        guard let data = try? JSONEncoder().encode(editableTemplates) else { return }
-        UserDefaults.standard.set(data, forKey: Constants.templatesStorageKey)
-    }
-
-    private func applyTemplate(_ template: PracticeTemplate) {
-        saveDraft = SessionSaveDraft(
-            noteTitle: template.name,
-            noteFocus: template.focus,
-            noteMood: .good,
-            pieces: [
-            PracticeSessionJournalPiece(
-                title: "Warm-up",
-                tempo: "\(template.warmupMinutes) min",
-                wentWell: "",
-                needsWork: "",
-                nextAction: ""
-            ),
-            PracticeSessionJournalPiece(
-                title: "Technique",
-                tempo: "\(template.etudeMinutes) min",
-                wentWell: "",
-                needsWork: "",
-                nextAction: ""
-            ),
-            PracticeSessionJournalPiece(
-                title: "Repertoire",
-                tempo: "\(template.repertoireMinutes) min",
-                wentWell: "",
-                needsWork: "",
-                nextAction: ""
+        if let legacyData = defaults.data(forKey: Constants.legacyTemplatesStorageKey),
+           let legacyDecoded = try? JSONDecoder().decode([LegacyEditableSessionTemplate].self, from: legacyData),
+           let firstLegacyTemplate = legacyDecoded.first {
+            sessionBuilderTemplate = SessionBuilderTemplate(
+                id: "session_builder",
+                name: String(localized: "Practice Session"),
+                tasks: [
+                    SessionBuilderTask(id: UUID().uuidString, title: String(localized: "Warm-up"), minutes: firstLegacyTemplate.warmupMinutes),
+                    SessionBuilderTask(id: UUID().uuidString, title: String(localized: "Technique"), minutes: firstLegacyTemplate.techniqueMinutes),
+                    SessionBuilderTask(id: UUID().uuidString, title: String(localized: "Repertoire"), minutes: firstLegacyTemplate.repertoireMinutes)
+                ]
             )
-        ],
+            persistSessionBuilderTemplate()
+            return
+        }
+
+        sessionBuilderTemplate = defaultSessionBuilderTemplate
+        persistSessionBuilderTemplate()
+    }
+
+    private func persistSessionBuilderTemplate() {
+        guard let data = try? JSONEncoder().encode(sessionBuilderTemplate) else { return }
+        UserDefaults.standard.set(data, forKey: Constants.sessionBuilderStorageKey)
+    }
+
+    private func addSessionTask() {
+        let nextIndex = sessionBuilderTemplate.tasks.count + 1
+        sessionBuilderTemplate.tasks.append(
+            SessionBuilderTask(
+                id: UUID().uuidString,
+                title: L10n.f("Task %@", "\(nextIndex)"),
+                minutes: 10
+            )
+        )
+    }
+
+    private func removeSessionTask(id: String) {
+        guard sessionBuilderTemplate.tasks.count > 1 else { return }
+        sessionBuilderTemplate.tasks.removeAll { $0.id == id }
+    }
+
+    private func startSessionFromBuilder() {
+        let tasks = sessionBuilderTemplate.normalizedTasks
+        guard !tasks.isEmpty else { return }
+        let sessionName = String(localized: "Practice Session")
+        let focus = tasks
+            .map(\.title)
+            .joined(separator: " • ")
+
+        saveDraft = SessionSaveDraft(
+            noteTitle: sessionName,
+            noteFocus: focus,
+            noteMood: .good,
+            pieces: tasks.map { task in
+                PracticeSessionJournalPiece(
+                    title: task.title,
+                    tempo: "\(task.minutes) min",
+                    wentWell: "",
+                    needsWork: "",
+                    nextAction: ""
+                )
+            },
             reflection: ""
         )
 
@@ -2215,56 +2387,105 @@ struct HomeView: View {
         checkInManager.reset()
         startEpoch = Date().timeIntervalSince1970
         isRunning = true
-        activeTemplateSessionPlan = GuidedTemplateSessionPlan(
-            name: template.name,
-            warmupMinutes: template.warmupMinutes,
-            techniqueMinutes: template.etudeMinutes,
-            repertoireMinutes: template.repertoireMinutes
+        activeSessionBuilderPlan = ActiveSessionBuilderPlan(
+            id: UUID().uuidString,
+            name: sessionName,
+            tasks: tasks
         )
+        Task { await syncSessionBuilderNotifications() }
     }
 
-    private func templateGuidance(for plan: GuidedTemplateSessionPlan, elapsedSeconds: Int) -> (
-        currentBlockTitle: String,
-        secondsToNext: Int,
-        nextLabel: String,
-        phaseProgress: Double,
-        totalProgress: Double
-    ) {
-        let blocks: [(title: String, seconds: Int)] = [
-            ("Warm-up", max(0, plan.warmupMinutes) * 60),
-            ("Technique", max(0, plan.techniqueMinutes) * 60),
-            ("Repertoire", max(0, plan.repertoireMinutes) * 60)
-        ].filter { $0.seconds > 0 }
-
-        guard !blocks.isEmpty else {
-            return ("Complete", 0, "Time to next", 1.0, 1.0)
-        }
-
-        let total = max(1, blocks.reduce(0) { $0 + $1.seconds })
+    private func sessionTaskProgressRows(
+        for plan: ActiveSessionBuilderPlan,
+        elapsedSeconds: Int
+    ) -> [SessionTaskProgressRow] {
         let elapsed = max(0, elapsedSeconds)
-        var running = 0
+        var cursor = 0
+        return plan.tasks.map { task in
+            let blockSeconds = max(0, task.minutes) * 60
+            let start = cursor
+            let end = cursor + blockSeconds
+            cursor = end
 
-        for (index, block) in blocks.enumerated() {
-            let start = running
-            let end = running + block.seconds
-            if elapsed < end {
-                let into = max(0, elapsed - start)
-                let remaining = max(0, end - elapsed)
-                let nextLabel = index < blocks.count - 1
-                    ? L10n.f("Time to %@", blocks[index + 1].title)
-                    : String(localized: "Time remaining")
-                return (
-                    currentBlockTitle: block.title,
-                    secondsToNext: remaining,
-                    nextLabel: nextLabel,
-                    phaseProgress: block.seconds > 0 ? min(1, Double(into) / Double(block.seconds)) : 1,
-                    totalProgress: min(1, Double(elapsed) / Double(total))
-                )
+            let isComplete = elapsed >= end
+            let isCurrent = !isComplete && elapsed >= start && elapsed < end
+            let into = max(0, min(blockSeconds, elapsed - start))
+            let progress = blockSeconds > 0 ? min(1.0, Double(into) / Double(blockSeconds)) : 1.0
+            let remaining = isComplete ? 0 : max(0, end - elapsed)
+
+            return SessionTaskProgressRow(
+                id: task.id,
+                title: task.title,
+                minutes: task.minutes,
+                progress: isComplete ? 1.0 : progress,
+                isCurrent: isCurrent,
+                isComplete: isComplete,
+                remainingSeconds: remaining
+            )
+        }
+    }
+
+    private func syncSessionBuilderNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let prefix = "pb.practice.session.task."
+
+        guard isRunning, let plan = activeSessionBuilderPlan else {
+            lastSessionNotificationSignature = ""
+            let existing = await center.pendingNotificationRequests()
+                .map(\.identifier)
+                .filter { $0.hasPrefix(prefix) }
+            if !existing.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: existing)
             }
-            running = end
+            return
         }
 
-        return ("Complete", 0, String(localized: "Session complete"), 1.0, 1.0)
+        let status = await center.notificationSettings().authorizationStatus
+        guard status == .authorized || status == .provisional || status == .ephemeral else { return }
+
+        let elapsed = max(0, currentElapsedSeconds)
+        var boundarySeconds: [Int] = []
+        var running = 0
+        for task in plan.tasks {
+            running += max(0, task.minutes) * 60
+            if running > elapsed {
+                boundarySeconds.append(running)
+            }
+        }
+        let signature = boundarySeconds.map(String.init).joined(separator: "|")
+        guard signature != lastSessionNotificationSignature else { return }
+        lastSessionNotificationSignature = signature
+
+        let existing = await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { $0.hasPrefix(prefix) }
+        if !existing.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: existing)
+        }
+
+        var cursor = 0
+        for (index, task) in plan.tasks.enumerated() {
+            let blockSeconds = max(0, task.minutes) * 60
+            cursor += blockSeconds
+            let remainingFromNow = cursor - elapsed
+            guard remainingFromNow > 0 else { continue }
+
+            let content = UNMutableNotificationContent()
+            let isLast = index == plan.tasks.count - 1
+            content.title = isLast ? "Session complete" : L10n.f("Next: %@", task.title)
+            content.body = isLast
+                ? "Your Practice Session Builder plan is complete."
+                : L10n.f("%@ starts now.", task.title)
+            content.sound = .default
+
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(remainingFromNow), repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "\(prefix)\(index)",
+                content: content,
+                trigger: trigger
+            )
+            try? await center.add(request)
+        }
     }
 
     private func mmss(_ totalSeconds: Int) -> String {

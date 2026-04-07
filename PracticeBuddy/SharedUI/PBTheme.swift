@@ -58,6 +58,7 @@ struct PBTheme: Identifiable {
 
 extension PBTheme {
     static let themePackProductID = "pb_theme_pack" // kept for future, currently unused
+    static let customID = "custom_accent"
 
     private static func classicBase(accent: Color) -> PBTheme.Palette {
         .init(
@@ -238,5 +239,68 @@ extension PBTheme {
 
     static func byID(_ id: String) -> PBTheme {
         all.first(where: { $0.id == id }) ?? classic
+    }
+
+    static func custom(accent: Color) -> PBTheme {
+        PBTheme(
+            id: customID,
+            name: "Custom",
+            access: .free,
+            palette: classicBase(accent: accent),
+            dynamicPalette: { scheme in
+                if scheme == .dark {
+                    return classicBase(accent: accent)
+                }
+
+                let accentUIColor = UIColor(accent)
+                let background = Color(uiColor: blended(
+                    UIColor.systemGroupedBackground,
+                    with: accentUIColor,
+                    amount: 0.18
+                ))
+                let surface = Color(uiColor: blended(
+                    UIColor.secondarySystemGroupedBackground,
+                    with: accentUIColor,
+                    amount: 0.14
+                ))
+                let surfaceAlt = Color(uiColor: blended(
+                    UIColor.tertiarySystemGroupedBackground,
+                    with: accentUIColor,
+                    amount: 0.22
+                ))
+
+                return themedLightBase(
+                    background: background,
+                    surface: surface,
+                    surfaceAlt: surfaceAlt,
+                    accent: accent,
+                    textPrimary: .black,
+                    textSecondary: Color(red: 0.13, green: 0.16, blue: 0.20)
+                )
+            }
+        )
+    }
+
+    private static func blended(_ base: UIColor, with accent: UIColor, amount: CGFloat) -> UIColor {
+        let clamped = min(max(amount, 0), 1)
+
+        var br: CGFloat = 0
+        var bg: CGFloat = 0
+        var bb: CGFloat = 0
+        var ba: CGFloat = 0
+        base.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+
+        var ar: CGFloat = 0
+        var ag: CGFloat = 0
+        var ab: CGFloat = 0
+        var aa: CGFloat = 0
+        accent.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+
+        return UIColor(
+            red: br * (1 - clamped) + ar * clamped,
+            green: bg * (1 - clamped) + ag * clamped,
+            blue: bb * (1 - clamped) + ab * clamped,
+            alpha: 1
+        )
     }
 }

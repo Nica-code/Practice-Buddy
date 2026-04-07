@@ -223,15 +223,17 @@ extension SettingsView {
                 .buttonStyle(.bordered)
 
                 #if DEBUG
-                Button("Send Test Push") {
-                    Task { await sendPushTestNotification() }
-                }
-                .buttonStyle(.bordered)
+                if canShowAdsDebugSection {
+                    Button("Send Test Push") {
+                        Task { await sendPushTestNotification() }
+                    }
+                    .buttonStyle(.bordered)
 
-                if let pushTestStatus {
-                    Text(pushTestStatus)
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                    if let pushTestStatus {
+                        Text(pushTestStatus)
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
                 }
                 #endif
             }
