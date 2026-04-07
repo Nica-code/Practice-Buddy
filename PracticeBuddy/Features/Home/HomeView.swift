@@ -498,10 +498,6 @@ struct HomeView: View {
             .onChange(of: activeSessionBuilderPlan) { _, _ in
                 Task { await syncSessionBuilderNotifications() }
             }
-            .onChange(of: currentElapsedSeconds) { _, _ in
-                guard isRunning, activeSessionBuilderPlan != nil else { return }
-                Task { await syncSessionBuilderNotifications() }
-            }
             .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
                 guard token > 0 else { return }
                 withAnimation(.easeOut(duration: 0.08)) {
@@ -666,6 +662,9 @@ struct HomeView: View {
         if phase == .active {
             applyBackgroundElapsedCatchUp()
             clearPendingCheckInNotifications()
+            if isRunning, activeSessionBuilderPlan != nil {
+                Task { await syncSessionBuilderNotifications(force: true) }
+            }
         } else if isRunning {
             if backgroundEnteredAt == nil {
                 backgroundEnteredAt = Date()
@@ -2425,7 +2424,7 @@ struct HomeView: View {
         }
     }
 
-    private func syncSessionBuilderNotifications() async {
+    private func syncSessionBuilderNotifications(force: Bool = false) async {
         let center = UNUserNotificationCenter.current()
         let prefix = "pb.practice.session.task."
 
@@ -2453,7 +2452,7 @@ struct HomeView: View {
             }
         }
         let signature = boundarySeconds.map(String.init).joined(separator: "|")
-        guard signature != lastSessionNotificationSignature else { return }
+        guard force || signature != lastSessionNotificationSignature else { return }
         lastSessionNotificationSignature = signature
 
         let existing = await center.pendingNotificationRequests()

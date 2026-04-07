@@ -168,7 +168,11 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         if let anyWindow = scenes.flatMap(\.windows).first {
             return anyWindow
         }
-        preconditionFailure("No UIWindow available for Apple sign-in presentation anchor.")
+        if let fallbackScene = scenes.first {
+            PBLog.firebase.error("No UIWindow available for Apple sign-in presentation anchor. Using scene fallback window.")
+            return UIWindow(windowScene: fallbackScene)
+        }
+        preconditionFailure("No UIWindowScene available for Apple sign-in presentation anchor.")
     }
 
 
@@ -455,7 +459,10 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     private func randomNonceString(length: Int = 32) -> String {
-        precondition(length > 0)
+        guard length > 0 else {
+            PBLog.firebase.error("randomNonceString called with non-positive length. Falling back to default length.")
+            return randomNonceString(length: 32)
+        }
         let charset: Array<Character> =
             Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
         var result = ""
@@ -465,7 +472,17 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             var randoms: [UInt8] = Array(repeating: 0, count: 16)
             let errorCode = SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
             if errorCode != errSecSuccess {
-                fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                PBLog.firebase.error("SecRandomCopyBytes failed (\(errorCode, privacy: .public)). Using UUID fallback nonce source.")
+                while remainingLength > 0 {
+                    let fallback = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+                    for scalar in fallback.unicodeScalars {
+                        if remainingLength == 0 { break }
+                        let idx = Int(scalar.value) % charset.count
+                        result.append(charset[idx])
+                        remainingLength -= 1
+                    }
+                }
+                break
             }
 
             randoms.forEach { random in

@@ -396,7 +396,8 @@ final class RunThroughRecorder: ObservableObject {
     }
 
     private func makeOutputURL() -> URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         let folder = docs.appendingPathComponent("RunThrough", isDirectory: true)
         if !FileManager.default.fileExists(atPath: folder.path) {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
