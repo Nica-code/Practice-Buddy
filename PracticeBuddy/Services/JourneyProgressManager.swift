@@ -267,10 +267,21 @@ final class JourneyProgressManager: ObservableObject {
     }
 
     func handleDuelSnapshot(rating: Int, wins: Int, losses: Int, draws: Int) {
-        latestDuelRating = max(0, rating)
-        latestDuelWins = max(0, wins)
-        latestDuelLosses = max(0, losses)
-        latestDuelDraws = max(0, draws)
+        let nextRating = max(0, rating)
+        let nextWins = max(0, wins)
+        let nextLosses = max(0, losses)
+        let nextDraws = max(0, draws)
+        let changed =
+            latestDuelRating != nextRating ||
+            latestDuelWins != nextWins ||
+            latestDuelLosses != nextLosses ||
+            latestDuelDraws != nextDraws
+        guard changed else { return }
+
+        latestDuelRating = nextRating
+        latestDuelWins = nextWins
+        latestDuelLosses = nextLosses
+        latestDuelDraws = nextDraws
         updateQuestProgress(from: lastSessions)
     }
 
@@ -478,7 +489,7 @@ final class JourneyProgressManager: ObservableObject {
             weeklyLeagueUps: weeklyLeagueUps
         )
 
-        dailyQuests = dailyQuestDefinitions.map { definition in
+        let nextDailyQuests = dailyQuestDefinitions.map { definition in
             JourneyQuestRow(
                 id: definition.id,
                 title: definition.title,
@@ -489,7 +500,7 @@ final class JourneyProgressManager: ObservableObject {
             )
         }
 
-        weeklyQuests = activeWeeklyQuestDefinitions(for: weekToken).map { definition in
+        let nextWeeklyQuests = activeWeeklyQuestDefinitions(for: weekToken).map { definition in
             JourneyQuestRow(
                 id: definition.id,
                 title: definition.title,
@@ -498,6 +509,13 @@ final class JourneyProgressManager: ObservableObject {
                 rewardTokens: definition.rewardTokens,
                 subtitle: definition.subtitle
             )
+        }
+
+        if dailyQuests != nextDailyQuests {
+            dailyQuests = nextDailyQuests
+        }
+        if weeklyQuests != nextWeeklyQuests {
+            weeklyQuests = nextWeeklyQuests
         }
     }
 
@@ -751,10 +769,13 @@ final class JourneyProgressManager: ObservableObject {
             currentLevel += 1
         }
 
-        level = currentLevel
-        xpIntoLevel = remaining
-        xpForNextLevel = xpCostToAdvance(from: currentLevel)
-        xpToNextLevel = max(0, xpForNextLevel - xpIntoLevel)
+        let nextXpForLevel = xpCostToAdvance(from: currentLevel)
+        let nextXpToLevel = max(0, nextXpForLevel - remaining)
+
+        if level != currentLevel { level = currentLevel }
+        if xpIntoLevel != remaining { xpIntoLevel = remaining }
+        if xpForNextLevel != nextXpForLevel { xpForNextLevel = nextXpForLevel }
+        if xpToNextLevel != nextXpToLevel { xpToNextLevel = nextXpToLevel }
     }
 
     private func xpCostToAdvance(from level: Int) -> Int {
@@ -1687,6 +1708,14 @@ final class DuelLeagueManager: ObservableObject {
     private var pendingRetryAction: DuelPendingRetryAction?
     private var isPrefetchingDisplayNames = false
     private var pendingDisplayNameUIDs: Set<String> = []
+    private let telemetryDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     private enum DuelPendingRetryAction {
         case acceptInvite(challengeID: String)
@@ -1756,7 +1785,9 @@ final class DuelLeagueManager: ObservableObject {
         let normalizedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedUID.isEmpty, !normalizedName.isEmpty else { return }
-        userDisplayNames[normalizedUID] = normalizedName
+        if userDisplayNames[normalizedUID] != normalizedName {
+            userDisplayNames[normalizedUID] = normalizedName
+        }
     }
 
     func clearRecoverableActionError() {
@@ -1872,8 +1903,12 @@ final class DuelLeagueManager: ObservableObject {
             let (friendRows, studioRows) = try await (friends, studio)
             let sortedFriends = friendRows.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             let sortedStudio = studioRows.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            friendCandidates = sortedFriends
-            studioCandidates = sortedStudio
+            if friendCandidates != sortedFriends {
+                friendCandidates = sortedFriends
+            }
+            if studioCandidates != sortedStudio {
+                studioCandidates = sortedStudio
+            }
             friendCandidatesCache = sortedFriends
             studioCandidatesCache = sortedStudio
             lastTargetCandidatesRefreshAt = Date()
@@ -2141,15 +2176,18 @@ final class DuelLeagueManager: ObservableObject {
                 let newLosses = max(0, (data["duelLosses"] as? Int) ?? 0)
                 let newDraws = max(0, (data["duelDraws"] as? Int) ?? 0)
                 let newSeasonKey = (data["duelSeasonKey"] as? String) ?? self.currentSeasonKey()
+                let newSeasonPoints = max(0, (data["duelSeasonPoints"] as? Int) ?? 0)
+                let newSeasonMatches = max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
+                let newSeasonWins = max(0, (data["duelSeasonWins"] as? Int) ?? 0)
 
-                self.duelRating = newRating
-                self.duelWins = newWins
-                self.duelLosses = newLosses
-                self.duelDraws = newDraws
-                self.seasonKey = newSeasonKey
-                self.seasonPoints = max(0, (data["duelSeasonPoints"] as? Int) ?? 0)
-                self.seasonMatches = max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
-                self.seasonWins = max(0, (data["duelSeasonWins"] as? Int) ?? 0)
+                if self.duelRating != newRating { self.duelRating = newRating }
+                if self.duelWins != newWins { self.duelWins = newWins }
+                if self.duelLosses != newLosses { self.duelLosses = newLosses }
+                if self.duelDraws != newDraws { self.duelDraws = newDraws }
+                if self.seasonKey != newSeasonKey { self.seasonKey = newSeasonKey }
+                if self.seasonPoints != newSeasonPoints { self.seasonPoints = newSeasonPoints }
+                if self.seasonMatches != newSeasonMatches { self.seasonMatches = newSeasonMatches }
+                if self.seasonWins != newSeasonWins { self.seasonWins = newSeasonWins }
                 self.leaderboardCache = self.leaderboardCache.filter { _, cached in
                     cached.seasonKey == newSeasonKey
                 }
@@ -2194,7 +2232,11 @@ final class DuelLeagueManager: ObservableObject {
             }
         }
         if !inlineDisplayNames.isEmpty {
-            userDisplayNames.merge(inlineDisplayNames) { _, new in new }
+            var merged = userDisplayNames
+            merged.merge(inlineDisplayNames) { _, new in new }
+            if merged != userDisplayNames {
+                userDisplayNames = merged
+            }
         }
 
         let rows = docs
@@ -2210,19 +2252,26 @@ final class DuelLeagueManager: ObservableObject {
         let hasPendingActiveForMe = rows.contains {
             $0.status == .active && $0.myScore(for: uid) == nil
         }
-        myOpenChallenge = hasPendingActiveForMe ? nil : rows.first {
+        let nextMyOpenChallenge = hasPendingActiveForMe ? nil : rows.first {
             $0.status == .open && $0.createdByUID == uid
         }
-        incomingInvites = rows.filter {
+        let nextIncomingInvites = rows.filter {
             $0.status == .invited && $0.opponentUID == uid
         }
-        outgoingInvites = rows.filter {
+        let nextOutgoingInvites = rows.filter {
             $0.status == .invited && $0.createdByUID == uid
         }
-        activeChallenges = rows.filter { $0.status == .active }
+        let nextActiveChallenges = rows.filter { $0.status == .active }
         let completed = rows.filter { $0.status == .completed }
-        matchHistory = completed
-        recentCompleted = completed.prefix(8).map { $0 }
+        let nextMatchHistory = completed
+        let nextRecentCompleted = completed.prefix(8).map { $0 }
+
+        if myOpenChallenge != nextMyOpenChallenge { myOpenChallenge = nextMyOpenChallenge }
+        if incomingInvites != nextIncomingInvites { incomingInvites = nextIncomingInvites }
+        if outgoingInvites != nextOutgoingInvites { outgoingInvites = nextOutgoingInvites }
+        if activeChallenges != nextActiveChallenges { activeChallenges = nextActiveChallenges }
+        if matchHistory != nextMatchHistory { matchHistory = nextMatchHistory }
+        if recentCompleted != nextRecentCompleted { recentCompleted = nextRecentCompleted }
 
         let statusByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.status) })
         if didReceiveInitialChallengeSnapshot {
@@ -2386,7 +2435,9 @@ final class DuelLeagueManager: ObservableObject {
            let cached = leaderboardCache[scope],
            cached.seasonKey == key,
            Date().timeIntervalSince(cached.fetchedAt) < leaderboardRefreshCooldown {
-            leaderboardRows = cached.rows
+            if leaderboardRows != cached.rows {
+                leaderboardRows = cached.rows
+            }
             return
         }
         do {
@@ -2416,11 +2467,15 @@ final class DuelLeagueManager: ObservableObject {
                     .prefix(20)
                     .map { $0 }
             }
-            leaderboardRows = rows
+            if leaderboardRows != rows {
+                leaderboardRows = rows
+            }
             leaderboardCache[scope] = (seasonKey: key, rows: rows, fetchedAt: Date())
         } catch {
             statusMessage = error.localizedDescription
-            leaderboardRows = []
+            if !leaderboardRows.isEmpty {
+                leaderboardRows = []
+            }
         }
     }
 
@@ -2564,26 +2619,20 @@ final class DuelLeagueManager: ObservableObject {
     }
 
     private func currentSeasonKey() -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        let now = Date()
-        let year = calendar.component(.yearForWeekOfYear, from: now)
-        let week = calendar.component(.weekOfYear, from: now)
-        return "\(year)-W\(week)"
+        seasonKeyToken(for: Date())
     }
 
     private func telemetryDayKey(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        telemetryDayFormatter.string(from: date)
     }
 
     private func telemetryWeekKey(for date: Date) -> String {
+        seasonKeyToken(for: date)
+    }
+
+    private func seasonKeyToken(for date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+        calendar.timeZone = .autoupdatingCurrent
         let year = calendar.component(.yearForWeekOfYear, from: date)
         let week = calendar.component(.weekOfYear, from: date)
         return "\(year)-W\(week)"
@@ -2684,7 +2733,11 @@ final class DuelLeagueManager: ObservableObject {
             let errorMessage = lastErrorMessage
             await MainActor.run {
                 if !fetchedResult.isEmpty {
-                    strongSelf.userDisplayNames.merge(fetchedResult) { _, new in new }
+                    var merged = strongSelf.userDisplayNames
+                    merged.merge(fetchedResult) { _, new in new }
+                    if merged != strongSelf.userDisplayNames {
+                        strongSelf.userDisplayNames = merged
+                    }
                 }
                 if let errorMessage, !errorMessage.isEmpty {
                     strongSelf.statusMessage = errorMessage
