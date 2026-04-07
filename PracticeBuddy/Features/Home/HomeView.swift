@@ -1713,23 +1713,10 @@ struct HomeView: View {
 
     private func toggleStartPauseOrStart() {
         if isRunning {
-            accumulatedSeconds = currentElapsedSeconds
-            isRunning = false
-            startEpoch = 0
-            backgroundEnteredAt = nil
-            if distractionBlockEnabled {
-                appShield.stopShielding()
-            }
-            clearPendingCheckInNotifications()
+            pauseActiveTimerSession()
         } else {
             if !hasAnyTime {
-                accumulatedSeconds = 0
-                verifiedSeconds = 0
-                unverifiedSeconds = 0
-                checkInCountSaved = 0
-                missedCheckInCountSaved = 0
-                checkInEventsJSON = ""
-                checkInManager.reset()
+                resetTrackedPracticeCounters()
             }
             startEpoch = Date().timeIntervalSince1970
             isRunning = true
@@ -1749,14 +1736,7 @@ struct HomeView: View {
 
     private func stopTapped() {
         if isRunning {
-            accumulatedSeconds = currentElapsedSeconds
-            isRunning = false
-            startEpoch = 0
-            backgroundEnteredAt = nil
-            if distractionBlockEnabled {
-                appShield.stopShielding()
-            }
-            clearPendingCheckInNotifications()
+            pauseActiveTimerSession()
         }
         if saveDraft.pieces.isEmpty {
             saveDraft.pieces = [makeEmptyPiece()]
@@ -2281,12 +2261,7 @@ struct HomeView: View {
         )
 
         accumulatedSeconds = 0
-        verifiedSeconds = 0
-        unverifiedSeconds = 0
-        checkInCountSaved = 0
-        missedCheckInCountSaved = 0
-        checkInEventsJSON = ""
-        checkInManager.reset()
+        resetTrackedPracticeCounters()
         startEpoch = Date().timeIntervalSince1970
         isRunning = true
         activeSessionBuilderPlan = ActiveSessionBuilderPlan(
@@ -2407,5 +2382,25 @@ struct HomeView: View {
         let minutes = seconds / 60
         let remainder = seconds % 60
         return String(format: "%02d:%02d", minutes, remainder)
+    }
+
+    private func pauseActiveTimerSession() {
+        accumulatedSeconds = currentElapsedSeconds
+        isRunning = false
+        startEpoch = 0
+        backgroundEnteredAt = nil
+        if distractionBlockEnabled {
+            appShield.stopShielding()
+        }
+        clearPendingCheckInNotifications()
+    }
+
+    private func resetTrackedPracticeCounters() {
+        verifiedSeconds = 0
+        unverifiedSeconds = 0
+        checkInCountSaved = 0
+        missedCheckInCountSaved = 0
+        checkInEventsJSON = ""
+        checkInManager.reset()
     }
 }

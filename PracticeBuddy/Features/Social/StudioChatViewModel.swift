@@ -109,7 +109,9 @@ final class StudioChatViewModel: ObservableObject {
 
         buddiesListener = repository.listenToBuddyDirectory(uid: uid) { [weak self] buddies in
             guard let self else { return }
-            self.friendCandidates = buddies
+            if self.friendCandidates != buddies {
+                self.friendCandidates = buddies
+            }
             self.buddyDirectory = Dictionary(uniqueKeysWithValues: buddies.map { ($0.id, $0) })
             self.rebuildFriendThreads()
         }
@@ -351,7 +353,7 @@ final class StudioChatViewModel: ObservableObject {
                 let threadID = self.studioThreadKey(studioID)
                 let current = self.studioThreadsByID[threadID]
                 let title = studio?.name ?? "Studio \(studioID.prefix(4).uppercased())"
-                self.studioThreadsByID[threadID] = SocialChatThread(
+                let updated = SocialChatThread(
                     id: threadID,
                     kind: .studio,
                     title: title,
@@ -363,7 +365,10 @@ final class StudioChatViewModel: ObservableObject {
                     lastMessageSenderUID: current?.lastMessageSenderUID ?? "",
                     unreadCount: current?.unreadCount ?? 0
                 )
-                self.rebuildThreads()
+                if self.studioThreadsByID[threadID] != updated {
+                    self.studioThreadsByID[threadID] = updated
+                    self.rebuildThreads()
+                }
             }
 
             studioLatestListeners[studioID] = repository.listenToStudioLatestMessage(studioID: studioID) { [weak self] message in
@@ -374,7 +379,7 @@ final class StudioChatViewModel: ObservableObject {
                 let lastText = message?.text ?? current?.lastMessageText ?? ""
                 let lastAt = message?.createdAt ?? current?.lastMessageAt ?? .distantPast
                 let senderUID = message?.senderUID ?? current?.lastMessageSenderUID ?? ""
-                self.studioThreadsByID[threadID] = SocialChatThread(
+                let updated = SocialChatThread(
                     id: threadID,
                     kind: .studio,
                     title: title,
@@ -386,7 +391,10 @@ final class StudioChatViewModel: ObservableObject {
                     lastMessageSenderUID: senderUID,
                     unreadCount: 0
                 )
-                self.rebuildThreads()
+                if self.studioThreadsByID[threadID] != updated {
+                    self.studioThreadsByID[threadID] = updated
+                    self.rebuildThreads()
+                }
             }
         }
 
@@ -417,6 +425,7 @@ final class StudioChatViewModel: ObservableObject {
                 unreadCount: 0
             )
         }
+        guard friendThreadsByID != merged else { return }
         friendThreadsByID = merged
         rebuildFriendThreads()
         rebuildThreads()
@@ -489,9 +498,17 @@ final class StudioChatViewModel: ObservableObject {
             didReceiveInitialThreadSnapshot = true
         }
 
-        threads = sorted
-        unreadCount = threads.reduce(0) { $0 + $1.unreadCount }
-        previousUnreadByThreadID = Dictionary(uniqueKeysWithValues: threads.map { ($0.id, $0.unreadCount) })
+        if threads != sorted {
+            threads = sorted
+        }
+        let nextUnreadCount = sorted.reduce(0) { $0 + $1.unreadCount }
+        if unreadCount != nextUnreadCount {
+            unreadCount = nextUnreadCount
+        }
+        let nextUnreadByThreadID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0.unreadCount) })
+        if previousUnreadByThreadID != nextUnreadByThreadID {
+            previousUnreadByThreadID = nextUnreadByThreadID
+        }
 
         if let pendingOpenThreadID,
            threads.contains(where: { $0.id == pendingOpenThreadID }) {
@@ -520,7 +537,7 @@ final class StudioChatViewModel: ObservableObject {
             guard let studioID = selected.studioID else { return }
             messagesListener = repository.listenToStudioMessages(studioID: studioID) { [weak self] rows in
                 guard let self else { return }
-                self.messages = rows.map {
+                let mapped = rows.map {
                     SocialChatMessage(
                         id: $0.id,
                         senderUID: $0.senderUID,
@@ -530,6 +547,9 @@ final class StudioChatViewModel: ObservableObject {
                         text: $0.text,
                         createdAt: $0.createdAt
                     )
+                }
+                if self.messages != mapped {
+                    self.messages = mapped
                 }
                 self.markThreadRead(
                     selected.id,
@@ -541,7 +561,7 @@ final class StudioChatViewModel: ObservableObject {
             let threadDocID = repository.friendThreadID(uidA: uid, uidB: friendUID)
             messagesListener = repository.listenToFriendMessages(threadID: threadDocID) { [weak self] rows in
                 guard let self else { return }
-                self.messages = rows.map {
+                let mapped = rows.map {
                     SocialChatMessage(
                         id: $0.id,
                         senderUID: $0.senderUID,
@@ -551,6 +571,9 @@ final class StudioChatViewModel: ObservableObject {
                         text: $0.text,
                         createdAt: $0.createdAt
                     )
+                }
+                if self.messages != mapped {
+                    self.messages = mapped
                 }
                 self.markThreadRead(
                     selected.id,

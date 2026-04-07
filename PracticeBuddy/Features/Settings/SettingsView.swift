@@ -32,6 +32,7 @@ struct SettingsView: View {
     @AppStorage("pb.tab.selection") var selectedTab: Int = 0
 
     @State var pendingRetentionTask: Task<Void, Never>?
+    @State var pendingNotificationSyncTask: Task<Void, Never>?
     @State var animateHeader = false
     @State var scrollAnchorTarget: SettingsAnchor?
     @State var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -118,29 +119,35 @@ struct SettingsView: View {
             }
         }
         .task {
-            await syncNotificationPrefs()
+            queueNotificationPrefsSync()
             await refreshNotificationAuthorizationStatus()
         }
         .onChange(of: notifyAssignments) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyBuddies) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyDuels) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyMessages) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyGoals) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyFriendRequests) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
         }
         .onChange(of: notifyStudioInvites) { _, _ in
-            Task { await syncNotificationPrefs() }
+            queueNotificationPrefsSync()
+        }
+        .onDisappear {
+            pendingRetentionTask?.cancel()
+            pendingRetentionTask = nil
+            pendingNotificationSyncTask?.cancel()
+            pendingNotificationSyncTask = nil
         }
         .alert("Sign Out?", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -201,6 +208,15 @@ struct SettingsView: View {
 
     func refreshNotificationAuthorizationStatus() async {
         notificationAuthorizationStatus = await PBNotificationCenter.authorizationStatus()
+    }
+
+    func queueNotificationPrefsSync() {
+        pendingNotificationSyncTask?.cancel()
+        pendingNotificationSyncTask = Task {
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            await syncNotificationPrefs()
+        }
     }
 
     #if DEBUG

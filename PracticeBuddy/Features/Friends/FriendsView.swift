@@ -27,6 +27,7 @@ struct FriendsView: View {
     @State private var displayNameInput: String = ""
     @State private var expandedLeaderboardUserID: String?
     @State private var profileTarget: LeaderboardActionUser?
+    @State private var pendingLeaderboardRefreshTask: Task<Void, Never>?
 
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
     @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
@@ -72,11 +73,15 @@ struct FriendsView: View {
             await buddiesVM.syncPublicLevel(journey.level)
         }
         .onChange(of: buddiesVM.buddies) { _, _ in
-            Task { await buddiesVM.refreshLeaderboard() }
+            queueLeaderboardRefresh()
         }
         .onChange(of: buddiesVM.myProfile?.displayName) { _, newValue in
             guard let newValue, !newValue.isEmpty else { return }
             displayNameInput = newValue
+        }
+        .onDisappear {
+            pendingLeaderboardRefreshTask?.cancel()
+            pendingLeaderboardRefreshTask = nil
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -511,5 +516,14 @@ struct FriendsView: View {
         components.host = "add-buddy"
         components.queryItems = [URLQueryItem(name: "code", value: friendCode)]
         return components.url
+    }
+
+    private func queueLeaderboardRefresh() {
+        pendingLeaderboardRefreshTask?.cancel()
+        pendingLeaderboardRefreshTask = Task {
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            await buddiesVM.refreshLeaderboard()
+        }
     }
 }
