@@ -553,19 +553,11 @@ struct HomeView: View {
                 if distractionBlockEnabled {
                     appShield.refreshState()
                 }
-                checkInManager.restoreCounters(
-                    checkInCount: checkInCountSaved,
-                    missedCheckInCount: missedCheckInCountSaved,
-                    events: decodedCheckInEvents(from: checkInEventsJSON)
-                )
-                checkInManager.updateConfiguration(
-                    promptRange: checkInRandomPromptRange
-                )
+                restorePersistedCheckInState()
+                updateCheckInPromptConfiguration()
             }
         } else {
-            checkInManager.updateConfiguration(
-                promptRange: checkInRandomPromptRange
-            )
+            updateCheckInPromptConfiguration()
         }
         handleGoalReachedBannerIfNeeded()
     }
@@ -601,14 +593,8 @@ struct HomeView: View {
             checkInEventsJSON = ""
             clearPendingCheckInNotifications()
         } else if hasAnyTime && verificationEnabledForSession {
-            checkInManager.restoreCounters(
-                checkInCount: checkInCountSaved,
-                missedCheckInCount: missedCheckInCountSaved,
-                events: decodedCheckInEvents(from: checkInEventsJSON)
-            )
-            checkInManager.updateConfiguration(
-                promptRange: checkInRandomPromptRange
-            )
+            restorePersistedCheckInState()
+            updateCheckInPromptConfiguration()
             if scenePhase != .active && checkInFlowEnabled {
                 scheduleBackgroundCheckInNotification()
             }
@@ -642,9 +628,7 @@ struct HomeView: View {
     }
 
     private func handleCheckInIntervalChange(_: String, _: String) {
-        checkInManager.updateConfiguration(
-            promptRange: checkInRandomPromptRange
-        )
+        updateCheckInPromptConfiguration()
         if scenePhase != .active, isRunning, checkInFlowEnabled {
             scheduleBackgroundCheckInNotification()
         }
@@ -771,12 +755,24 @@ struct HomeView: View {
         let delta = max(0, Int(Date().timeIntervalSince(started)))
         guard delta > 0 else { return }
 
+        unverifiedSeconds += delta
         if verificationMechanismActive {
-            unverifiedSeconds += delta
             checkInStatusMessage = "Background time counted as unverified."
-        } else {
-            unverifiedSeconds += delta
         }
+    }
+
+    private func restorePersistedCheckInState() {
+        checkInManager.restoreCounters(
+            checkInCount: checkInCountSaved,
+            missedCheckInCount: missedCheckInCountSaved,
+            events: decodedCheckInEvents(from: checkInEventsJSON)
+        )
+    }
+
+    private func updateCheckInPromptConfiguration() {
+        checkInManager.updateConfiguration(
+            promptRange: checkInRandomPromptRange
+        )
     }
 
     private func scheduleBackgroundCheckInNotification() {
