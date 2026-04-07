@@ -1364,16 +1364,20 @@ struct HomeView: View {
                         .foregroundStyle(palette.textSecondary)
 
                     HStack(spacing: 10) {
-                        practiceToolQuickButton(
+                        HomeQuickToolButton(
                             title: "Metronome",
                             subtitle: L10n.f("%@ BPM", "\(metronomeBPM)"),
                             icon: "metronome",
+                            palette: palette,
+                            type: type,
                             action: { activePracticeToolSheet = .metronome }
                         )
-                        practiceToolQuickButton(
+                        HomeQuickToolButton(
                             title: "Tuner",
                             subtitle: L10n.f("A=%@", "\(tunerReferenceHz)"),
                             icon: "tuningfork",
+                            palette: palette,
+                            type: type,
                             action: { activePracticeToolSheet = .tuner }
                         )
                     }
@@ -1383,39 +1387,6 @@ struct HomeView: View {
         header: {
             PBSectionHeaderLabel(title: "Practice Timer")
         }
-    }
-
-    private func practiceToolQuickButton(
-        title: String,
-        subtitle: String,
-        icon: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(LocalizedStringKey(title))
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                        .lineLimit(1)
-                    Text(LocalizedStringKey(subtitle))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .pbSurfaceCard(palette: palette, cornerRadius: 12)
-        }
-        .buttonStyle(.plain)
     }
 
     private var practiceTimeSection: some View {
@@ -1549,14 +1520,12 @@ struct HomeView: View {
                 Button {
                     homeNavigationTarget = .studioManagerTeacher
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Studio Manager")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("Create your studio, manage roster, and publish assignments.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                    HomeToolCardLabel(
+                        title: "Studio Manager",
+                        subtitle: "Create your studio, manage roster, and publish assignments.",
+                        palette: palette,
+                        type: type
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -1565,14 +1534,12 @@ struct HomeView: View {
                 Button {
                     homeNavigationTarget = .studioPlanner
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Studio Planner")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("Plan lessons, studio class, and recital events with calendar sync.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                    HomeToolCardLabel(
+                        title: "Studio Planner",
+                        subtitle: "Plan lessons, studio class, and recital events with calendar sync.",
+                        palette: palette,
+                        type: type
+                    )
                 }
             }
             .buttonStyle(.plain)
@@ -1587,14 +1554,12 @@ struct HomeView: View {
                 NavigationLink {
                     PBLazyView(StudioManagerView(entryMode: .student))
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Your Studio")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text("Join your teacher's studio, review roster, and track assignment progress.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                    HomeToolCardLabel(
+                        title: "Your Studio",
+                        subtitle: "Join your teacher's studio, review roster, and track assignment progress.",
+                        palette: palette,
+                        type: type
+                    )
                 }
             }
         } header: {

@@ -255,3 +255,58 @@ struct SessionBuilderProgressItemRow: View {
         .pbSurfaceCard(palette: palette, cornerRadius: 12)
     }
 }
+
+struct HomeQuickToolButton: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let palette: PBTheme.Palette
+    let type: PBTypography
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title))
+                        .font(type.body)
+                        .foregroundStyle(palette.textPrimary)
+                        .lineLimit(1)
+                    Text(LocalizedStringKey(subtitle))
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct HomeToolCardLabel: View {
+    let title: String
+    let subtitle: String
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(LocalizedStringKey(title))
+                .font(type.body)
+                .foregroundStyle(palette.textPrimary)
+            Text(LocalizedStringKey(subtitle))
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+        }
+    }
+}
