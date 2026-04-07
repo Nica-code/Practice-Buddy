@@ -17,6 +17,9 @@ final class StudioPlannerViewModel: ObservableObject {
     private var membersListener: ListenerRegistration?
     private var eventsListener: ListenerRegistration?
     private var templatesListener: ListenerRegistration?
+    private var attachedMembersStudioID: String?
+    private var attachedEventsStudioID: String?
+    private var attachedTemplatesStudioID: String?
     private var currentUID: String?
 
     init(repository: FirebaseStudiosRepository? = nil) {
@@ -55,6 +58,9 @@ final class StudioPlannerViewModel: ObservableObject {
         membersListener = nil
         eventsListener = nil
         templatesListener = nil
+        attachedMembersStudioID = nil
+        attachedEventsStudioID = nil
+        attachedTemplatesStudioID = nil
         currentUID = nil
         studio = nil
         members = []
@@ -204,8 +210,10 @@ final class StudioPlannerViewModel: ObservableObject {
     }
 
     private func attachMembersListener(studioID: String?) {
+        if attachedMembersStudioID == studioID { return }
         membersListener?.remove()
         membersListener = nil
+        attachedMembersStudioID = studioID
         members = []
         guard let studioID else { return }
         membersListener = repository.listenToMembers(studioID: studioID) { [weak self] rows in
@@ -214,8 +222,10 @@ final class StudioPlannerViewModel: ObservableObject {
     }
 
     private func attachEventsListener(studioID: String?) {
+        if attachedEventsStudioID == studioID { return }
         eventsListener?.remove()
         eventsListener = nil
+        attachedEventsStudioID = studioID
         events = []
         guard let studioID else { return }
         eventsListener = repository.listenToPlannerEvents(studioID: studioID) { [weak self] rows in
@@ -224,8 +234,10 @@ final class StudioPlannerViewModel: ObservableObject {
     }
 
     private func attachTemplatesListener(studioID: String?) {
+        if attachedTemplatesStudioID == studioID { return }
         templatesListener?.remove()
         templatesListener = nil
+        attachedTemplatesStudioID = studioID
         lessonTemplates = []
         guard let studioID else { return }
         templatesListener = repository.listenToLessonTemplates(studioID: studioID) { [weak self] rows in

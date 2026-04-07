@@ -33,8 +33,8 @@ final class BuddiesViewModel: ObservableObject {
 
     private let repository: FirebaseBuddiesRepository
     private var listeners: [ListenerRegistration] = []
-    private var presenceListeners: [ListenerRegistration] = []
-    private var buddyStatsListeners: [ListenerRegistration] = []
+    private var presenceListenerByUID: [String: ListenerRegistration] = [:]
+    private var buddyStatsListenerByUID: [String: ListenerRegistration] = [:]
     private var presenceClockCancellable: AnyCancellable?
     private var configuredUID: String?
     private var lastSyncedPublicLevel: Int?
@@ -52,8 +52,8 @@ final class BuddiesViewModel: ObservableObject {
 
     deinit {
         listeners.forEach { $0.remove() }
-        presenceListeners.forEach { $0.remove() }
-        buddyStatsListeners.forEach { $0.remove() }
+        presenceListenerByUID.values.forEach { $0.remove() }
+        buddyStatsListenerByUID.values.forEach { $0.remove() }
         presenceClockCancellable?.cancel()
     }
 
@@ -78,11 +78,11 @@ final class BuddiesViewModel: ObservableObject {
 
     func stop() {
         listeners.forEach { $0.remove() }
-        presenceListeners.forEach { $0.remove() }
-        buddyStatsListeners.forEach { $0.remove() }
+        presenceListenerByUID.values.forEach { $0.remove() }
+        buddyStatsListenerByUID.values.forEach { $0.remove() }
         listeners = []
-        presenceListeners = []
-        buddyStatsListeners = []
+        presenceListenerByUID = [:]
+        buddyStatsListenerByUID = [:]
         presenceClockCancellable?.cancel()
         presenceClockCancellable = nil
         configuredUID = nil
@@ -314,35 +314,43 @@ final class BuddiesViewModel: ObservableObject {
     }
 
     private func attachPresenceListeners(for uids: [String]) {
-        presenceListeners.forEach { $0.remove() }
-        presenceListeners = []
-        presenceByUID = [:]
+        let targetUIDs = Set(uids.filter { !$0.isEmpty })
+        let existingUIDs = Set(presenceListenerByUID.keys)
 
-        let uniqueUIDs = Array(Set(uids))
-        guard !uniqueUIDs.isEmpty else { return }
+        let toRemove = existingUIDs.subtracting(targetUIDs)
+        for uid in toRemove {
+            presenceListenerByUID[uid]?.remove()
+            presenceListenerByUID[uid] = nil
+            presenceByUID[uid] = nil
+        }
 
-        for uid in uniqueUIDs {
-            let listener = repository.listenToPresence(uid: uid) { [weak self] state in
+        let toAdd = targetUIDs.subtracting(existingUIDs)
+        for uid in toAdd {
+            presenceListenerByUID[uid] = repository.listenToPresence(uid: uid) { [weak self] state in
                 self?.presenceByUID[uid] = state
             }
-            presenceListeners.append(listener)
         }
+
     }
 
     private func attachBuddyStatsListeners(for uids: [String]) {
-        buddyStatsListeners.forEach { $0.remove() }
-        buddyStatsListeners = []
-        buddyStatsByUID = [:]
+        let targetUIDs = Set(uids.filter { !$0.isEmpty })
+        let existingUIDs = Set(buddyStatsListenerByUID.keys)
 
-        let uniqueUIDs = Array(Set(uids))
-        guard !uniqueUIDs.isEmpty else { return }
+        let toRemove = existingUIDs.subtracting(targetUIDs)
+        for uid in toRemove {
+            buddyStatsListenerByUID[uid]?.remove()
+            buddyStatsListenerByUID[uid] = nil
+            buddyStatsByUID[uid] = nil
+        }
 
-        for uid in uniqueUIDs {
-            let listener = repository.listenToPublicStats(uid: uid) { [weak self] stats in
+        let toAdd = targetUIDs.subtracting(existingUIDs)
+        for uid in toAdd {
+            buddyStatsListenerByUID[uid] = repository.listenToPublicStats(uid: uid) { [weak self] stats in
                 self?.buddyStatsByUID[uid] = stats
             }
-            buddyStatsListeners.append(listener)
         }
+
     }
 
     private func startPresenceClock() {

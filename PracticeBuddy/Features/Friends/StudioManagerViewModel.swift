@@ -18,6 +18,9 @@ final class StudioManagerViewModel: ObservableObject {
     private var membersListener: ListenerRegistration?
     private var assignmentsListener: ListenerRegistration?
     private var assignmentSubmissionListeners: [String: ListenerRegistration] = [:]
+    private var attachedStudioDocumentID: String?
+    private var attachedMembersStudioID: String?
+    private var attachedAssignmentsStudioID: String?
     private var currentUID: String?
     private var currentRole: PBAccountType = .student
     private let notificationManager = AssignmentNotificationManager.shared
@@ -72,6 +75,9 @@ final class StudioManagerViewModel: ObservableObject {
         membersListener = nil
         assignmentsListener = nil
         assignmentSubmissionListeners = [:]
+        attachedStudioDocumentID = nil
+        attachedMembersStudioID = nil
+        attachedAssignmentsStudioID = nil
         studio = nil
         members = []
         assignments = []
@@ -322,8 +328,10 @@ final class StudioManagerViewModel: ObservableObject {
     }
 
     private func attachMembersListener(studioID: String?) {
+        if attachedMembersStudioID == studioID { return }
         membersListener?.remove()
         membersListener = nil
+        attachedMembersStudioID = studioID
         members = []
 
         guard let studioID else { return }
@@ -333,8 +341,10 @@ final class StudioManagerViewModel: ObservableObject {
     }
 
     private func attachStudioListener(studioID: String?) {
+        if attachedStudioDocumentID == studioID { return }
         studioListener?.remove()
         studioListener = nil
+        attachedStudioDocumentID = studioID
         studio = nil
         isLoading = false
         guard let studioID else {
@@ -352,8 +362,10 @@ final class StudioManagerViewModel: ObservableObject {
     }
 
     private func attachAssignmentsListener(studioID: String?) {
+        if attachedAssignmentsStudioID == studioID { return }
         assignmentsListener?.remove()
         assignmentsListener = nil
+        attachedAssignmentsStudioID = studioID
         assignmentSubmissionListeners.values.forEach { $0.remove() }
         assignmentSubmissionListeners = [:]
         assignments = []
