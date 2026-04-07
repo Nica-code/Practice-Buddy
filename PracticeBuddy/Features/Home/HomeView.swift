@@ -1270,61 +1270,15 @@ struct HomeView: View {
                 DisclosureGroup(isExpanded: $showSessionBuilder) {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach($sessionBuilderTemplate.tasks) { $task in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 8) {
-                                    TextField(
-                                        "Task name",
-                                        text: Binding(
-                                            get: { task.title },
-                                            set: { task.title = String($0.prefix(28)) }
-                                        )
-                                    )
-                                    .font(type.body)
-
-                                    Button(role: .destructive) {
-                                        hapticSoftTap()
-                                        removeSessionTask(id: task.id)
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .foregroundStyle(.red)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(sessionBuilderTemplate.tasks.count <= 1)
-                                }
-
-                                HStack(spacing: 10) {
-                                    Button {
-                                        hapticSoftTap()
-                                        task.minutes = max(1, task.minutes - 1)
-                                    } label: {
-                                        Image(systemName: "minus.circle.fill")
-                                            .font(.system(size: 19, weight: .semibold))
-                                            .foregroundStyle(palette.textSecondary)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Text(L10n.f("%@ min", "\(task.minutes)"))
-                                        .font(type.number)
-                                        .foregroundStyle(palette.textPrimary)
-                                        .monospacedDigit()
-                                        .frame(minWidth: 84, alignment: .center)
-
-                                    Button {
-                                        hapticSoftTap()
-                                        task.minutes = min(240, task.minutes + 1)
-                                    } label: {
-                                        Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 19, weight: .semibold))
-                                            .foregroundStyle(palette.accent)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Spacer()
-                                }
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 10)
-                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+                            SessionBuilderTaskEditorRow(
+                                title: $task.title,
+                                minutes: $task.minutes,
+                                canDelete: sessionBuilderTemplate.tasks.count > 1,
+                                onDelete: { removeSessionTask(id: task.id) },
+                                onHapticTap: hapticSoftTap,
+                                palette: palette,
+                                type: type
+                            )
                         }
 
                         HStack {
@@ -1388,30 +1342,15 @@ struct HomeView: View {
 
                         let rows = sessionTaskProgressRows(for: plan, elapsedSeconds: currentElapsedSeconds)
                         ForEach(rows) { row in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(row.title)
-                                        .font(type.body)
-                                        .foregroundStyle(palette.textPrimary)
-                                    Spacer()
-                                    if row.isComplete {
-                                        Text("Done")
-                                            .font(type.footnote)
-                                            .foregroundStyle(.green)
-                                    } else {
-                                        Text(L10n.f("%@ left", mmss(row.remainingSeconds)))
-                                            .font(type.footnote)
-                                            .foregroundStyle(row.isCurrent ? palette.accent : palette.textSecondary)
-                                            .monospacedDigit()
-                                    }
-                                }
-
-                                ProgressView(value: row.progress)
-                                    .tint(row.isCurrent ? palette.accent : palette.textSecondary.opacity(0.45))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 10)
-                            .pbSurfaceCard(palette: palette, cornerRadius: 12)
+                            SessionBuilderProgressItemRow(
+                                title: row.title,
+                                progress: row.progress,
+                                isCurrent: row.isCurrent,
+                                isComplete: row.isComplete,
+                                remainingLabel: L10n.f("%@ left", mmss(row.remainingSeconds)),
+                                palette: palette,
+                                type: type
+                            )
                         }
                     }
                 }

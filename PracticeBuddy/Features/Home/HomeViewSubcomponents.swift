@@ -150,3 +150,108 @@ struct StepperMinutesRow: View {
         .accessibilityValue(Text(L10n.f("%@ minutes", "\(value)")))
     }
 }
+
+struct SessionBuilderTaskEditorRow: View {
+    @Binding var title: String
+    @Binding var minutes: Int
+    let canDelete: Bool
+    let onDelete: () -> Void
+    let onHapticTap: () -> Void
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                TextField(
+                    "Task name",
+                    text: Binding(
+                        get: { title },
+                        set: { title = String($0.prefix(28)) }
+                    )
+                )
+                .font(type.body)
+
+                Button(role: .destructive) {
+                    onHapticTap()
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canDelete)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onHapticTap()
+                    minutes = max(1, minutes - 1)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .buttonStyle(.plain)
+
+                Text(L10n.f("%@ min", "\(minutes)"))
+                    .font(type.number)
+                    .foregroundStyle(palette.textPrimary)
+                    .monospacedDigit()
+                    .frame(minWidth: 84, alignment: .center)
+
+                Button {
+                    onHapticTap()
+                    minutes = min(240, minutes + 1)
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
+    }
+}
+
+struct SessionBuilderProgressItemRow: View {
+    let title: String
+    let progress: Double
+    let isCurrent: Bool
+    let isComplete: Bool
+    let remainingLabel: String
+    let palette: PBTheme.Palette
+    let type: PBTypography
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(type.body)
+                    .foregroundStyle(palette.textPrimary)
+                Spacer()
+                if isComplete {
+                    Text("Done")
+                        .font(type.footnote)
+                        .foregroundStyle(.green)
+                } else {
+                    Text(remainingLabel)
+                        .font(type.footnote)
+                        .foregroundStyle(isCurrent ? palette.accent : palette.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+
+            ProgressView(value: progress)
+                .tint(isCurrent ? palette.accent : palette.textSecondary.opacity(0.45))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .pbSurfaceCard(palette: palette, cornerRadius: 12)
+    }
+}

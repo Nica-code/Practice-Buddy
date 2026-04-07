@@ -63,6 +63,7 @@ final class StudioChatViewModel: ObservableObject {
     private var pendingOpenThreadID: String?
     private var didReceiveInitialThreadSnapshot = false
     private var previousUnreadByThreadID: [String: Int] = [:]
+    private var pendingPersistLastReadTask: Task<Void, Never>?
 
     init(repository: FirebaseStudiosRepository? = nil) {
         self.repository = repository ?? FirebaseStudiosRepository()
@@ -75,6 +76,7 @@ final class StudioChatViewModel: ObservableObject {
         messagesListener?.remove()
         studioDocListeners.values.forEach { $0.remove() }
         studioLatestListeners.values.forEach { $0.remove() }
+        pendingPersistLastReadTask?.cancel()
     }
 
     func start(uid: String) {
@@ -142,6 +144,8 @@ final class StudioChatViewModel: ObservableObject {
         statusMessage = nil
         draftMessage = ""
         isLoading = false
+        pendingPersistLastReadTask?.cancel()
+        pendingPersistLastReadTask = nil
         currentUID = nil
         currentDisplayName = ""
         currentAvatarID = "avatar_note"
@@ -225,7 +229,7 @@ final class StudioChatViewModel: ObservableObject {
     }
 
     func markThreadReadManually(_ threadID: String) {
-        markThreadRead(threadID)
+        markThreadRead(threadID, at: Date())
     }
 
     func togglePin(threadID: String) {
@@ -470,13 +474,16 @@ final class StudioChatViewModel: ObservableObject {
                 let previous = previousUnreadByThreadID[thread.id] ?? 0
                 return thread.unreadCount > previous
             }) {
-                PBLog.firebase.info("Chat unread increment thread=\(newlyUnread.id, privacy: .public)")
-                PBNotificationCenter.maybeScheduleChatNotification(
-                    title: newlyUnread.title,
-                    body: newlyUnread.lastMessageText.isEmpty ? "New message" : newlyUnread.lastMessageText,
-                    threadID: newlyUnread.id,
-                    friendUID: newlyUnread.friendUID
-                )
+                // Avoid noisy local notifications while the user is actively reading this thread.
+                if newlyUnread.id != selectedThreadID {
+                    PBLog.firebase.info("Chat unread increment thread=\(newlyUnread.id, privacy: .public)")
+                    PBNotificationCenter.maybeScheduleChatNotification(
+                        title: newlyUnread.title,
+                        body: newlyUnread.lastMessageText.isEmpty ? "New message" : newlyUnread.lastMessageText,
+                        threadID: newlyUnread.id,
+                        friendUID: newlyUnread.friendUID
+                    )
+                }
             }
         } else {
             didReceiveInitialThreadSnapshot = true
@@ -524,7 +531,10 @@ final class StudioChatViewModel: ObservableObject {
                         createdAt: $0.createdAt
                     )
                 }
-                self.markThreadRead(selected.id)
+                self.markThreadRead(
+                    selected.id,
+                    at: rows.last?.createdAt
+                )
             }
         case .friend:
             guard let uid = currentUID, let friendUID = selected.friendUID else { return }
@@ -542,7 +552,10 @@ final class StudioChatViewModel: ObservableObject {
                         createdAt: $0.createdAt
                     )
                 }
-                self.markThreadRead(selected.id)
+                self.markThreadRead(
+                    selected.id,
+                    at: rows.last?.createdAt
+                )
             }
         }
     }
@@ -564,10 +577,25 @@ final class StudioChatViewModel: ObservableObject {
         return thread.lastMessageAt > lastRead ? 1 : 0
     }
 
-    private func markThreadRead(_ threadID: String) {
-        lastReadAtByThreadID[threadID] = Date()
-        persistLastReadState()
+    private func markThreadRead(_ threadID: String, at timestamp: Date?) {
+        let effectiveDate = timestamp ?? Date()
+        let existing = lastReadAtByThreadID[threadID] ?? .distantPast
+        guard effectiveDate > existing else { return }
+
+        lastReadAtByThreadID[threadID] = effectiveDate
+        schedulePersistLastReadState()
         rebuildThreads()
+    }
+
+    private func schedulePersistLastReadState() {
+        pendingPersistLastReadTask?.cancel()
+        pendingPersistLastReadTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.persistLastReadState()
+            }
+        }
     }
 
     private func studioThreadKey(_ studioID: String) -> String {

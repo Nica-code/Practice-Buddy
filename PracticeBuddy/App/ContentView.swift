@@ -73,13 +73,7 @@ struct ContentView: View {
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
-            syncUserPipelines(force: true)
-            syncFriendRequestBadge()
-            syncPresence()
-            syncSocialChatBadge()
-            syncPushPipeline()
-            updateAppIconBadge()
-            syncTutorialPresentation(force: true)
+            refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: true)
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
@@ -97,22 +91,10 @@ struct ContentView: View {
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID
-            syncUserPipelines()
-            syncFriendRequestBadge()
-            syncPresence()
-            syncSocialChatBadge()
-            syncPushPipeline()
-            updateAppIconBadge()
-            syncTutorialPresentation(force: true)
+            refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
-            syncUserPipelines()
-            syncFriendRequestBadge()
-            syncPresence()
-            syncSocialChatBadge()
-            syncPushPipeline()
-            updateAppIconBadge()
-            syncTutorialPresentation(force: true)
+            refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
@@ -126,13 +108,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                syncUserPipelines(force: true)
-                syncFriendRequestBadge()
-                syncPresence()
-                syncSocialChatBadge()
-                syncPushPipeline()
-                updateAppIconBadge()
-                syncTutorialPresentation()
+                refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: false)
             } else {
                 assignmentLinkManager.pauseRealtime()
                 warmupOfWeekManager.pauseRealtime()
@@ -338,6 +314,16 @@ struct ContentView: View {
         assignmentLinkManager.start(uid: firebase.currentUserID, accountType: .student)
         warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: .student, isPro: purchaseManager.featuresUnlocked)
         Task { await assignmentLinkManager.flushPendingQueue() }
+    }
+
+    private func refreshRuntimePipelines(forceUserPipeline: Bool, forceTutorialSync: Bool) {
+        syncUserPipelines(force: forceUserPipeline)
+        syncFriendRequestBadge()
+        syncPresence()
+        syncSocialChatBadge()
+        syncPushPipeline()
+        updateAppIconBadge()
+        syncTutorialPresentation(force: forceTutorialSync)
     }
 
     private func syncUserPipelines(force: Bool = false) {
