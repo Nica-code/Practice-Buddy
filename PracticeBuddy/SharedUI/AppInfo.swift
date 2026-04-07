@@ -130,6 +130,10 @@ enum AppInfo {
         stringValue(for: "PBAdMobBannerPlayAdUnitID")
     }
 
+    static var productionBannerSocialAdUnitID: String? {
+        stringValue(for: "PBAdMobBannerSocialAdUnitID")
+    }
+
     static var productionRewardedAdUnitID: String? {
         stringValue(for: "PBAdMobRewardedDuelAdUnitID")
     }

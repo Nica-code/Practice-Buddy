@@ -8,6 +8,7 @@ import GoogleMobileAds
 
 enum PBAdPlacement: String, CaseIterable, Identifiable {
     case playBottomBanner = "play.bottom.banner"
+    case socialBottomBanner = "social.bottom.banner"
 
     var id: String { rawValue }
 
@@ -15,6 +16,8 @@ enum PBAdPlacement: String, CaseIterable, Identifiable {
         switch self {
         case .playBottomBanner:
             return "Play Banner"
+        case .socialBottomBanner:
+            return "Social Banner"
         }
     }
 }
@@ -140,7 +143,7 @@ final class PBAdsManager: ObservableObject {
     func shouldRenderPlaceholder(for placement: PBAdPlacement) -> Bool {
         guard isDebugBuild else { return false }
         guard showPlaceholders else { return false }
-        guard placement == .playBottomBanner else { return false }
+        guard placement == .playBottomBanner || placement == .socialBottomBanner else { return false }
         if canRequestNetworkAds, bannerAdUnitID(for: placement) != nil {
             return false
         }
@@ -148,7 +151,7 @@ final class PBAdsManager: ObservableObject {
     }
 
     func shouldShowBanner(_ placement: PBAdPlacement) -> Bool {
-        guard adsEnabled && enableBannerAds && placement == .playBottomBanner else { return false }
+        guard adsEnabled && enableBannerAds else { return false }
         if shouldRenderPlaceholder(for: placement) {
             return true
         }
@@ -170,6 +173,11 @@ final class PBAdsManager: ObservableObject {
                 return Self.testBannerAdUnitID
             }
             return AppInfo.productionBannerAdUnitID
+        case .socialBottomBanner:
+            if useTestAdUnits {
+                return Self.testBannerAdUnitID
+            }
+            return AppInfo.productionBannerSocialAdUnitID ?? AppInfo.productionBannerAdUnitID
         }
     }
 

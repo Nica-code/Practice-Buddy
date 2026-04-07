@@ -16,6 +16,7 @@ struct FriendsView: View {
 
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var duelLeague: DuelLeagueManager
+    @EnvironmentObject private var adsManager: PBAdsManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -90,6 +91,10 @@ struct FriendsView: View {
                 userID: target.id,
                 fallbackDisplayName: target.displayName
             )
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PBAdBannerSlot(placement: .socialBottomBanner)
+                .environmentObject(adsManager)
         }
     }
 

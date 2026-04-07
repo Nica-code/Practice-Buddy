@@ -3,6 +3,7 @@ import SwiftUI
 struct SocialView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var viewModel: StudioChatViewModel
+    @EnvironmentObject private var adsManager: PBAdsManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -158,6 +159,10 @@ struct SocialView: View {
             NavigationStack {
                 newChatSheet
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PBAdBannerSlot(placement: .socialBottomBanner)
+                .environmentObject(adsManager)
         }
     }
 
