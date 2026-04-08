@@ -20,6 +20,7 @@ struct UserProfileView: View {
     @State private var instrument: String = ""
     @State private var animateHeader = false
     @State private var showShopSheet = false
+    @State private var avatarStatusMessage: String?
     @FocusState private var focusedField: ProfileField?
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -57,6 +58,7 @@ struct UserProfileView: View {
 
             List {
                 progressSection
+                iconsSection
                 personalizeSection
             }
             .listStyle(.insetGrouped)
@@ -257,6 +259,146 @@ struct UserProfileView: View {
         }
     }
 
+    private var iconsSection: some View {
+        Section("Icons") {
+            profileSectionCard {
+                HStack {
+                    Text("Choose your profile icon.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Spacer()
+                    Label("\(journey.tokenBalance)", systemImage: "seal.fill")
+                        .font(type.footnote.weight(.semibold))
+                        .foregroundStyle(palette.accent)
+                }
+
+                avatarCarousel(title: "Free", styles: PBAvatarStyle.freeStyles)
+                avatarCarousel(title: "Token Unlocks", styles: PBAvatarStyle.tokenStyles)
+
+                if let avatarStatusMessage, !avatarStatusMessage.isEmpty {
+                    Text(avatarStatusMessage)
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                }
+            }
+        }
+    }
+
+    private func avatarCarousel(title: String, styles: [PBAvatarStyle]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(type.footnote.weight(.semibold))
+                .foregroundStyle(palette.textPrimary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(styles, id: \.id) { style in
+                        avatarOptionCard(style: style)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func avatarOptionCard(style: PBAvatarStyle) -> some View {
+        let selected = style.id == avatarID
+        let unlocked = style.isFree || journey.isAvatarUnlocked(id: style.id)
+        let affordable = avatarAffordable(style)
+        let highlight = selected ? palette.accent.opacity(0.18) : palette.surfaceAlt
+
+        return Button {
+            handleAvatarSelection(style)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    PBAvatarView(avatarID: style.id, displayName: style.title, size: 42)
+                    Spacer()
+                    if selected {
+                        Label("Selected", systemImage: "checkmark.circle.fill")
+                            .font(type.fontChoice.headlineFont(size: 10, weight: .semibold))
+                            .foregroundStyle(palette.accent)
+                    } else if !unlocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+
+                Text(LocalizedStringKey(style.title))
+                    .font(type.footnote.weight(.semibold))
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(1)
+
+                Text(LocalizedStringKey(style.subtitle))
+                    .font(type.fontChoice.bodyFont(size: 11, weight: .regular))
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
+
+                Text(avatarActionLabel(style: style, unlocked: unlocked, selected: selected))
+                    .font(type.fontChoice.headlineFont(size: 11, weight: .semibold))
+                    .foregroundStyle(!unlocked && !affordable ? palette.textSecondary : palette.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(width: 122, height: 128, alignment: .topLeading)
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                    .fill(highlight)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                            .stroke(
+                                selected ? palette.accent.opacity(0.38) : Color.black.opacity(0.06),
+                                lineWidth: selected ? 1.4 : 1
+                            )
+                    )
+            )
+            .opacity(!unlocked && !affordable ? 0.58 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(journey.isEconomyOperationInProgress || (!unlocked && !affordable))
+        .accessibilityLabel(Text("\(style.title), \(style.subtitle)"))
+        .accessibilityValue(Text(avatarActionLabel(style: style, unlocked: unlocked, selected: selected)))
+    }
+
+    private func avatarAffordable(_ style: PBAvatarStyle) -> Bool {
+        guard let cost = style.tokenCost else { return true }
+        return journey.tokenBalance >= cost
+    }
+
+    private func avatarActionLabel(style: PBAvatarStyle, unlocked: Bool, selected: Bool) -> String {
+        if selected { return "Selected" }
+        if unlocked { return "Tap to select" }
+        if let cost = style.tokenCost { return "Unlock • \(cost)" }
+        return "Locked"
+    }
+
+    private func handleAvatarSelection(_ style: PBAvatarStyle) {
+        let unlocked = style.isFree || journey.isAvatarUnlocked(id: style.id)
+        if unlocked {
+            avatarID = style.id
+            avatarStatusMessage = "Selected \(style.title). Tap Save Profile to apply."
+            return
+        }
+
+        guard let cost = style.tokenCost else { return }
+        guard journey.tokenBalance >= cost else {
+            avatarStatusMessage = "Not enough tokens to unlock \(style.title)."
+            return
+        }
+
+        Task {
+            let didUnlock = await journey.unlockAvatar(id: style.id)
+            if didUnlock {
+                avatarID = style.id
+                avatarStatusMessage = "Unlocked \(style.title) for \(cost) tokens. Tap Save Profile to apply."
+            } else {
+                avatarStatusMessage = "Could not unlock \(style.title) right now. Try again."
+            }
+        }
+    }
+
     private var personalizeSection: some View {
         Section("Personalize") {
             profileSectionCard {
@@ -272,49 +414,6 @@ struct UserProfileView: View {
                 Text("Bio can be up to 160 characters.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
-
-                let columns = [GridItem(.adaptive(minimum: 112), spacing: 10)]
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(PBAvatarStyle.all, id: \.id) { style in
-                        let selected = style.id == avatarID
-                        Button {
-                            avatarID = style.id
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(alignment: .top) {
-                                    PBAvatarView(avatarID: style.id, displayName: style.title, size: 42)
-                                    Spacer()
-                                    Text(style.availability.label)
-                                        .font(type.fontChoice.headlineFont(size: 11, weight: .semibold))
-                                        .foregroundStyle(selected ? palette.accent : palette.textSecondary)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
-                                        .background((selected ? palette.accent.opacity(0.18) : palette.surface).clipShape(Capsule()))
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(LocalizedStringKey(style.title))
-                                        .font(type.footnote.weight(.semibold))
-                                        .foregroundStyle(palette.textPrimary)
-                                    Text(LocalizedStringKey(style.subtitle))
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textSecondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                                    .fill(selected ? palette.accent.opacity(0.16) : palette.surfaceAlt)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                                            .stroke(selected ? palette.accent.opacity(0.35) : Color.black.opacity(0.04), lineWidth: selected ? 1.5 : 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
 
                 Button {
                     saveProfile()

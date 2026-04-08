@@ -51,6 +51,8 @@
 	<false/>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-6233840432120177~4024122715</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCalendarsUsageDescription</key>
 	<string>PractiQuest uses your calendar to add scheduled lessons, studio classes, and recitals.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -63,10 +65,10 @@
 	<false/>
 	<key>PBAdsUseTestAds</key>
 	<false/>
-	<key>PBIsTestFlightBuild</key>
-	<false/>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
+	<key>PBIsTestFlightBuild</key>
+	<false/>
 	<key>PBMasterEmails</key>
 	<array>
 		<string>contact@alexmalaimare.com</string>

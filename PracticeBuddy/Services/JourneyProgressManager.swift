@@ -174,6 +174,7 @@ final class JourneyProgressManager: ObservableObject {
         static let processedSessionIDs = "pb.journey.processedSessionIDs"
         static let xpLedgerByDay = "pb.journey.xpLedgerByDay"
         static let tokenBalance = "pb.journey.tokenBalance"
+        static let ownedAvatarIDs = "pb.journey.ownedAvatarIDs"
         static let claimedQuestRewardKeys = "pb.journey.claimedQuestRewardKeys"
         static let ownedRewardIDs = "pb.journey.ownedRewardIDs"
         static let equippedRewardBySlot = "pb.journey.equippedRewardBySlot"
@@ -195,6 +196,7 @@ final class JourneyProgressManager: ObservableObject {
         static let cloudEquippedRewardBySlot = "inventoryEquippedRewardBySlot"
         static let cloudUpdatedAt = "inventoryUpdatedAt"
         static let cloudTokenBalance = "journeyTokenBalance"
+        static let cloudOwnedAvatarIDs = "inventoryOwnedAvatarIDs"
         static let cloudClaimedQuestRewardKeys = "journeyClaimedQuestRewardKeys"
     }
 
@@ -207,6 +209,7 @@ final class JourneyProgressManager: ObservableObject {
     @Published private(set) var dailyQuests: [JourneyQuestRow] = []
     @Published private(set) var weeklyQuests: [JourneyQuestRow] = []
     @Published private(set) var tokenBalance: Int = 0
+    @Published private(set) var ownedAvatarIDs: Set<String> = []
     @Published private(set) var rewards: [JourneyRewardItem] = []
     @Published private(set) var isEconomyOperationInProgress: Bool = false
 
@@ -241,6 +244,7 @@ final class JourneyProgressManager: ObservableObject {
         loadProcessedIDs()
         loadLedger()
         loadClaimedQuestRewards()
+        loadOwnedAvatars()
         loadOwnedRewards()
         loadEquippedRewards()
         tokenBalance = max(0, defaults.integer(forKey: Keys.tokenBalance))
@@ -387,6 +391,29 @@ final class JourneyProgressManager: ObservableObject {
 
     func equippedRewardID(for slot: JourneyRewardSlot) -> String? {
         equippedRewardBySlot[slot.rawValue]
+    }
+
+    func isAvatarUnlocked(id: String) -> Bool {
+        guard let style = PBAvatarStyle.all.first(where: { $0.id == id }) else { return true }
+        if style.isFree { return true }
+        return ownedAvatarIDs.contains(id)
+    }
+
+    @discardableResult
+    func unlockAvatar(id: String) async -> Bool {
+        guard let style = PBAvatarStyle.all.first(where: { $0.id == id }),
+              let costTokens = style.tokenCost else {
+            return true
+        }
+        if ownedAvatarIDs.contains(id) { return true }
+        guard beginEconomyOperation("unlockAvatar:\(id)") else { return false }
+        defer { endEconomyOperation("unlockAvatar:\(id)") }
+
+        if let uid = inventoryLinkedUID {
+            return await unlockAvatarCloud(uid: uid, avatarID: id, costTokens: costTokens)
+        }
+
+        return unlockAvatarLocal(avatarID: id, costTokens: costTokens)
     }
 
     func linkToUser(uid: String?) {
@@ -794,6 +821,7 @@ final class JourneyProgressManager: ObservableObject {
         saveProcessedIDs()
         saveLedger()
         saveClaimedQuestRewards()
+        saveOwnedAvatars()
         saveOwnedRewards()
         saveEquippedRewards()
         if let uid = inventoryLinkedUID {
@@ -838,6 +866,18 @@ final class JourneyProgressManager: ObservableObject {
 
     private func saveClaimedQuestRewards() {
         defaults.set(Array(claimedQuestRewardKeys), forKey: Keys.claimedQuestRewardKeys)
+    }
+
+    private func loadOwnedAvatars() {
+        guard let raw = defaults.array(forKey: Keys.ownedAvatarIDs) as? [String] else {
+            ownedAvatarIDs = []
+            return
+        }
+        ownedAvatarIDs = Set(raw.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    private func saveOwnedAvatars() {
+        defaults.set(Array(ownedAvatarIDs).sorted(), forKey: Keys.ownedAvatarIDs)
     }
 
     private func loadOwnedRewards() {
@@ -1010,6 +1050,7 @@ final class JourneyProgressManager: ObservableObject {
         if isApplyingRemoteInventory { return }
 
         let remoteOwned = Set((data[InventoryKeys.cloudOwnedRewardIDs] as? [String] ?? []).filter { !$0.isEmpty })
+        let remoteOwnedAvatars = Set((data[InventoryKeys.cloudOwnedAvatarIDs] as? [String] ?? []).filter { !$0.isEmpty })
         let rawEquipped = (data[InventoryKeys.cloudEquippedRewardBySlot] as? [String: String]) ?? [:]
         let remoteClaimedQuestKeys = Set((data[InventoryKeys.cloudClaimedQuestRewardKeys] as? [String] ?? []).filter { !$0.isEmpty })
         let hasRemoteTokenBalance = data[InventoryKeys.cloudTokenBalance] != nil
@@ -1023,6 +1064,7 @@ final class JourneyProgressManager: ObservableObject {
 
         var mergedOwned = ownedRewardIDs
         mergedOwned.formUnion(remoteOwned)
+        let mergedOwnedAvatars = ownedAvatarIDs.union(remoteOwnedAvatars)
 
         var mergedEquipped = normalizedRemoteEquipped.filter { mergedOwned.contains($0.value) }
         for (slot, rewardID) in equippedRewardBySlot where mergedEquipped[slot] == nil && mergedOwned.contains(rewardID) {
@@ -1031,13 +1073,15 @@ final class JourneyProgressManager: ObservableObject {
         let mergedClaimedQuestKeys = claimedQuestRewardKeys.union(remoteClaimedQuestKeys)
 
         let ownedChanged = mergedOwned != ownedRewardIDs
+        let avatarsChanged = mergedOwnedAvatars != ownedAvatarIDs
         let equippedChanged = mergedEquipped != equippedRewardBySlot
         let claimedChanged = mergedClaimedQuestKeys != claimedQuestRewardKeys
         let tokenChanged = hasRemoteTokenBalance && remoteTokenBalance != tokenBalance
-        guard ownedChanged || equippedChanged || claimedChanged || tokenChanged else { return }
+        guard ownedChanged || avatarsChanged || equippedChanged || claimedChanged || tokenChanged else { return }
 
         isApplyingRemoteInventory = true
         ownedRewardIDs = mergedOwned
+        ownedAvatarIDs = mergedOwnedAvatars
         equippedRewardBySlot = mergedEquipped
         claimedQuestRewardKeys = mergedClaimedQuestKeys
         if hasRemoteTokenBalance {
@@ -1047,6 +1091,7 @@ final class JourneyProgressManager: ObservableObject {
         refreshRewards()
         defaults.set(max(0, tokenBalance), forKey: Keys.tokenBalance)
         saveClaimedQuestRewards()
+        saveOwnedAvatars()
         saveOwnedRewards()
         saveEquippedRewards()
         isApplyingRemoteInventory = false
@@ -1057,6 +1102,7 @@ final class JourneyProgressManager: ObservableObject {
 
         let payload: [String: Any] = [
             InventoryKeys.cloudOwnedRewardIDs: Array(ownedRewardIDs).sorted(),
+            InventoryKeys.cloudOwnedAvatarIDs: Array(ownedAvatarIDs).sorted(),
             InventoryKeys.cloudEquippedRewardBySlot: equippedRewardBySlot,
             InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
         ]
@@ -1109,6 +1155,18 @@ final class JourneyProgressManager: ObservableObject {
         equippedRewardBySlot.removeValue(forKey: slot.rawValue)
         applyEquippedSideEffects()
         refreshRewards()
+        persistAll()
+        return true
+    }
+
+    private func unlockAvatarLocal(avatarID: String, costTokens: Int) -> Bool {
+        let normalizedID = avatarID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedID.isEmpty else { return false }
+        if ownedAvatarIDs.contains(normalizedID) { return true }
+        guard tokenBalance >= max(0, costTokens) else { return false }
+
+        tokenBalance -= max(0, costTokens)
+        ownedAvatarIDs.insert(normalizedID)
         persistAll()
         return true
     }
@@ -1353,6 +1411,70 @@ final class JourneyProgressManager: ObservableObject {
         }
     }
 
+    private func unlockAvatarCloud(uid: String, avatarID: String, costTokens: Int) async -> Bool {
+        do {
+            let result = try await runCloudTransaction { transaction, errorPointer in
+                let userRef = self.db.collection("users").document(uid)
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(userRef)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                let data = snapshot.data() ?? [:]
+                var cloudOwnedAvatars = Set((data[InventoryKeys.cloudOwnedAvatarIDs] as? [String] ?? []).filter { !$0.isEmpty })
+                var cloudTokens = max(0, (data[InventoryKeys.cloudTokenBalance] as? Int) ?? self.tokenBalance)
+
+                if cloudOwnedAvatars.contains(avatarID) {
+                    return [
+                        "success": true,
+                        "tokenBalance": cloudTokens,
+                        "ownedAvatarIDs": Array(cloudOwnedAvatars)
+                    ]
+                }
+
+                let normalizedCost = max(0, costTokens)
+                guard cloudTokens >= normalizedCost else {
+                    return [
+                        "success": false,
+                        "tokenBalance": cloudTokens,
+                        "ownedAvatarIDs": Array(cloudOwnedAvatars)
+                    ]
+                }
+
+                cloudTokens -= normalizedCost
+                cloudOwnedAvatars.insert(avatarID)
+
+                transaction.setData([
+                    InventoryKeys.cloudTokenBalance: cloudTokens,
+                    InventoryKeys.cloudOwnedAvatarIDs: Array(cloudOwnedAvatars).sorted(),
+                    InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
+                ], forDocument: userRef, merge: true)
+
+                return [
+                    "success": true,
+                    "tokenBalance": cloudTokens,
+                    "ownedAvatarIDs": Array(cloudOwnedAvatars)
+                ]
+            }
+
+            guard let dict = result as? [String: Any] else { return false }
+            let didUnlock = (dict["success"] as? Bool) ?? false
+            let cloudTokens = max(0, (dict["tokenBalance"] as? Int) ?? tokenBalance)
+            let cloudOwnedAvatars = Set((dict["ownedAvatarIDs"] as? [String] ?? []).filter { !$0.isEmpty })
+
+            tokenBalance = cloudTokens
+            ownedAvatarIDs = cloudOwnedAvatars.union(ownedAvatarIDs)
+            defaults.set(max(0, tokenBalance), forKey: Keys.tokenBalance)
+            saveOwnedAvatars()
+            return didUnlock
+        } catch {
+            return unlockAvatarLocal(avatarID: avatarID, costTokens: costTokens)
+        }
+    }
+
     private func bootstrapJourneyEconomyInCloud(uid: String) async {
         do {
             _ = try await runCloudTransaction { transaction, errorPointer in
@@ -1368,11 +1490,13 @@ final class JourneyProgressManager: ObservableObject {
                 let data = snapshot.data() ?? [:]
                 let hasCloudToken = data[InventoryKeys.cloudTokenBalance] != nil
                 let hasCloudClaimed = data[InventoryKeys.cloudClaimedQuestRewardKeys] != nil
-                if hasCloudToken && hasCloudClaimed { return ["bootstrapped": false] }
+                let hasCloudOwnedAvatars = data[InventoryKeys.cloudOwnedAvatarIDs] != nil
+                if hasCloudToken && hasCloudClaimed && hasCloudOwnedAvatars { return ["bootstrapped": false] }
 
                 transaction.setData([
                     InventoryKeys.cloudTokenBalance: max(0, self.tokenBalance),
                     InventoryKeys.cloudClaimedQuestRewardKeys: Array(self.claimedQuestRewardKeys).sorted(),
+                    InventoryKeys.cloudOwnedAvatarIDs: Array(self.ownedAvatarIDs).sorted(),
                     InventoryKeys.cloudUpdatedAt: FieldValue.serverTimestamp()
                 ], forDocument: userRef, merge: true)
                 return ["bootstrapped": true]

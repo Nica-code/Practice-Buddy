@@ -1,19 +1,17 @@
 import SwiftUI
 import UIKit
 
-struct PBAvatarStyle: Equatable {
+struct PBAvatarStyle: Equatable, Identifiable {
     enum Availability: Equatable {
         case included
-        case pro
-        case token
-        case shop
+        case token(costTokens: Int)
 
         var label: String {
             switch self {
-            case .included: return "Included"
-            case .pro: return "Ad-Free"
-            case .token: return "Tokens"
-            case .shop: return "Shop"
+            case .included:
+                return "Free"
+            case .token(let costTokens):
+                return "\(costTokens) tokens"
             }
         }
     }
@@ -25,6 +23,16 @@ struct PBAvatarStyle: Equatable {
     let color: Color
     let availability: Availability
 
+    var isFree: Bool {
+        if case .included = availability { return true }
+        return false
+    }
+
+    var tokenCost: Int? {
+        if case .token(let costTokens) = availability { return max(0, costTokens) }
+        return nil
+    }
+
     static let all: [PBAvatarStyle] = [
         PBAvatarStyle(id: "avatar_note", title: "Ari", subtitle: "Violinist", symbolName: "music.note", color: .blue, availability: .included),
         PBAvatarStyle(id: "avatar_violin", title: "Noah", subtitle: "Strings", symbolName: "music.quarternote.3", color: .orange, availability: .included),
@@ -34,11 +42,19 @@ struct PBAvatarStyle: Equatable {
         PBAvatarStyle(id: "avatar_wave", title: "Kai", subtitle: "Engineer", symbolName: "waveform", color: .purple, availability: .included),
         PBAvatarStyle(id: "avatar_bolt", title: "Nova", subtitle: "Virtuoso", symbolName: "bolt.fill", color: .red, availability: .included),
         PBAvatarStyle(id: "avatar_leaf", title: "Leo", subtitle: "Studio", symbolName: "leaf.fill", color: .green, availability: .included),
-        PBAvatarStyle(id: "avatar_f_piano", title: "Mia", subtitle: "Pianist", symbolName: "pianokeys.inverse", color: .indigo, availability: .token),
-        PBAvatarStyle(id: "avatar_m_guitar", title: "Axel", subtitle: "Guitarist", symbolName: "guitars", color: .brown, availability: .token),
-        PBAvatarStyle(id: "avatar_f_teacher", title: "Ivy", subtitle: "Teacher", symbolName: "graduationcap.fill", color: .teal, availability: .pro),
-        PBAvatarStyle(id: "avatar_m_coach", title: "Rex", subtitle: "Coach", symbolName: "figure.run", color: .cyan, availability: .shop)
+        PBAvatarStyle(id: "avatar_f_piano", title: "Celeste", subtitle: "Concert Pianist", symbolName: "pianokeys.inverse", color: .indigo, availability: .token(costTokens: 120)),
+        PBAvatarStyle(id: "avatar_m_guitar", title: "Orion", subtitle: "Arena Guitar", symbolName: "guitars", color: .purple, availability: .token(costTokens: 140)),
+        PBAvatarStyle(id: "avatar_f_teacher", title: "Vesper", subtitle: "Maestro", symbolName: "graduationcap.fill", color: .orange, availability: .token(costTokens: 180)),
+        PBAvatarStyle(id: "avatar_m_coach", title: "Titan", subtitle: "Grandmaster", symbolName: "figure.run", color: .mint, availability: .token(costTokens: 200))
     ]
+
+    static var freeStyles: [PBAvatarStyle] {
+        all.filter(\.isFree)
+    }
+
+    static var tokenStyles: [PBAvatarStyle] {
+        all.filter { !$0.isFree }
+    }
 
     static func byID(_ id: String?) -> PBAvatarStyle {
         guard let id, let found = all.first(where: { $0.id == id }) else {
