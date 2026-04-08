@@ -34,10 +34,37 @@ struct PBShortcutBar: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background(item.isDisabled ? palette.surfaceAlt.opacity(0.7) : palette.surfaceAlt)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                palette.surface.opacity(item.isDisabled ? 0.36 : 0.54),
+                                                palette.surfaceAlt.opacity(item.isDisabled ? 0.28 : 0.44),
+                                                palette.accent.opacity(item.isDisabled ? 0.06 : 0.16)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            )
+                    )
                     .overlay(
                         Capsule()
-                            .stroke(palette.accent.opacity(item.isDisabled ? 0.08 : 0.18), lineWidth: 1)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.34),
+                                        palette.accent.opacity(item.isDisabled ? 0.10 : 0.30)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
                     )
                     .clipShape(Capsule())
                 }

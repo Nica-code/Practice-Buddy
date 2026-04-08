@@ -21,6 +21,8 @@ enum PBLayout {
     static let cardShadowRadius: Double = 9.0
     static let cardShadowOpacity: Double = 0.085
     static let cardAmbientOpacity: Double = 0.035
+    static let glassTintOpacity: Double = 0.28
+    static let glassHighlightOpacity: Double = 0.36
 
     // Motion tokens
     static let quickAnimation = Animation.snappy(duration: 0.22, extraBounce: 0.02)
@@ -34,27 +36,85 @@ struct PBBackdropView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    palette.background,
-                    palette.surface.opacity(0.94),
-                    palette.background
+                    palette.background.opacity(0.98),
+                    palette.surface.opacity(0.90),
+                    palette.background.opacity(0.98)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
-            Circle()
-                .fill(palette.accent.opacity(0.10))
-                .frame(width: 260, height: 260)
-                .blur(radius: 10)
-                .offset(x: 130, y: -220)
+            RoundedRectangle(cornerRadius: 140, style: .continuous)
+                .fill(palette.accent.opacity(0.14))
+                .frame(width: 320, height: 220)
+                .blur(radius: 30)
+                .offset(x: 145, y: -260)
 
-            Circle()
-                .fill(palette.accent.opacity(0.08))
-                .frame(width: 220, height: 220)
-                .blur(radius: 12)
-                .offset(x: -140, y: 260)
+            RoundedRectangle(cornerRadius: 120, style: .continuous)
+                .fill(palette.textSecondary.opacity(0.12))
+                .frame(width: 280, height: 200)
+                .blur(radius: 34)
+                .offset(x: -150, y: 260)
+
+            LinearGradient(
+                colors: [
+                    .white.opacity(0.08),
+                    .clear,
+                    palette.accent.opacity(0.08)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .blendMode(.plusLighter)
+            .ignoresSafeArea()
         }
         .ignoresSafeArea()
+    }
+}
+
+private struct PBGlassSurface: View {
+    let palette: PBTheme.Palette
+    let cornerRadius: Double
+    let tintOpacity: Double
+    let strokeOpacity: Double
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                palette.surface.opacity(max(0.12, tintOpacity)),
+                                palette.surfaceAlt.opacity(max(0.10, tintOpacity * 0.76)),
+                                palette.accent.opacity(max(0.05, tintOpacity * 0.40))
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(PBLayout.glassHighlightOpacity),
+                                palette.accent.opacity(strokeOpacity),
+                                .white.opacity(0.06)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: PBLayout.borderWidth
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: max(0, cornerRadius - 0.5), style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 0.6)
+                    .blendMode(.screen)
+            )
     }
 }
 
@@ -65,12 +125,12 @@ private struct PBModernCardModifier: ViewModifier {
         content
             .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous)
-                    .fill(palette.surface.opacity(0.96))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PBLayout.radiusCard, style: .continuous)
-                            .stroke(palette.accent.opacity(0.15), lineWidth: PBLayout.borderWidth)
-                    )
+                PBGlassSurface(
+                    palette: palette,
+                    cornerRadius: PBLayout.radiusCard,
+                    tintOpacity: PBLayout.glassTintOpacity,
+                    strokeOpacity: 0.24
+                )
             )
     }
 }
@@ -83,12 +143,12 @@ private struct PBFlatCardModifier: ViewModifier {
         content
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(palette.surface.opacity(0.96))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(palette.accent.opacity(0.15), lineWidth: PBLayout.borderWidth)
-                    )
+                PBGlassSurface(
+                    palette: palette,
+                    cornerRadius: cornerRadius,
+                    tintOpacity: PBLayout.glassTintOpacity * 0.78,
+                    strokeOpacity: 0.18
+                )
             )
     }
 }
@@ -101,12 +161,12 @@ private struct PBSurfaceCardModifier: ViewModifier {
         content
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(palette.surfaceAlt.opacity(0.94))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(palette.accent.opacity(0.12), lineWidth: PBLayout.borderWidth)
-                    )
+                PBGlassSurface(
+                    palette: palette,
+                    cornerRadius: cornerRadius,
+                    tintOpacity: PBLayout.glassTintOpacity * 0.62,
+                    strokeOpacity: 0.16
+                )
             )
     }
 }
