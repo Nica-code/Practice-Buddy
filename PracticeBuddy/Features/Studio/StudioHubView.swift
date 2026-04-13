@@ -66,8 +66,8 @@ struct StudioHubView: View {
     private var socialShortcutRow: some View {
         PBShortcutBar(items: socialShortcutItems, palette: palette)
             .padding(.horizontal, PBLayout.padSM)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.top, PBLayout.padXS)
+            .padding(.bottom, PBLayout.padXS / 2)
             .offset(y: animateHeader ? 0 : 10)
             .opacity(animateHeader ? 1 : 0)
     }

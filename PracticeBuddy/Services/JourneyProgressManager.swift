@@ -691,7 +691,7 @@ final class JourneyProgressManager: ObservableObject {
         if let data = defaults.data(forKey: Keys.weeklyQuestPlan),
            let plan = try? JSONDecoder().decode(WeeklyQuestPlan.self, from: data),
            plan.weekKey == weekKey {
-            let map = Dictionary(uniqueKeysWithValues: weeklyQuestPool.map { ($0.id, $0) })
+            let map = weeklyQuestPool.reduce(into: [String: QuestDefinition]()) { $0[$1.id] = $1 }
             let existing = plan.questIDs.compactMap { map[$0] }
             if existing.count == plan.questIDs.count {
                 return existing
@@ -1108,7 +1108,11 @@ final class JourneyProgressManager: ObservableObject {
         ]
 
         Task {
-            try? await db.collection("users").document(uid).setData(payload, merge: true)
+            do {
+                try await db.collection("users").document(uid).setData(payload, merge: true)
+            } catch {
+                PBLog.firebase.error("Inventory cloud sync failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 

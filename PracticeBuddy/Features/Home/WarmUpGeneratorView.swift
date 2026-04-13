@@ -120,6 +120,7 @@ struct WarmUpGeneratorView: View {
                             Text(L10n.f("%@. %@", "\(idx + 1)", String(localized: String.LocalizationValue(step.title))))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
+                                .lineLimit(2)
                             Spacer()
                             Text(DurationFormatter.string(from: step.seconds))
                                 .font(type.number)
@@ -141,6 +142,8 @@ struct WarmUpGeneratorView: View {
                             Text(LocalizedStringKey(step.title))
                                 .font(type.body)
                                 .foregroundStyle(palette.textPrimary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.trailing)
                         }
                         HStack {
                             Text("Remaining")

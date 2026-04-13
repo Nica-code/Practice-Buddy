@@ -575,22 +575,15 @@ final class FirebaseBuddiesRepository {
         let threadID = friendThreadID(uidA: senderUID, uidB: recipientUID)
         let threadRef = db.collection(chatThreadsCollection).document(threadID)
 
-        let snap = try await threadRef.getDocument()
-        if !snap.exists {
-            try await threadRef.setData([
-                "participants": [senderUID, recipientUID],
-                "lastMessageText": text,
-                "lastMessageAt": FieldValue.serverTimestamp(),
-                "lastMessageSenderUID": senderUID,
-                "createdAt": FieldValue.serverTimestamp()
-            ])
-        } else {
-            try await threadRef.updateData([
-                "lastMessageText": text,
-                "lastMessageAt": FieldValue.serverTimestamp(),
-                "lastMessageSenderUID": senderUID
-            ])
-        }
+        // setData(merge: true) creates the doc on first send and updates it on subsequent sends —
+        // no getDocument() read required. participants/createdAt are idempotent on re-merge.
+        try await threadRef.setData([
+            "participants": [senderUID, recipientUID],
+            "lastMessageText": text,
+            "lastMessageAt": FieldValue.serverTimestamp(),
+            "lastMessageSenderUID": senderUID,
+            "createdAt": FieldValue.serverTimestamp()
+        ], merge: true)
 
         try await threadRef.collection("messages").document().setData([
             "senderUID": senderUID,

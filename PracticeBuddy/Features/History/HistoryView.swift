@@ -1468,7 +1468,11 @@ struct HistoryView: View {
             }
             modelContext.delete(item)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            PBLog.sessionStore.error("Delete save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func deleteLoopLogs(offsets: IndexSet, from visible: [LoopPracticeLogModel]) {
@@ -1476,7 +1480,11 @@ struct HistoryView: View {
         for item in toDelete {
             modelContext.delete(item)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            PBLog.sessionStore.error("Delete save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func deletePlanLogs(offsets: IndexSet, from visible: [PracticePlanLogModel]) {
@@ -1484,7 +1492,11 @@ struct HistoryView: View {
         for item in toDelete {
             modelContext.delete(item)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            PBLog.sessionStore.error("Delete save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func deleteRhythmTakes(offsets: IndexSet, from visible: [RhythmAccuracyTakeModel]) {
@@ -1492,7 +1504,11 @@ struct HistoryView: View {
         for item in toDelete {
             modelContext.delete(item)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            PBLog.sessionStore.error("Delete save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func deleteIntonationTakes(offsets: IndexSet, from visible: [ScaleIntonationTakeModel]) {
@@ -1500,6 +1516,10 @@ struct HistoryView: View {
         for item in toDelete {
             modelContext.delete(item)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            PBLog.sessionStore.error("Delete save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

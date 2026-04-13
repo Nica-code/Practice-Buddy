@@ -103,7 +103,7 @@ final class StudioChatViewModel: ObservableObject {
             if self.friendCandidates != buddies {
                 self.friendCandidates = buddies
             }
-            self.buddyDirectory = Dictionary(uniqueKeysWithValues: buddies.map { ($0.id, $0) })
+            self.buddyDirectory = buddies.reduce(into: [String: BuddySummary]()) { $0[$1.id] = $1 }
             self.rebuildFriendThreads()
         }
 
@@ -401,7 +401,7 @@ final class StudioChatViewModel: ObservableObject {
         if unreadCount != nextUnreadCount {
             unreadCount = nextUnreadCount
         }
-        let nextUnreadByThreadID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0.unreadCount) })
+        let nextUnreadByThreadID = sorted.reduce(into: [String: Int]()) { $0[$1.id] = $1.unreadCount }
         if previousUnreadByThreadID != nextUnreadByThreadID {
             previousUnreadByThreadID = nextUnreadByThreadID
         }

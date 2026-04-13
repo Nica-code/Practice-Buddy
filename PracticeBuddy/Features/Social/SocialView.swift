@@ -21,13 +21,13 @@ struct SocialView: View {
             if viewModel.isLoading {
                 VStack(spacing: 10) {
                     PBSkeletonCard(lines: 2)
-                        .padding(10)
+                        .padding(PBLayout.padSM)
                         .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
                     PBSkeletonCard(lines: 2)
-                        .padding(10)
+                        .padding(PBLayout.padSM)
                         .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
                     PBSkeletonCard(lines: 2)
-                        .padding(10)
+                        .padding(PBLayout.padSM)
                         .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
                 }
                 .listRowBackground(Color.clear)
@@ -197,7 +197,7 @@ struct SocialView: View {
                     if viewModel.isThreadPinned(thread.id) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.accent.opacity(0.85))
                     }
                     if viewModel.isThreadMuted(thread.id) {
                         Image(systemName: "bell.slash.fill")
