@@ -14,7 +14,6 @@ struct ContentView: View {
     }
 
     private enum IncomingLinkAction {
-        case joinStudio(inviteCode: String)
         case addBuddy(friendCode: String)
     }
 
@@ -39,8 +38,6 @@ struct ContentView: View {
     @StateObject private var store = SessionStore()
     @StateObject private var journeyManager = JourneyProgressManager()
     @StateObject private var duelLeagueManager = DuelLeagueManager()
-    @StateObject private var assignmentLinkManager = AssignmentLinkManager()
-    @StateObject private var warmupOfWeekManager = WarmupOfWeekManager()
     @StateObject private var friendRequestBadgeManager = FriendRequestBadgeManager()
     @StateObject private var presenceManager = FirebasePresenceManager()
     @StateObject private var socialChatManager = StudioChatViewModel()
@@ -51,7 +48,6 @@ struct ContentView: View {
     @State private var lastPipelineSyncKey: String?
     @State private var lastPipelineSyncAt: Date = .distantPast
     @State private var showFirstRunTutorial: Bool = false
-    private let studiosRepository = FirebaseStudiosRepository()
     private let buddiesRepository = FirebaseBuddiesRepository()
 
     var body: some View {
@@ -98,20 +94,11 @@ struct ContentView: View {
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
-            guard scenePhase == .active, canRunRealtimePipelines else { return }
-            warmupOfWeekManager.start(
-                uid: firebase.currentUserID,
-                accountType: .student,
-                isPro: purchaseManager.featuresUnlocked
-            )
-            Task { await assignmentLinkManager.flushPendingQueue() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: false)
             } else {
-                assignmentLinkManager.pauseRealtime()
-                warmupOfWeekManager.pauseRealtime()
                 duelLeagueManager.pauseRealtime()
                 friendRequestBadgeManager.stop()
                 presenceManager.stop()
@@ -159,8 +146,6 @@ struct ContentView: View {
         .environmentObject(journeyManager)
         .environmentObject(themeManager)
         .environmentObject(duelLeagueManager)
-        .environmentObject(assignmentLinkManager)
-        .environmentObject(warmupOfWeekManager)
         .environmentObject(socialChatManager)
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
@@ -310,12 +295,6 @@ struct ContentView: View {
         ]
     }
 
-    private func resumeRealtimeManagers() {
-        assignmentLinkManager.start(uid: firebase.currentUserID, accountType: .student)
-        warmupOfWeekManager.start(uid: firebase.currentUserID, accountType: .student, isPro: purchaseManager.featuresUnlocked)
-        Task { await assignmentLinkManager.flushPendingQueue() }
-    }
-
     private func refreshRuntimePipelines(forceUserPipeline: Bool, forceTutorialSync: Bool) {
         syncUserPipelines(force: forceUserPipeline)
         syncFriendRequestBadge()
@@ -353,13 +332,10 @@ struct ContentView: View {
         journeyManager.linkToUser(uid: linkUID)
 
         guard canRunRealtimePipelines else {
-            assignmentLinkManager.pauseRealtime()
-            warmupOfWeekManager.pauseRealtime()
             duelLeagueManager.pauseRealtime()
             return
         }
 
-        resumeRealtimeManagers()
         duelLeagueManager.start(uid: firebase.currentUserID)
     }
 
@@ -434,8 +410,8 @@ struct ContentView: View {
                 messagesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.messages) as? Bool ?? true,
                 goalsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.goals) as? Bool ?? true,
                 friendRequestsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.friendRequests) as? Bool ?? true,
-                studioInvitesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.studioInvites) as? Bool ?? true,
-                assignmentsEnabled: defaults.object(forKey: PBNotificationPreferenceKey.assignments) as? Bool ?? true,
+                studioInvitesEnabled: false,
+                assignmentsEnabled: false,
                 buddiesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.buddies) as? Bool ?? true
             )
         }
@@ -464,42 +440,15 @@ struct ContentView: View {
     private func handleIncomingURL(_ url: URL) {
         guard let action = incomingLinkAction(from: url) else { return }
 
-        guard let uid = firebase.currentUserID, !firebase.isAnonymousUser else {
-            let itemName: String
-            switch action {
-            case .joinStudio:
-                itemName = "studio invite"
-            case .addBuddy:
-                itemName = "buddy invite"
-            }
+        guard !firebase.isAnonymousUser, firebase.currentUserID != nil else {
             inviteJoinAlert = InviteJoinAlert(
                 title: "Sign In Required",
-                message: "Please sign in first, then open the \(itemName) link again."
+                message: "Please sign in first, then open the buddy invite link again."
             )
             return
         }
 
         switch action {
-        case .joinStudio(let inviteCode):
-            Task {
-                do {
-                    try await studiosRepository.joinStudio(studentUID: uid, rawInviteCode: inviteCode)
-                    await MainActor.run {
-                        inviteJoinAlert = InviteJoinAlert(
-                            title: "Joined Studio",
-                            message: "You have successfully joined the studio."
-                        )
-                    }
-                } catch {
-                    let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    await MainActor.run {
-                        inviteJoinAlert = InviteJoinAlert(
-                            title: "Could Not Join Studio",
-                            message: msg
-                        )
-                    }
-                }
-            }
         case .addBuddy(let friendCode):
             Task {
                 do {
@@ -529,39 +478,8 @@ struct ContentView: View {
     }
 
     private func incomingLinkAction(from url: URL) -> IncomingLinkAction? {
-        if let inviteCode = studioInviteCode(from: url) {
-            return .joinStudio(inviteCode: inviteCode)
-        }
         if let friendCode = buddyInviteCode(from: url) {
             return .addBuddy(friendCode: friendCode)
-        }
-        return nil
-    }
-
-    private func studioInviteCode(from url: URL) -> String? {
-        if let scheme = url.scheme?.lowercased(), scheme == "practicebuddy" {
-            guard let host = url.host?.lowercased(), host == "join-studio" else {
-                return nil
-            }
-            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-               !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return code
-            }
-            let pathCode = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            return pathCode.isEmpty ? nil : pathCode
-        }
-
-        guard let scheme = url.scheme?.lowercased(), scheme == "https" else { return nil }
-        guard let host = url.host?.lowercased() else { return nil }
-        let allowedHost = AppInfo.inviteLinkBaseURL?.host?.lowercased()
-        guard host == allowedHost else { return nil }
-        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-        guard path == "join-studio" else { return nil }
-        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let code = components.queryItems?.first(where: { $0.name.lowercased() == "code" })?.value,
-           !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return code.uppercased()
         }
         return nil
     }
@@ -600,12 +518,6 @@ struct ContentView: View {
             }
             if let friendUID, !friendUID.isEmpty {
                 socialOpenFriendUID = friendUID
-            }
-        case .socialStudioInvites(let studioID):
-            selectedTab = 2
-            socialSectionRawValue = "friends"
-            if let studioID, !studioID.isEmpty {
-                socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
             }
         }
     }

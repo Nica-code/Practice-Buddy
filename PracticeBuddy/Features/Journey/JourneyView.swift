@@ -25,6 +25,7 @@ struct JourneyView: View {
     @State private var didLoadDuelTargets = false
     @State private var duelLeaderboardScope: DuelLeaderboardScope = .global
     @State private var animateHeader = false
+    // Note: duelLeaderboardScope retained for .global/.friends; .studio removed
     @State private var expandedLadderUserID: String?
     @State private var profileTarget: LadderActionUser?
     @State private var journeyScrollTarget: JourneyScrollTarget?
@@ -618,22 +619,6 @@ struct JourneyView: View {
                 .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
                 .disabled(duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser || hasPendingActiveForMe)
 
-                Menu {
-                    if duelLeague.studioCandidates.isEmpty {
-                        Text("No studio targets")
-                    } else {
-                        ForEach(duelLeague.studioCandidates) { candidate in
-                            Button(candidate.displayName) {
-                                PBHaptics.tap()
-                                Task { await duelLeague.inviteTargetedDuel(targetUID: candidate.id, source: .studio, octaves: duelLeague.activeLeagueRequirement.octaves) }
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Invite Studio", systemImage: "person.3")
-                }
-                .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
-                .disabled(duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser || hasPendingActiveForMe)
             }
 
             if !duelLeague.incomingInvites.isEmpty {
@@ -762,8 +747,7 @@ struct JourneyView: View {
                                     Button("Duel Challenge") {
                                         Task {
                                             duelLeague.rememberDisplayName(uid: row.id, name: row.displayName)
-                                            let source: DuelInviteSource = duelLeaderboardScope == .studio ? .studio : .friend
-                                            await duelLeague.inviteTargetedDuel(targetUID: row.id, source: source, octaves: duelLeague.activeLeagueRequirement.octaves)
+                                            await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: duelLeague.activeLeagueRequirement.octaves)
                                         }
                                         expandedLadderUserID = nil
                                     }

@@ -57,11 +57,7 @@ struct PlanExecuteReflectView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var firebase: FirebaseBootstrap
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
-
-    @StateObject private var templateBridge = StudioPlanTemplateBridge()
     @State private var stage: Stage = .plan
     @State private var targetMinutes: Int = 30
     @State private var selectedGoals: Set<String> = [Goal.intonation.rawValue, Goal.rhythm.rawValue]
@@ -80,10 +76,6 @@ struct PlanExecuteReflectView: View {
     @State private var reflectionNext: String = ""
     @State private var selfRating: Int = 3
     @State private var saveToSessionHistory: Bool = true
-    @State private var markLinkedAssignmentComplete: Bool = true
-    @State private var linkedAssignmentNote: String = ""
-    @State private var showSaveTemplateSheet: Bool = false
-    @State private var templateNameInput: String = ""
     @State private var statusMessage: String?
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
@@ -116,61 +108,8 @@ struct PlanExecuteReflectView: View {
         .background(chrome.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            templateBridge.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.accountType,
-                isPro: purchaseManager.featuresUnlocked
-            )
-        }
-        .onChange(of: firebase.currentUserID) { _, newUID in
-            templateBridge.start(
-                uid: newUID,
-                accountType: purchaseManager.accountType,
-                isPro: purchaseManager.featuresUnlocked
-            )
-        }
-        .onChange(of: purchaseManager.accountType) { _, newType in
-            templateBridge.start(
-                uid: firebase.currentUserID,
-                accountType: newType,
-                isPro: purchaseManager.featuresUnlocked
-            )
-        }
-        .onChange(of: purchaseManager.featuresUnlocked) { _, isPro in
-            templateBridge.start(
-                uid: firebase.currentUserID,
-                accountType: purchaseManager.accountType,
-                isPro: isPro
-            )
-        }
         .onDisappear {
             stopTimer()
-            templateBridge.stop()
-        }
-        .sheet(isPresented: $showSaveTemplateSheet) {
-            NavigationStack {
-                Form {
-                    Section("Template Name") {
-                        TextField("Example: Scale + Repertoire", text: $templateNameInput)
-                    }
-                }
-                .navigationTitle("Save Studio Template")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showSaveTemplateSheet = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            Task {
-                                await saveTemplateToStudio()
-                                showSaveTemplateSheet = false
-                            }
-                        }
-                        .disabled(templateNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-            }
         }
     }
 
@@ -220,51 +159,6 @@ struct PlanExecuteReflectView: View {
                 }
             }
             .listRowBackground(palette.surface)
-
-            if purchaseManager.featuresUnlocked, purchaseManager.accountType == .teacher {
-                Section("Teacher Tools") {
-                    Button("Save As Studio Template") {
-                        templateNameInput = ""
-                        showSaveTemplateSheet = true
-                    }
-                    .font(type.button)
-                    .buttonStyle(.bordered)
-                }
-                .listRowBackground(palette.surface)
-            }
-
-            if purchaseManager.featuresUnlocked, purchaseManager.accountType == .student {
-                Section("Studio Templates") {
-                    if templateBridge.templates.isEmpty {
-                        Text("No studio templates yet.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    } else {
-                        ForEach(templateBridge.templates) { template in
-                            Button {
-                                applyStudioTemplate(template)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(template.title)
-                                        .font(type.body)
-                                        .foregroundStyle(palette.textPrimary)
-                                    Text(
-                                        L10n.f(
-                                            "%@ min • %@",
-                                            "\(template.targetMinutes)",
-                                            template.goals.map { String(localized: String.LocalizationValue($0.capitalized)) }.joined(separator: ", ")
-                                        )
-                                    )
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textSecondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .listRowBackground(palette.surface)
-            }
 
             Section {
                 Button("Start Execute") {
@@ -388,18 +282,6 @@ struct PlanExecuteReflectView: View {
             Section("Save") {
                 Toggle("Also save into session history", isOn: $saveToSessionHistory)
                     .font(type.body)
-
-                if let linked = assignmentLinkManager.linkedAssignment {
-                    Divider().padding(.vertical, 4)
-                    Text(L10n.f("Linked assignment: %@", linked.title))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
-                        .font(type.body)
-                    TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
-                        .lineLimit(2...5)
-                        .font(type.body)
-                }
 
                 Button("Save Reflection") {
                     saveReflection()
@@ -545,20 +427,6 @@ struct PlanExecuteReflectView: View {
             )
         }
 
-        if assignmentLinkManager.linkedAssignment != nil {
-            let note = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "Guided practice saved. Rating \(selfRating)/5."
-                : linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            Task {
-                await assignmentLinkManager.submitLinkedPracticeResult(
-                    tool: "plan_execute_reflect",
-                    note: note,
-                    attachmentPath: nil,
-                    markComplete: markLinkedAssignmentComplete
-                )
-            }
-        }
-
         stage = .done
         statusMessage = "Guided practice saved."
     }
@@ -579,32 +447,6 @@ struct PlanExecuteReflectView: View {
         blockRemainingSeconds = 0
         isRunning = false
         statusMessage = nil
-    }
-
-    private func saveTemplateToStudio() async {
-        guard purchaseManager.featuresUnlocked, purchaseManager.accountType == .teacher else { return }
-        let title = templateNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-        let goals = selectedGoals.sorted()
-        let blocks = Block.allCases
-            .filter { selectedBlocks.contains($0.rawValue) }
-            .map(\.rawValue)
-        await templateBridge.saveTemplate(
-            title: title,
-            targetMinutes: targetMinutes,
-            goals: goals,
-            blocks: blocks
-        )
-        if let msg = templateBridge.statusMessage {
-            statusMessage = msg
-        }
-    }
-
-    private func applyStudioTemplate(_ template: StudioPlanTemplate) {
-        targetMinutes = template.targetMinutes
-        selectedGoals = Set(template.goals)
-        selectedBlocks = Set(template.blocks)
-        statusMessage = "Template applied."
     }
 
 }
@@ -674,74 +516,3 @@ private struct PracticeToolsQuickPanelView: View {
     }
 }
 
-@MainActor
-private final class StudioPlanTemplateBridge: ObservableObject {
-    @Published private(set) var templates: [StudioPlanTemplate] = []
-    @Published private(set) var statusMessage: String?
-
-    private let repository = FirebaseStudiosRepository()
-    private var userListener: ListenerRegistration?
-    private var templatesListener: ListenerRegistration?
-    private var uid: String?
-    private var studioID: String?
-    private var accountType: PBAccountType = .student
-    private var isPro = false
-
-    func start(uid: String?, accountType: PBAccountType, isPro: Bool) {
-        guard self.uid != uid || self.accountType != accountType || self.isPro != isPro else { return }
-        stop()
-        self.uid = uid
-        self.accountType = accountType
-        self.isPro = isPro
-        guard let uid, isPro else { return }
-
-        userListener = repository.listenToUserDocument(uid: uid) { [weak self] data in
-            guard let self else { return }
-            let key = accountType == .teacher ? "teacherStudioId" : "studentStudioId"
-            let sid = (data?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let studioID = (sid?.isEmpty == false) ? sid : nil
-            self.attachTemplateListener(studioID: studioID)
-        }
-    }
-
-    func stop() {
-        userListener?.remove()
-        templatesListener?.remove()
-        userListener = nil
-        templatesListener = nil
-        templates = []
-        studioID = nil
-        statusMessage = nil
-    }
-
-    func saveTemplate(title: String, targetMinutes: Int, goals: [String], blocks: [String]) async {
-        guard let uid, let studioID, isPro, accountType == .teacher else {
-            statusMessage = "Template save is available for Teacher studio accounts."
-            return
-        }
-        do {
-            try await repository.savePlanTemplate(
-                studioID: studioID,
-                teacherUID: uid,
-                title: title,
-                targetMinutes: targetMinutes,
-                goals: goals,
-                blocks: blocks
-            )
-            statusMessage = "Studio template saved."
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-    }
-
-    private func attachTemplateListener(studioID: String?) {
-        templatesListener?.remove()
-        templatesListener = nil
-        templates = []
-        self.studioID = studioID
-        guard let studioID else { return }
-        templatesListener = repository.listenToPlanTemplates(studioID: studioID) { [weak self] rows in
-            self?.templates = rows
-        }
-    }
-}

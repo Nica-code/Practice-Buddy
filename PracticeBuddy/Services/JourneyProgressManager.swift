@@ -1674,12 +1674,10 @@ enum DuelChallengeQueueType: String {
 
 enum DuelInviteSource: String {
     case friend
-    case studio
 
     var title: String {
         switch self {
         case .friend: return "Friend"
-        case .studio: return "Studio"
         }
     }
 }
@@ -1703,7 +1701,6 @@ enum DuelOctaveCount: Int, CaseIterable, Identifiable {
 enum DuelLeaderboardScope: String, CaseIterable, Identifiable {
     case global = "Global"
     case friends = "Friends"
-    case studio = "Studio"
 
     var id: String { rawValue }
 }
@@ -1797,7 +1794,6 @@ final class DuelLeagueManager: ObservableObject {
     @Published private(set) var matchHistory: [DuelChallenge] = []
     @Published private(set) var userDisplayNames: [String: String] = [:]
     @Published private(set) var friendCandidates: [DuelTargetCandidate] = []
-    @Published private(set) var studioCandidates: [DuelTargetCandidate] = []
     @Published private(set) var seasonKey: String = ""
     @Published private(set) var seasonPoints: Int = 0
     @Published private(set) var seasonMatches: Int = 0
@@ -1821,7 +1817,6 @@ final class DuelLeagueManager: ObservableObject {
     private var configuredUID: String?
     private var lastTargetCandidatesRefreshAt: Date?
     private var friendCandidatesCache: [DuelTargetCandidate] = []
-    private var studioCandidatesCache: [DuelTargetCandidate] = []
     private var leaderboardCache: [DuelLeaderboardScope: (seasonKey: String, rows: [DuelLeaderboardRow], fetchedAt: Date)] = [:]
     private let targetCandidatesRefreshCooldown: TimeInterval = 30
     private let leaderboardRefreshCooldown: TimeInterval = 60 * 60 * 24
@@ -1876,7 +1871,6 @@ final class DuelLeagueManager: ObservableObject {
         matchHistory = []
         userDisplayNames = [:]
         friendCandidates = []
-        studioCandidates = []
         seasonKey = ""
         seasonPoints = 0
         seasonMatches = 0
@@ -1891,7 +1885,6 @@ final class DuelLeagueManager: ObservableObject {
         statusMessage = nil
         lastTargetCandidatesRefreshAt = nil
         friendCandidatesCache = []
-        studioCandidatesCache = []
         leaderboardCache = [:]
         didReceiveInitialChallengeSnapshot = false
         priorChallengeStatusByID = [:]
@@ -2018,23 +2011,15 @@ final class DuelLeagueManager: ObservableObject {
            let lastTargetCandidatesRefreshAt,
            Date().timeIntervalSince(lastTargetCandidatesRefreshAt) < targetCandidatesRefreshCooldown {
             friendCandidates = friendCandidatesCache
-            studioCandidates = studioCandidatesCache
             return
         }
-        async let friends = fetchFriendCandidates(for: uid)
-        async let studio = fetchStudioCandidates(for: uid)
         do {
-            let (friendRows, studioRows) = try await (friends, studio)
+            let friendRows = try await fetchFriendCandidates(for: uid)
             let sortedFriends = friendRows.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            let sortedStudio = studioRows.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             if friendCandidates != sortedFriends {
                 friendCandidates = sortedFriends
             }
-            if studioCandidates != sortedStudio {
-                studioCandidates = sortedStudio
-            }
             friendCandidatesCache = sortedFriends
-            studioCandidatesCache = sortedStudio
             lastTargetCandidatesRefreshAt = Date()
         } catch {
             statusMessage = error.localizedDescription
@@ -2046,9 +2031,7 @@ final class DuelLeagueManager: ObservableObject {
         if userDisplayNames[targetUID] == nil {
             let knownName =
                 friendCandidates.first(where: { $0.id == targetUID })?.displayName ??
-                studioCandidates.first(where: { $0.id == targetUID })?.displayName ??
-                friendCandidatesCache.first(where: { $0.id == targetUID })?.displayName ??
-                studioCandidatesCache.first(where: { $0.id == targetUID })?.displayName
+                friendCandidatesCache.first(where: { $0.id == targetUID })?.displayName
             if let knownName, !knownName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 userDisplayNames[targetUID] = knownName
             }
@@ -2520,38 +2503,6 @@ final class DuelLeagueManager: ObservableObject {
         }
     }
 
-    private func fetchStudioCandidates(for uid: String) async throws -> [DuelTargetCandidate] {
-        let userSnap = try await db.collection("users").document(uid).getDocument()
-        let data = userSnap.data() ?? [:]
-        let teacherStudioID = (data["teacherStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let studentStudioID = (data["studentStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        let studioIDs = Array(Set([teacherStudioID, studentStudioID].filter { !$0.isEmpty }))
-        guard !studioIDs.isEmpty else { return [] }
-
-        var map: [String: DuelTargetCandidate] = [:]
-        for studioID in studioIDs {
-            let members = try await db.collection("studios")
-                .document(studioID)
-                .collection("members")
-                .getDocuments()
-
-            for doc in members.documents where doc.documentID != uid {
-                let memberData = doc.data()
-                let name = ((memberData["displayName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { continue }
-                map[doc.documentID] = DuelTargetCandidate(
-                    id: doc.documentID,
-                    displayName: name,
-                    source: .studio,
-                    subtitle: "Studio"
-                )
-            }
-        }
-
-        return Array(map.values)
-    }
-
     func refreshSeasonLeaderboard(scope: DuelLeaderboardScope, force: Bool = false) async {
         guard let uid = configuredUID else { return }
         let key = currentSeasonKey()
@@ -2584,12 +2535,6 @@ final class DuelLeagueManager: ObservableObject {
                     .sorted(by: leaderboardSort)
                     .prefix(20)
                     .map { $0 }
-            case .studio:
-                let ids = try await studioMemberIDs(for: uid)
-                rows = try await fetchLeaderboardRows(uids: ids, seasonKey: key)
-                    .sorted(by: leaderboardSort)
-                    .prefix(20)
-                    .map { $0 }
             }
             if leaderboardRows != rows {
                 leaderboardRows = rows
@@ -2609,22 +2554,6 @@ final class DuelLeagueManager: ObservableObject {
             .collection("buddies")
             .getDocuments()
         return snap.documents.map(\.documentID)
-    }
-
-    private func studioMemberIDs(for uid: String) async throws -> [String] {
-        let userSnap = try await db.collection("users").document(uid).getDocument()
-        let data = userSnap.data() ?? [:]
-        let teacherStudioID = (data["teacherStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let studentStudioID = (data["studentStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let studioIDs = Array(Set([teacherStudioID, studentStudioID].filter { !$0.isEmpty }))
-        guard !studioIDs.isEmpty else { return [uid] }
-
-        var ids: Set<String> = [uid]
-        for studioID in studioIDs {
-            let snap = try await db.collection("studios").document(studioID).collection("members").getDocuments()
-            for doc in snap.documents { ids.insert(doc.documentID) }
-        }
-        return Array(ids)
     }
 
     private func fetchLeaderboardRows(uids: [String], seasonKey: String) async throws -> [DuelLeaderboardRow] {

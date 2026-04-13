@@ -38,8 +38,6 @@ struct WarmUpGeneratorView: View {
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var warmupOfWeekManager: WarmupOfWeekManager
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
     @EnvironmentObject private var store: SessionStore
 
     @State private var minutes: Int = 10
@@ -55,9 +53,6 @@ struct WarmUpGeneratorView: View {
     @State private var stepRemainingSeconds: Int = 0
     @State private var elapsedSeconds: Int = 0
     @State private var timerCancellable: AnyCancellable?
-
-    @State private var markLinkedAssignmentComplete: Bool = true
-    @State private var linkedAssignmentNote: String = ""
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -113,23 +108,6 @@ struct WarmUpGeneratorView: View {
                 .font(type.button)
             }
             .listRowBackground(palette.surface)
-
-            if let warmup = warmupOfWeekManager.warmup, purchaseManager.hasRole(.student) {
-                Section("Warm-up of the Week") {
-                    Text(warmup.title)
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Load Warm-up of the Week") {
-                        loadWarmupOfWeek(warmup)
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.button)
-                }
-                .listRowBackground(palette.surface)
-            }
 
             if !generatedSteps.isEmpty {
                 Section("Plan") {
@@ -202,18 +180,6 @@ struct WarmUpGeneratorView: View {
                         .disabled(currentStep == nil)
                     }
 
-                    if let linked = assignmentLinkManager.linkedAssignment {
-                        Divider().padding(.vertical, 4)
-                        Text(L10n.f("Linked assignment: %@", linked.title))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
-                            .font(type.body)
-                        TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
-                            .font(type.body)
-                            .lineLimit(2...5)
-                    }
-
                     Button("Finish Warm-up") {
                         finishWarmup()
                     }
@@ -224,7 +190,7 @@ struct WarmUpGeneratorView: View {
                 .listRowBackground(palette.surface)
             }
 
-            if let msg = statusMessage ?? warmupOfWeekManager.statusMessage, !msg.isEmpty {
+            if let msg = statusMessage, !msg.isEmpty {
                 Section {
                     Text(LocalizedStringKey(msg))
                         .font(type.footnote)
@@ -284,18 +250,6 @@ struct WarmUpGeneratorView: View {
         elapsedSeconds = 0
         isRunning = false
         statusMessage = "Warm-up generated."
-    }
-
-    private func loadWarmupOfWeek(_ warmup: StudioWarmupOfWeek) {
-        generatedTitle = warmup.title
-        minutes = warmup.totalMinutes
-        selectedFocus = Set(warmup.focus.lowercased().split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) })
-        generatedSteps = warmup.steps.map { WarmupStep(title: $0, seconds: max(45, (warmup.totalMinutes * 60) / max(1, warmup.steps.count))) }
-        stepIndex = 0
-        stepRemainingSeconds = generatedSteps.first?.seconds ?? 0
-        elapsedSeconds = 0
-        isRunning = false
-        statusMessage = "Warm-up of the week loaded."
     }
 
     private func startRun() {
@@ -365,19 +319,6 @@ struct WarmUpGeneratorView: View {
             noteTitle: "Warm-up Generator",
             noteFocus: selectedFocus.sorted().joined(separator: ", ")
         )
-
-        if assignmentLinkManager.linkedAssignment != nil {
-            let trimmed = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            let note = trimmed.isEmpty ? summary : trimmed
-            Task {
-                await assignmentLinkManager.submitLinkedPracticeResult(
-                    tool: "warmup_generator",
-                    note: note,
-                    attachmentPath: nil,
-                    markComplete: markLinkedAssignmentComplete
-                )
-            }
-        }
 
         statusMessage = "Warm-up saved."
     }

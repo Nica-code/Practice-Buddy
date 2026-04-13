@@ -20,13 +20,11 @@ struct SettingsView: View {
 
     @AppStorage("pb.settings.dailyGoalMinutes") var goalMinutes: Int = 30
     @AppStorage("pb.settings.goalScope") var goalScopeRaw: String = GoalScope.today.rawValue
-    @AppStorage("pb.notifications.assignments") var notifyAssignments: Bool = true
     @AppStorage("pb.notifications.buddies") var notifyBuddies: Bool = true
     @AppStorage("pb.notifications.duels") var notifyDuels: Bool = true
     @AppStorage("pb.notifications.messages") var notifyMessages: Bool = true
     @AppStorage("pb.notifications.goals") var notifyGoals: Bool = true
     @AppStorage("pb.notifications.friendRequests") var notifyFriendRequests: Bool = true
-    @AppStorage("pb.notifications.studioInvites") var notifyStudioInvites: Bool = true
     @AppStorage("pb.settings.language") var appLanguageRaw: String = AppLanguage.english.rawValue
     @AppStorage("pb.onboarding.tutorial.forceReplayToken") var tutorialReplayToken: Int = 0
     @AppStorage("pb.tab.selection") var selectedTab: Int = 0
@@ -122,9 +120,6 @@ struct SettingsView: View {
             queueNotificationPrefsSync()
             await refreshNotificationAuthorizationStatus()
         }
-        .onChange(of: notifyAssignments) { _, _ in
-            queueNotificationPrefsSync()
-        }
         .onChange(of: notifyBuddies) { _, _ in
             queueNotificationPrefsSync()
         }
@@ -138,9 +133,6 @@ struct SettingsView: View {
             queueNotificationPrefsSync()
         }
         .onChange(of: notifyFriendRequests) { _, _ in
-            queueNotificationPrefsSync()
-        }
-        .onChange(of: notifyStudioInvites) { _, _ in
             queueNotificationPrefsSync()
         }
         .onDisappear {
@@ -189,8 +181,6 @@ struct SettingsView: View {
             || notifyMessages
             || notifyGoals
             || notifyFriendRequests
-            || notifyStudioInvites
-            || notifyAssignments
             || notifyBuddies
         if anyCategoryEnabled {
             _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
@@ -200,8 +190,8 @@ struct SettingsView: View {
             messagesEnabled: notifyMessages,
             goalsEnabled: notifyGoals,
             friendRequestsEnabled: notifyFriendRequests,
-            studioInvitesEnabled: notifyStudioInvites,
-            assignmentsEnabled: notifyAssignments,
+            studioInvitesEnabled: false,
+            assignmentsEnabled: false,
             buddiesEnabled: notifyBuddies
         )
     }

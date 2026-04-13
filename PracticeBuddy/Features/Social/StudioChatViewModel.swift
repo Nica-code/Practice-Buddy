@@ -4,7 +4,6 @@ import os
 import FirebaseFirestore
 
 enum SocialChatThreadKind: String {
-    case studio
     case friend
 }
 
@@ -13,7 +12,6 @@ struct SocialChatThread: Identifiable, Equatable {
     let kind: SocialChatThreadKind
     let title: String
     let subtitle: String
-    let studioID: String?
     let friendUID: String?
     let lastMessageText: String
     let lastMessageAt: Date
@@ -36,25 +34,22 @@ final class StudioChatViewModel: ObservableObject {
     @Published private(set) var threads: [SocialChatThread] = []
     @Published private(set) var selectedThreadID: String?
     @Published private(set) var messages: [SocialChatMessage] = []
-    @Published private(set) var friendCandidates: [StudioMemberSummary] = []
+    @Published private(set) var friendCandidates: [BuddySummary] = []
     @Published private(set) var unreadCount: Int = 0
     @Published private(set) var isLoading: Bool = false
     @Published var statusMessage: String?
     @Published var draftMessage: String = ""
 
-    private let repository: FirebaseStudiosRepository
+    private let buddiesRepository: FirebaseBuddiesRepository
     private var userListener: ListenerRegistration?
     private var buddiesListener: ListenerRegistration?
     private var friendThreadsListener: ListenerRegistration?
     private var messagesListener: ListenerRegistration?
-    private var studioDocListeners: [String: ListenerRegistration] = [:]
-    private var studioLatestListeners: [String: ListenerRegistration] = [:]
     private var currentUID: String?
     private var currentDisplayName: String = ""
     private var currentAvatarID: String = "avatar_note"
     private var currentLevel: Int = 1
-    private var buddyDirectory: [String: StudioMemberSummary] = [:]
-    private var studioThreadsByID: [String: SocialChatThread] = [:]
+    private var buddyDirectory: [String: BuddySummary] = [:]
     private var friendThreadsByID: [String: SocialChatThread] = [:]
     private var lastReadAtByThreadID: [String: Date] = [:]
     private var pinnedThreadIDs: Set<String> = []
@@ -65,8 +60,8 @@ final class StudioChatViewModel: ObservableObject {
     private var previousUnreadByThreadID: [String: Int] = [:]
     private var pendingPersistLastReadTask: Task<Void, Never>?
 
-    init(repository: FirebaseStudiosRepository? = nil) {
-        self.repository = repository ?? FirebaseStudiosRepository()
+    init(buddiesRepository: FirebaseBuddiesRepository? = nil) {
+        self.buddiesRepository = buddiesRepository ?? FirebaseBuddiesRepository()
     }
 
     deinit {
@@ -74,8 +69,6 @@ final class StudioChatViewModel: ObservableObject {
         buddiesListener?.remove()
         friendThreadsListener?.remove()
         messagesListener?.remove()
-        studioDocListeners.values.forEach { $0.remove() }
-        studioLatestListeners.values.forEach { $0.remove() }
         pendingPersistLastReadTask?.cancel()
     }
 
@@ -90,7 +83,7 @@ final class StudioChatViewModel: ObservableObject {
         loadLastReadState(uid: uid)
         loadThreadState(uid: uid)
 
-        userListener = repository.listenToUserDocument(uid: uid) { [weak self] data in
+        userListener = buddiesRepository.listenToUserDocument(uid: uid) { [weak self] data in
             guard let self else { return }
             if let raw = data?["displayName"] as? String {
                 let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,12 +95,10 @@ final class StudioChatViewModel: ObservableObject {
             if let level = data?["publicLevel"] as? Int {
                 self.currentLevel = max(1, level)
             }
-
-            let studioIDs = self.extractStudioIDs(from: data ?? [:])
-            self.attachStudioListeners(studioIDs: studioIDs)
+            self.isLoading = false
         }
 
-        buddiesListener = repository.listenToBuddyDirectory(uid: uid) { [weak self] buddies in
+        buddiesListener = buddiesRepository.listenToBuddyDirectory(uid: uid) { [weak self] buddies in
             guard let self else { return }
             if self.friendCandidates != buddies {
                 self.friendCandidates = buddies
@@ -116,7 +107,7 @@ final class StudioChatViewModel: ObservableObject {
             self.rebuildFriendThreads()
         }
 
-        friendThreadsListener = repository.listenToFriendChatThreads(uid: uid) { [weak self] rows in
+        friendThreadsListener = buddiesRepository.listenToFriendChatThreads(uid: uid) { [weak self] rows in
             guard let self else { return }
             self.mergeFriendThreads(rows)
         }
@@ -130,14 +121,10 @@ final class StudioChatViewModel: ObservableObject {
         buddiesListener?.remove()
         friendThreadsListener?.remove()
         messagesListener?.remove()
-        studioDocListeners.values.forEach { $0.remove() }
-        studioLatestListeners.values.forEach { $0.remove() }
         userListener = nil
         buddiesListener = nil
         friendThreadsListener = nil
         messagesListener = nil
-        studioDocListeners = [:]
-        studioLatestListeners = [:]
         threads = []
         selectedThreadID = nil
         messages = []
@@ -153,7 +140,6 @@ final class StudioChatViewModel: ObservableObject {
         currentAvatarID = "avatar_note"
         currentLevel = 1
         buddyDirectory = [:]
-        studioThreadsByID = [:]
         friendThreadsByID = [:]
         lastReadAtByThreadID = [:]
         pinnedThreadIDs = []
@@ -173,7 +159,7 @@ final class StudioChatViewModel: ObservableObject {
     func openFriendThread(friendUID: String) {
         guard let uid = currentUID else { return }
         pendingOpenThreadID = nil
-        let threadDocID = repository.friendThreadID(uidA: uid, uidB: friendUID)
+        let threadDocID = buddiesRepository.friendThreadID(uidA: uid, uidB: friendUID)
         let threadID = friendThreadKey(threadDocID)
         hiddenThreadIDs.remove(threadID)
         persistThreadState()
@@ -184,7 +170,6 @@ final class StudioChatViewModel: ObservableObject {
                 kind: .friend,
                 title: buddy?.displayName ?? shortUserLabel(friendUID),
                 subtitle: "Friend chat",
-                studioID: nil,
                 friendUID: friendUID,
                 lastMessageText: "",
                 lastMessageAt: .distantPast,
@@ -197,7 +182,7 @@ final class StudioChatViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await repository.ensureFriendThread(currentUID: uid, friendUID: friendUID)
+                try await buddiesRepository.ensureFriendThread(currentUID: uid, friendUID: friendUID)
                 await MainActor.run {
                     self.attachMessagesListener()
                 }
@@ -289,39 +274,24 @@ final class StudioChatViewModel: ObservableObject {
         let fallbackName = "Player \(uid.prefix(4).uppercased())"
         let senderName = currentDisplayName.isEmpty ? fallbackName : currentDisplayName
 
+        guard let friendUID = selected.friendUID else {
+            statusMessage = "Invalid friend conversation."
+            return
+        }
+
         do {
-            PBLog.firebase.info("Chat send start kind=\(selected.kind.rawValue, privacy: .public) thread=\(selected.id, privacy: .public)")
-            switch selected.kind {
-            case .studio:
-                guard let studioID = selected.studioID else {
-                    statusMessage = "Invalid studio conversation."
-                    return
-                }
-                try await repository.sendStudioMessage(
-                    studioID: studioID,
-                    senderUID: uid,
-                    senderName: senderName,
-                    senderAvatarID: currentAvatarID,
-                    senderLevel: currentLevel,
-                    rawText: text
-                )
-            case .friend:
-                guard let friendUID = selected.friendUID else {
-                    statusMessage = "Invalid friend conversation."
-                    return
-                }
-                try await repository.sendFriendMessage(
-                    senderUID: uid,
-                    recipientUID: friendUID,
-                    senderName: senderName,
-                    senderAvatarID: currentAvatarID,
-                    senderLevel: currentLevel,
-                    rawText: text
-                )
-            }
+            PBLog.firebase.info("Chat send start thread=\(selected.id, privacy: .public)")
+            try await buddiesRepository.sendFriendMessage(
+                senderUID: uid,
+                recipientUID: friendUID,
+                senderName: senderName,
+                senderAvatarID: currentAvatarID,
+                senderLevel: currentLevel,
+                rawText: text
+            )
             draftMessage = ""
             statusMessage = nil
-            PBLog.firebase.info("Chat send success kind=\(selected.kind.rawValue, privacy: .public) thread=\(selected.id, privacy: .public)")
+            PBLog.firebase.info("Chat send success thread=\(selected.id, privacy: .public)")
         } catch {
             statusMessage = error.localizedDescription
             PBLog.firebase.error("Chat send failed: \(error.localizedDescription, privacy: .public)")
@@ -331,75 +301,6 @@ final class StudioChatViewModel: ObservableObject {
     private var selectedThread: SocialChatThread? {
         guard let selectedThreadID else { return nil }
         return threads.first(where: { $0.id == selectedThreadID })
-    }
-
-    private func attachStudioListeners(studioIDs: [String]) {
-        let fresh = Set(studioIDs.filter { !$0.isEmpty })
-        let existing = Set(studioDocListeners.keys)
-
-        let toRemove = existing.subtracting(fresh)
-        for studioID in toRemove {
-            studioDocListeners[studioID]?.remove()
-            studioLatestListeners[studioID]?.remove()
-            studioDocListeners[studioID] = nil
-            studioLatestListeners[studioID] = nil
-            studioThreadsByID[studioThreadKey(studioID)] = nil
-        }
-
-        let toAdd = fresh.subtracting(existing)
-        for studioID in toAdd {
-            studioDocListeners[studioID] = repository.listenToStudioDocument(studioID: studioID) { [weak self] studio in
-                guard let self else { return }
-                let threadID = self.studioThreadKey(studioID)
-                let current = self.studioThreadsByID[threadID]
-                let title = studio?.name ?? "Studio \(studioID.prefix(4).uppercased())"
-                let updated = SocialChatThread(
-                    id: threadID,
-                    kind: .studio,
-                    title: title,
-                    subtitle: "Studio chat",
-                    studioID: studioID,
-                    friendUID: nil,
-                    lastMessageText: current?.lastMessageText ?? "",
-                    lastMessageAt: current?.lastMessageAt ?? .distantPast,
-                    lastMessageSenderUID: current?.lastMessageSenderUID ?? "",
-                    unreadCount: current?.unreadCount ?? 0
-                )
-                if self.studioThreadsByID[threadID] != updated {
-                    self.studioThreadsByID[threadID] = updated
-                    self.rebuildThreads()
-                }
-            }
-
-            studioLatestListeners[studioID] = repository.listenToStudioLatestMessage(studioID: studioID) { [weak self] message in
-                guard let self else { return }
-                let threadID = self.studioThreadKey(studioID)
-                let current = self.studioThreadsByID[threadID]
-                let title = current?.title ?? "Studio \(studioID.prefix(4).uppercased())"
-                let lastText = message?.text ?? current?.lastMessageText ?? ""
-                let lastAt = message?.createdAt ?? current?.lastMessageAt ?? .distantPast
-                let senderUID = message?.senderUID ?? current?.lastMessageSenderUID ?? ""
-                let updated = SocialChatThread(
-                    id: threadID,
-                    kind: .studio,
-                    title: title,
-                    subtitle: "Studio chat",
-                    studioID: studioID,
-                    friendUID: nil,
-                    lastMessageText: lastText,
-                    lastMessageAt: lastAt,
-                    lastMessageSenderUID: senderUID,
-                    unreadCount: 0
-                )
-                if self.studioThreadsByID[threadID] != updated {
-                    self.studioThreadsByID[threadID] = updated
-                    self.rebuildThreads()
-                }
-            }
-        }
-
-        isLoading = false
-        rebuildThreads()
     }
 
     private func mergeFriendThreads(_ rows: [FriendChatThread]) {
@@ -417,7 +318,6 @@ final class StudioChatViewModel: ObservableObject {
                 kind: .friend,
                 title: buddy?.displayName ?? shortUserLabel(friendUID),
                 subtitle: "Friend chat",
-                studioID: nil,
                 friendUID: friendUID,
                 lastMessageText: row.lastMessageText,
                 lastMessageAt: row.lastMessageAt,
@@ -433,15 +333,13 @@ final class StudioChatViewModel: ObservableObject {
 
     private func rebuildFriendThreads() {
         friendThreadsByID = friendThreadsByID.mapValues { thread in
-            guard thread.kind == .friend,
-                  let friendUID = thread.friendUID else { return thread }
+            guard let friendUID = thread.friendUID else { return thread }
             let buddy = buddyDirectory[friendUID]
             return SocialChatThread(
                 id: thread.id,
                 kind: .friend,
                 title: buddy?.displayName ?? thread.title,
                 subtitle: "Friend chat",
-                studioID: nil,
                 friendUID: friendUID,
                 lastMessageText: thread.lastMessageText,
                 lastMessageAt: thread.lastMessageAt,
@@ -453,24 +351,23 @@ final class StudioChatViewModel: ObservableObject {
 
     private func rebuildThreads() {
         guard currentUID != nil else { return }
-        let all = Array(studioThreadsByID.values) + Array(friendThreadsByID.values)
+        let all = Array(friendThreadsByID.values)
         let withUnread = all
             .filter { !hiddenThreadIDs.contains($0.id) }
             .map { thread in
-            let unread = unreadCount(for: thread)
-            return SocialChatThread(
-                id: thread.id,
-                kind: thread.kind,
-                title: thread.title,
-                subtitle: thread.subtitle,
-                studioID: thread.studioID,
-                friendUID: thread.friendUID,
-                lastMessageText: thread.lastMessageText,
-                lastMessageAt: thread.lastMessageAt,
-                lastMessageSenderUID: thread.lastMessageSenderUID,
-                unreadCount: unread
-            )
-        }
+                let unread = unreadCount(for: thread)
+                return SocialChatThread(
+                    id: thread.id,
+                    kind: thread.kind,
+                    title: thread.title,
+                    subtitle: thread.subtitle,
+                    friendUID: thread.friendUID,
+                    lastMessageText: thread.lastMessageText,
+                    lastMessageAt: thread.lastMessageAt,
+                    lastMessageSenderUID: thread.lastMessageSenderUID,
+                    unreadCount: unread
+                )
+            }
         let sorted = withUnread.sorted { lhs, rhs in
             let leftPinned = pinnedThreadIDs.contains(lhs.id)
             let rightPinned = pinnedThreadIDs.contains(rhs.id)
@@ -483,7 +380,6 @@ final class StudioChatViewModel: ObservableObject {
                 let previous = previousUnreadByThreadID[thread.id] ?? 0
                 return thread.unreadCount > previous
             }) {
-                // Avoid noisy local notifications while the user is actively reading this thread.
                 if newlyUnread.id != selectedThreadID {
                     PBLog.firebase.info("Chat unread increment thread=\(newlyUnread.id, privacy: .public)")
                     PBNotificationCenter.maybeScheduleChatNotification(
@@ -530,65 +426,28 @@ final class StudioChatViewModel: ObservableObject {
         messagesListener?.remove()
         messagesListener = nil
         messages = []
-        guard let selected = selectedThread else { return }
-
-        switch selected.kind {
-        case .studio:
-            guard let studioID = selected.studioID else { return }
-            messagesListener = repository.listenToStudioMessages(studioID: studioID) { [weak self] rows in
-                guard let self else { return }
-                let mapped = rows.map {
-                    SocialChatMessage(
-                        id: $0.id,
-                        senderUID: $0.senderUID,
-                        senderName: $0.senderName,
-                        senderAvatarID: $0.senderAvatarID,
-                        senderLevel: $0.senderLevel,
-                        text: $0.text,
-                        createdAt: $0.createdAt
-                    )
-                }
-                if self.messages != mapped {
-                    self.messages = mapped
-                }
-                self.markThreadRead(
-                    selected.id,
-                    at: rows.last?.createdAt
+        guard let selected = selectedThread,
+              let uid = currentUID,
+              let friendUID = selected.friendUID else { return }
+        let threadDocID = buddiesRepository.friendThreadID(uidA: uid, uidB: friendUID)
+        messagesListener = buddiesRepository.listenToFriendMessages(threadID: threadDocID) { [weak self] rows in
+            guard let self else { return }
+            let mapped = rows.map {
+                SocialChatMessage(
+                    id: $0.id,
+                    senderUID: $0.senderUID,
+                    senderName: $0.senderName,
+                    senderAvatarID: $0.senderAvatarID,
+                    senderLevel: $0.senderLevel,
+                    text: $0.text,
+                    createdAt: $0.createdAt
                 )
             }
-        case .friend:
-            guard let uid = currentUID, let friendUID = selected.friendUID else { return }
-            let threadDocID = repository.friendThreadID(uidA: uid, uidB: friendUID)
-            messagesListener = repository.listenToFriendMessages(threadID: threadDocID) { [weak self] rows in
-                guard let self else { return }
-                let mapped = rows.map {
-                    SocialChatMessage(
-                        id: $0.id,
-                        senderUID: $0.senderUID,
-                        senderName: $0.senderName,
-                        senderAvatarID: $0.senderAvatarID,
-                        senderLevel: $0.senderLevel,
-                        text: $0.text,
-                        createdAt: $0.createdAt
-                    )
-                }
-                if self.messages != mapped {
-                    self.messages = mapped
-                }
-                self.markThreadRead(
-                    selected.id,
-                    at: rows.last?.createdAt
-                )
+            if self.messages != mapped {
+                self.messages = mapped
             }
+            self.markThreadRead(selected.id, at: rows.last?.createdAt)
         }
-    }
-
-    private func extractStudioIDs(from data: [String: Any]) -> [String] {
-        let teacherSingle = (data["teacherStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let studentSingle = (data["studentStudioId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let teacherMany = ((data["teacherStudioIds"] as? [String]) ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let studentMany = ((data["studentStudioIds"] as? [String]) ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return Array(Set(([teacherSingle, studentSingle].compactMap { $0 }) + teacherMany + studentMany).filter { !$0.isEmpty })
     }
 
     private func unreadCount(for thread: SocialChatThread) -> Int {
@@ -619,10 +478,6 @@ final class StudioChatViewModel: ObservableObject {
                 self?.persistLastReadState()
             }
         }
-    }
-
-    private func studioThreadKey(_ studioID: String) -> String {
-        "studio:\(studioID)"
     }
 
     private func friendThreadKey(_ threadID: String) -> String {

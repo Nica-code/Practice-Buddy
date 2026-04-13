@@ -54,33 +54,6 @@ struct StoreView: View {
             }
             .listRowBackground(palette.surface)
 
-            Section("Teacher Tools") {
-                Button {
-                    selectedTab = 0
-                } label: {
-                    Label("Studio Manager", systemImage: "person.3")
-                        .font(type.body)
-                }
-                featureRow("Studio roster and invites")
-                featureRow("Assignments and submissions")
-                featureRow("Teacher dashboard and feedback workflow")
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Student Tools") {
-                NavigationLink {
-                    PBLazyView(StudioManagerView(entryMode: .student))
-                } label: {
-                    Label("Join Studio", systemImage: "person.3")
-                        .font(type.body)
-                }
-                featureRow("Smart Practice Plan Generator")
-                featureRow("Assignment checklist")
-                featureRow("Smart reminder path")
-                featureRow("Weekly report to teacher")
-            }
-            .listRowBackground(palette.surface)
-
             Section {
                 Button {
                     Task {

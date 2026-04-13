@@ -44,7 +44,6 @@ struct SmartLoopTimerView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
 
     @AppStorage("pb.loop.duration") private var loopDuration: Int = 45
     @AppStorage("pb.loop.rest") private var restDuration: Int = 20
@@ -70,8 +69,6 @@ struct SmartLoopTimerView: View {
     @State private var newPresetName: String = ""
     @State private var statusMessage: String?
     @State private var saveToSessionHistory: Bool = true
-    @State private var markLinkedAssignmentComplete: Bool = true
-    @State private var linkedAssignmentNote: String = ""
     @State private var cleanLoopsAtCurrentTempo: Int = 0
     @State private var timerCancellable: AnyCancellable?
     @StateObject private var metronome = MetronomeEngine()
@@ -291,18 +288,6 @@ struct SmartLoopTimerView: View {
 
                     Toggle("Also save into session history", isOn: $saveToSessionHistory)
                         .font(type.body)
-
-                    if let linked = assignmentLinkManager.linkedAssignment {
-                        Divider().padding(.vertical, 4)
-                        Text(L10n.f("Linked assignment: %@", linked.title))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
-                            .font(type.body)
-                        TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
-                            .font(type.body)
-                            .lineLimit(2...5)
-                    }
 
                     Button("Save Loop Log") {
                         saveResult()
@@ -556,19 +541,6 @@ struct SmartLoopTimerView: View {
                 noteTitle: "Loop Session",
                 noteFocus: tagText
             )
-        }
-
-        if assignmentLinkManager.linkedAssignment != nil {
-            let trimmed = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            let note = trimmed.isEmpty ? summaryText : trimmed
-            Task {
-                await assignmentLinkManager.submitLinkedPracticeResult(
-                    tool: "smart_loop",
-                    note: note,
-                    attachmentPath: nil,
-                    markComplete: markLinkedAssignmentComplete
-                )
-            }
         }
 
         statusMessage = "Loop log saved."

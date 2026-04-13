@@ -7,8 +7,6 @@ enum PBNotificationPreferenceKey {
     static let messages = "pb.notifications.messages"
     static let goals = "pb.notifications.goals"
     static let friendRequests = "pb.notifications.friendRequests"
-    static let studioInvites = "pb.notifications.studioInvites"
-    static let assignments = "pb.notifications.assignments"
     static let buddies = "pb.notifications.buddies"
 }
 
@@ -17,7 +15,6 @@ enum PBNotificationCategoryID {
     static let message = "pb.message"
     static let goal = "pb.goal"
     static let friendRequest = "pb.friend_request"
-    static let studioInvite = "pb.studio_invite"
 }
 
 enum PBNotificationPayloadKey {
@@ -26,14 +23,12 @@ enum PBNotificationPayloadKey {
     static let challengeID = "challengeId"
     static let threadID = "threadId"
     static let friendUID = "friendUid"
-    static let studioID = "studioId"
 }
 
 enum PBNotificationRoute: Equatable {
     case playDuel(challengeID: String?)
     case socialFriendRequests
     case socialChat(friendUID: String?, threadID: String?)
-    case socialStudioInvites(studioID: String?)
     case homeGoals
 }
 
@@ -69,12 +64,6 @@ enum PBNotificationCenter {
                 intentIdentifiers: [],
                 options: [.customDismissAction]
             ),
-            UNNotificationCategory(
-                identifier: PBNotificationCategoryID.studioInvite,
-                actions: [],
-                intentIdentifiers: [],
-                options: [.customDismissAction]
-            )
         ]
         UNUserNotificationCenter.current().setNotificationCategories(categories)
     }
@@ -223,11 +212,9 @@ enum PBNotificationCenter {
         let challengeID = stringValue(in: userInfo, keys: ["challengeId", "challengeID", "duelId", "duelID"])
         let threadID = stringValue(in: userInfo, keys: ["threadId", "threadID", "chatThreadId", "chatThreadID"])
         let friendUID = stringValue(in: userInfo, keys: ["friendUid", "friendUID", "fromUid", "senderUid", "userUid"])
-        let studioID = stringValue(in: userInfo, keys: ["studioId", "studioID"])
         switch explicit {
         case "play_duel": return .playDuel(challengeID: challengeID)
         case "social_friend_requests": return .socialFriendRequests
-        case "social_studio_invites": return .socialStudioInvites(studioID: studioID)
         case "home_goal": return .homeGoals
         case "social_chat":
             return .socialChat(friendUID: friendUID, threadID: threadID)
@@ -247,9 +234,6 @@ enum PBNotificationCenter {
         }
         if rawType.contains("friend") && rawType.contains("request") {
             return .socialFriendRequests
-        }
-        if rawType.contains("studio") && rawType.contains("invite") {
-            return .socialStudioInvites(studioID: studioID)
         }
         if rawType.contains("goal") {
             return .homeGoals

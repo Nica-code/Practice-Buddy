@@ -22,23 +22,6 @@ enum PBAccountType: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-enum PBPrimaryFocus: String, CaseIterable, Identifiable {
-    case student
-    case teacher
-    case both
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .student: return "Student"
-        case .teacher: return "Teacher"
-        case .both: return "Both"
-        }
-    }
-}
-
-@MainActor
 enum PBEntitlementTier: String, CaseIterable {
     case free
     case pro
@@ -63,9 +46,6 @@ final class PurchaseManager: ObservableObject {
     static let subscriptionActiveKey = "pb.pro.subscriptionActive"
     static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"
     static let accountTypeKey = "pb.pro.accountType"
-    static let primaryFocusKey = "pb.tools.primaryFocus"
-    static let showStudentToolsKey = "pb.tools.visibility.student"
-    static let showTeacherToolsKey = "pb.tools.visibility.teacher"
     static let entitlementTierKey = "pb.pro.entitlementTier"
 
     @Published private(set) var ownedProductIDs: Set<String> = []
@@ -73,9 +53,6 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var hasActiveSubscription: Bool
     @Published private(set) var entitlementTier: PBEntitlementTier
     @Published private(set) var accountType: PBAccountType
-    @Published private(set) var primaryFocus: PBPrimaryFocus
-    @Published private(set) var showStudentTools: Bool
-    @Published private(set) var showTeacherTools: Bool
     @Published private(set) var trialUsed: Bool = false
     @Published private(set) var trialEndsAt: Date?
     @Published private(set) var syncStatus: String?
@@ -104,35 +81,11 @@ final class PurchaseManager: ObservableObject {
         let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
-        let storedPrimaryFocus: PBPrimaryFocus = {
-            guard let raw = defaults.string(forKey: Self.primaryFocusKey),
-                  let value = PBPrimaryFocus(rawValue: raw) else {
-                return storedType == .teacher ? .teacher : .student
-            }
-            return value
-        }()
-        let derivedVisibility = Self.defaultVisibility(for: storedPrimaryFocus)
-        let storedShowStudentTools: Bool = {
-            if defaults.object(forKey: Self.showStudentToolsKey) == nil { return derivedVisibility.student }
-            return defaults.bool(forKey: Self.showStudentToolsKey)
-        }()
-        let storedShowTeacherTools: Bool = {
-            if defaults.object(forKey: Self.showTeacherToolsKey) == nil { return derivedVisibility.teacher }
-            return defaults.bool(forKey: Self.showTeacherToolsKey)
-        }()
-        let normalizedVisibility = Self.normalizedVisibility(
-            student: storedShowStudentTools,
-            teacher: storedShowTeacherTools,
-            fallback: derivedVisibility
-        )
 
         hasActiveSubscription = storedSubscriptionActive
         entitlementTier = storedTier
         isPro = false
         accountType = storedType
-        primaryFocus = storedPrimaryFocus
-        showStudentTools = normalizedVisibility.student
-        showTeacherTools = normalizedVisibility.teacher
         ownedProductIDs = storedSubscriptionIDs
         if hasActiveSubscription && ownedProductIDs.isEmpty {
             ownedProductIDs = Set(Self.adFreeSubscriptionProductIDs)
@@ -250,17 +203,6 @@ final class PurchaseManager: ObservableObject {
                     self.applyAccountType(remoteType)
                 }
 
-                if let raw = data["primaryFocus"] as? String,
-                   let remoteFocus = PBPrimaryFocus(rawValue: raw),
-                   remoteFocus != self.primaryFocus {
-                    self.applyPrimaryFocus(remoteFocus, syncLegacyAccountType: false)
-                }
-
-                if let remoteShowStudent = data["showStudentTools"] as? Bool,
-                   let remoteShowTeacher = data["showTeacherTools"] as? Bool {
-                    self.applyToolVisibility(showStudent: remoteShowStudent, showTeacher: remoteShowTeacher)
-                }
-
                 self.trialUsed = data["trialUsed"] as? Bool ?? self.trialUsed
                 if let trialTimestamp = data["trialEndsAt"] as? Timestamp {
                     self.trialEndsAt = trialTimestamp.dateValue()
@@ -288,48 +230,6 @@ final class PurchaseManager: ObservableObject {
 
     func completeInitialAccountSetup(as type: PBAccountType) {
         applyAccountType(type)
-        syncStatus = nil
-        Task { await pushLocalStateToFirestore() }
-    }
-
-    func hasRole(_ role: PBAccountType) -> Bool {
-        switch role {
-        case .student: return showStudentTools
-        case .teacher: return showTeacherTools
-        }
-    }
-
-    var availableRoleModes: [PBAccountType] {
-        PBAccountType.allCases
-    }
-
-    var canAccessStudentTools: Bool { showStudentTools }
-    var canAccessTeacherTools: Bool { showTeacherTools }
-
-    func setRoleEnabled(_ role: PBAccountType, isEnabled: Bool) {
-        switch role {
-        case .student:
-            setShowStudentTools(isEnabled)
-        case .teacher:
-            setShowTeacherTools(isEnabled)
-        }
-    }
-
-    func setPrimaryFocus(_ newFocus: PBPrimaryFocus) {
-        guard primaryFocus != newFocus else { return }
-        applyPrimaryFocus(newFocus, syncLegacyAccountType: true)
-        syncStatus = nil
-        Task { await pushLocalStateToFirestore() }
-    }
-
-    func setShowStudentTools(_ enabled: Bool) {
-        applyToolVisibility(showStudent: enabled, showTeacher: showTeacherTools)
-        syncStatus = nil
-        Task { await pushLocalStateToFirestore() }
-    }
-
-    func setShowTeacherTools(_ enabled: Bool) {
-        applyToolVisibility(showStudent: showStudentTools, showTeacher: enabled)
         syncStatus = nil
         Task { await pushLocalStateToFirestore() }
     }
@@ -457,13 +357,6 @@ final class PurchaseManager: ObservableObject {
 
     private func enforceMasterAccessValues() {
         applyEntitlementTier(.allAccess)
-        if primaryFocus != .both {
-            applyPrimaryFocus(.both, syncLegacyAccountType: false)
-        }
-        if accountType != .teacher {
-            applyAccountType(.teacher)
-        }
-        applyToolVisibility(showStudent: true, showTeacher: true)
         recalculateProAccess()
     }
 
@@ -471,43 +364,6 @@ final class PurchaseManager: ObservableObject {
         guard accountType != value else { return }
         accountType = value
         UserDefaults.standard.set(value.rawValue, forKey: Self.accountTypeKey)
-    }
-
-    private func applyPrimaryFocus(_ value: PBPrimaryFocus, syncLegacyAccountType: Bool) {
-        guard primaryFocus != value else { return }
-        primaryFocus = value
-        UserDefaults.standard.set(value.rawValue, forKey: Self.primaryFocusKey)
-
-        if syncLegacyAccountType {
-            switch value {
-            case .student:
-                applyAccountType(.student)
-            case .teacher:
-                applyAccountType(.teacher)
-            case .both:
-                break
-            }
-        }
-
-        let defaults = Self.defaultVisibility(for: value)
-        applyToolVisibility(showStudent: defaults.student, showTeacher: defaults.teacher)
-    }
-
-    private func applyToolVisibility(showStudent: Bool, showTeacher: Bool) {
-        let fallback = Self.defaultVisibility(for: primaryFocus)
-        let normalized = Self.normalizedVisibility(
-            student: showStudent,
-            teacher: showTeacher,
-            fallback: fallback
-        )
-        if showStudentTools != normalized.student {
-            showStudentTools = normalized.student
-            UserDefaults.standard.set(normalized.student, forKey: Self.showStudentToolsKey)
-        }
-        if showTeacherTools != normalized.teacher {
-            showTeacherTools = normalized.teacher
-            UserDefaults.standard.set(normalized.teacher, forKey: Self.showTeacherToolsKey)
-        }
     }
 
     private func pushLocalStateToFirestore() async {
@@ -524,9 +380,6 @@ final class PurchaseManager: ObservableObject {
             // Keep entitlement/subscription fields server-authoritative.
             let payload: [String: Any] = [
                 "accountType": accountType.rawValue,
-                "primaryFocus": primaryFocus.rawValue,
-                "showStudentTools": showStudentTools,
-                "showTeacherTools": showTeacherTools,
                 "updatedAt": FieldValue.serverTimestamp()
             ]
             try await db.collection("users").document(uid).setData(payload, merge: true)
@@ -539,12 +392,7 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func localStateFingerprint() -> String {
-        return [
-            accountType.rawValue,
-            primaryFocus.rawValue,
-            showStudentTools ? "1" : "0",
-            showTeacherTools ? "1" : "0"
-        ].joined(separator: "|")
+        return accountType.rawValue
     }
 
     private func syncEntitlementsWithServer(
@@ -599,25 +447,6 @@ final class PurchaseManager: ObservableObject {
             )
         }
         return EntitlementServerState(payload: json ?? [:], fallbackProductIDs: activeProductIDs)
-    }
-
-    private static func defaultVisibility(for focus: PBPrimaryFocus) -> (student: Bool, teacher: Bool) {
-        switch focus {
-        case .student: return (true, false)
-        case .teacher: return (false, true)
-        case .both: return (true, true)
-        }
-    }
-
-    private static func normalizedVisibility(
-        student: Bool,
-        teacher: Bool,
-        fallback: (student: Bool, teacher: Bool)
-    ) -> (student: Bool, teacher: Bool) {
-        if student || teacher {
-            return (student, teacher)
-        }
-        return fallback
     }
 
     private func observeTransactionUpdates() -> Task<Void, Never> {

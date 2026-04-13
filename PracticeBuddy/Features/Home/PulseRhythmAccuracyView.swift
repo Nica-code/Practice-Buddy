@@ -9,7 +9,6 @@ struct PulseRhythmAccuracyView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
 
     @AppStorage("pb.rhythm.bpm") private var bpm: Int = 80
     @AppStorage("pb.rhythm.useMetronome") private var useMetronome: Bool = true
@@ -17,8 +16,6 @@ struct PulseRhythmAccuracyView: View {
     @StateObject private var engine = RhythmAccuracyEngine()
     @StateObject private var metronome = MetronomeEngine()
     @State private var statusMessage: String?
-    @State private var markLinkedAssignmentComplete: Bool = true
-    @State private var linkedAssignmentNote: String = ""
 
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -128,18 +125,6 @@ struct PulseRhythmAccuracyView: View {
                         }
                     }
 
-                    if let linked = assignmentLinkManager.linkedAssignment {
-                        Divider().padding(.vertical, 4)
-                        Text(L10n.f("Linked assignment: %@", linked.title))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
-                            .font(type.body)
-                        TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
-                            .font(type.body)
-                            .lineLimit(2...5)
-                    }
-
                     Button("Save Take") {
                         saveTake(summary: summary)
                     }
@@ -203,25 +188,6 @@ struct PulseRhythmAccuracyView: View {
         )
         modelContext.insert(log)
         try? modelContext.save()
-
-        if assignmentLinkManager.linkedAssignment != nil {
-            let fallback = L10n.f(
-                "Rhythm take: score %@, avg %@ ms.",
-                "\(summary.grooveScore)",
-                String(format: "%+.1f", summary.averageOffsetMs)
-            )
-            let note = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? fallback
-                : linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            Task {
-                await assignmentLinkManager.submitLinkedPracticeResult(
-                    tool: "rhythm_accuracy",
-                    note: note,
-                    attachmentPath: nil,
-                    markComplete: markLinkedAssignmentComplete
-                )
-            }
-        }
 
         statusMessage = "Rhythm take saved in History."
     }

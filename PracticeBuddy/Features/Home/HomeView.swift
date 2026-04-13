@@ -13,9 +13,7 @@ struct HomeView: View {
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
-    @EnvironmentObject private var warmupOfWeekManager: WarmupOfWeekManager
-    @Environment(\.modelContext) private var modelContext
+@Environment(\.modelContext) private var modelContext
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
@@ -74,20 +72,6 @@ struct HomeView: View {
         static let checkInFocusTags: [String] = ["Intonation", "Rhythm", "Bow", "Shifts", "Vibrato", "Run-through"]
         static let sessionBuilderStorageKey = "pb.home.sessionBuilderTemplate.v1"
         static let legacyTemplatesStorageKey = "pb.home.editableSessionTemplates.v1"
-    }
-
-    private enum HomeArea: String, CaseIterable, Identifiable {
-        case dashboard = "Dashboard"
-        case studio = "Studio"
-
-        var id: String { rawValue }
-    }
-
-    private enum HomeNavigationTarget: String, Identifiable {
-        case studioManagerTeacher
-        case studioPlanner
-
-        var id: String { rawValue }
     }
 
     private enum CheckInIntervalPreset: String, CaseIterable, Identifiable {
@@ -206,7 +190,6 @@ struct HomeView: View {
         ]
     )
     @State private var activeSessionBuilderPlan: ActiveSessionBuilderPlan?
-    @State private var selectedHomeArea: HomeArea = .dashboard
     @State private var activePracticeToolSheet: PracticeToolSheet?
     @State private var showShopSheet = false
     @State private var showVerificationInfoSheet = false
@@ -214,8 +197,6 @@ struct HomeView: View {
     @State private var showSessionBuilder = true
     @State private var lastSessionNotificationSignature: String = ""
     @State private var sessionBuilderNotificationSyncTask: Task<Void, Never>?
-    @State private var homeNavigationTarget: HomeNavigationTarget?
-
     // Haptics
     private let impact = UIImpactFeedbackGenerator(style: .soft)
     private let notify = UINotificationFeedbackGenerator()
@@ -414,18 +395,8 @@ struct HomeView: View {
                 .pbFlatCard(palette: palette)
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
-                .onTapGesture {
-                    selectedHomeArea = .dashboard
-                }
+                .onTapGesture { }
                 .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .navigationDestination(item: $homeNavigationTarget) { target in
-            switch target {
-            case .studioManagerTeacher:
-                PBLazyView(StudioManagerView(entryMode: .teacher))
-            case .studioPlanner:
-                PBLazyView(StudioPlannerView())
             }
         }
     }
@@ -436,30 +407,14 @@ struct HomeView: View {
             homeHeader
 
             List {
-                switch selectedHomeArea {
-                case .dashboard:
-                    sessionControlSection
-                    goalSection
-                    practiceTimeSection
-                    recentHistorySection
-                case .studio:
-                    if purchaseManager.canAccessTeacherTools {
-                        teacherToolsSection
-                    }
-                    if purchaseManager.canAccessStudentTools {
-                        linkedAssignmentsSection
-                        warmupOfWeekSection
-                        studentToolsSection
-                    }
-                    if !purchaseManager.canAccessTeacherTools && !purchaseManager.canAccessStudentTools {
-                        studioToolsOffSection
-                    }
-                }
+                sessionControlSection
+                goalSection
+                practiceTimeSection
+                recentHistorySection
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
-            .animation(.snappy(duration: 0.28, extraBounce: 0.03), value: selectedHomeArea)
         }
         .background {
             PBBackdropView(palette: palette)
@@ -1073,13 +1028,6 @@ struct HomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.bottom, Constants.titleBottomPadding)
-
-            Picker("Home Area", selection: $selectedHomeArea) {
-                ForEach(HomeArea.allCases) { area in
-                    Text(LocalizedStringKey(area.rawValue)).tag(area)
-                }
-            }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
@@ -1510,170 +1458,6 @@ struct HomeView: View {
             }
         } header: {
             PBSectionHeaderLabel(title: "Recent History")
-        }
-    }
-
-    private var teacherToolsSection: some View {
-        Section {
-            homeSectionCard {
-                Button {
-                    homeNavigationTarget = .studioManagerTeacher
-                } label: {
-                    HomeToolCardLabel(
-                        title: "Studio Manager",
-                        subtitle: "Create your studio, manage roster, and publish assignments.",
-                        palette: palette,
-                        type: type
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-
-            homeSectionCard {
-                Button {
-                    homeNavigationTarget = .studioPlanner
-                } label: {
-                    HomeToolCardLabel(
-                        title: "Studio Planner",
-                        subtitle: "Plan lessons, studio class, and recital events with calendar sync.",
-                        palette: palette,
-                        type: type
-                    )
-                }
-            }
-            .buttonStyle(.plain)
-        } header: {
-            PBSectionHeaderLabel(title: "Teacher Tools")
-        }
-    }
-
-    private var studentToolsSection: some View {
-        Section {
-            homeSectionCard {
-                NavigationLink {
-                    PBLazyView(StudioManagerView(entryMode: .student))
-                } label: {
-                    HomeToolCardLabel(
-                        title: "Your Studio",
-                        subtitle: "Join your teacher's studio, review roster, and track assignment progress.",
-                        palette: palette,
-                        type: type
-                    )
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Student Tools")
-        }
-    }
-
-    private var studioToolsOffSection: some View {
-        Section {
-            homeSectionCard {
-                Text("No studio tools are enabled. Update Tool Access in Settings.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Studio")
-        }
-    }
-
-    private var warmupOfWeekSection: some View {
-        Section {
-            homeSectionCard {
-                if let warmup = warmupOfWeekManager.warmup {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(warmup.title)
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Text(L10n.f("%@ min • %@ • %@", "\(warmup.totalMinutes)", warmup.instrument, warmup.focus))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                        NavigationLink {
-                            PBLazyView(WarmUpGeneratorView())
-                        } label: {
-                            Text("Open Warm-up Generator")
-                                .font(type.footnote)
-                        }
-                    }
-                } else {
-                    Text("No studio warm-up published.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Warm-up of the Week")
-        }
-    }
-
-    private var linkedAssignmentsSection: some View {
-        Section {
-            homeSectionCard {
-                if assignmentLinkManager.todayAssignments.isEmpty {
-                    Text("No assignments due today.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else {
-                    ForEach(Array(assignmentLinkManager.todayAssignments.enumerated()), id: \.element.id) { idx, item in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(item.title)
-                                    .font(type.body)
-                                    .foregroundStyle(palette.textPrimary)
-                                Spacer()
-                                Button {
-                                    Task {
-                                        await assignmentLinkManager.markAssignmentCompletion(item.id, completed: !item.completed)
-                                    }
-                                } label: {
-                                    Image(systemName: item.completed ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(item.completed ? palette.accent : palette.textSecondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            HStack(spacing: 10) {
-                                Button(assignmentLinkManager.isAssignmentLinked(item.id) ? "Unlink" : "Link") {
-                                    assignmentLinkManager.linkAssignment(
-                                        assignmentLinkManager.isAssignmentLinked(item.id) ? nil : item.id
-                                    )
-                                }
-                                .buttonStyle(.bordered)
-                                .font(type.footnote)
-
-                                if assignmentLinkManager.isAssignmentLinked(item.id) {
-                                    NavigationLink {
-                                        PBLazyView(PlanExecuteReflectView())
-                                    } label: {
-                                        Text("Start Linked Plan")
-                                            .font(type.footnote)
-                                    }
-
-                                    NavigationLink {
-                                        PBLazyView(RunThroughModeView())
-                                    } label: {
-                                        Text("Start Linked Run-through")
-                                            .font(type.footnote)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        if idx < assignmentLinkManager.todayAssignments.count - 1 {
-                            Divider()
-                        }
-                    }
-                }
-
-                if let msg = assignmentLinkManager.statusMessage, !msg.isEmpty {
-                    Text(LocalizedStringKey(msg))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Today’s Assignments")
         }
     }
 

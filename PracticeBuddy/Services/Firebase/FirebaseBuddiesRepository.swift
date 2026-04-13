@@ -22,6 +22,24 @@ struct BuddySummary: Identifiable, Equatable {
     let publicLevel: Int
 }
 
+struct FriendChatThread {
+    let id: String
+    let participants: [String]
+    let lastMessageText: String
+    let lastMessageAt: Date
+    let lastMessageSenderUID: String
+}
+
+struct FriendChatMessage: Identifiable {
+    let id: String
+    let senderUID: String
+    let senderName: String
+    let senderAvatarID: String
+    let senderLevel: Int
+    let text: String
+    let createdAt: Date
+}
+
 enum BuddyPresenceValue: String {
     case online
     case offline
@@ -94,6 +112,7 @@ final class FirebaseBuddiesRepository {
     private let usersCollection = "users"
     private let invitesCollection = "invites"
     private let friendshipsCollection = "friendships"
+    private let chatThreadsCollection = "chatThreads"
 
     func currentUserID() -> String? {
         Auth.auth().currentUser?.uid
@@ -478,6 +497,153 @@ final class FirebaseBuddiesRepository {
             "status": BuddyInviteStatus.declined.rawValue,
             "updatedAt": FieldValue.serverTimestamp()
         ])
+    }
+
+    // MARK: - Friend Chat
+
+    func listenToUserDocument(
+        uid: String,
+        onChange: @escaping @MainActor ([String: Any]?) -> Void
+    ) -> ListenerRegistration {
+        db.collection(usersCollection).document(uid).addSnapshotListener { snap, _ in
+            Task { @MainActor in
+                onChange(snap?.data())
+            }
+        }
+    }
+
+    func listenToBuddyDirectory(
+        uid: String,
+        onChange: @escaping @MainActor ([BuddySummary]) -> Void
+    ) -> ListenerRegistration {
+        db.collection(friendshipsCollection)
+            .document(uid)
+            .collection("buddies")
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = self.parseBuddies(from: snap?.documents ?? [])
+                        .sorted(by: { $0.sinceAt > $1.sinceAt })
+                    onChange(rows)
+                }
+            }
+    }
+
+    func listenToFriendChatThreads(
+        uid: String,
+        onChange: @escaping @MainActor ([FriendChatThread]) -> Void
+    ) -> ListenerRegistration {
+        db.collection(chatThreadsCollection)
+            .whereField("participants", arrayContains: uid)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap { self.parseFriendChatThread(doc: $0) }
+                    onChange(rows)
+                }
+            }
+    }
+
+    func friendThreadID(uidA: String, uidB: String) -> String {
+        [uidA, uidB].sorted().joined(separator: "__")
+    }
+
+    func ensureFriendThread(currentUID: String, friendUID: String) async throws {
+        let threadID = friendThreadID(uidA: currentUID, uidB: friendUID)
+        let ref = db.collection(chatThreadsCollection).document(threadID)
+        let snap = try await ref.getDocument()
+        if !snap.exists {
+            try await ref.setData([
+                "participants": [currentUID, friendUID],
+                "lastMessageText": "",
+                "lastMessageAt": FieldValue.serverTimestamp(),
+                "lastMessageSenderUID": "",
+                "createdAt": FieldValue.serverTimestamp()
+            ])
+        }
+    }
+
+    func sendFriendMessage(
+        senderUID: String,
+        recipientUID: String,
+        senderName: String,
+        senderAvatarID: String,
+        senderLevel: Int,
+        rawText: String
+    ) async throws {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let threadID = friendThreadID(uidA: senderUID, uidB: recipientUID)
+        let threadRef = db.collection(chatThreadsCollection).document(threadID)
+
+        let snap = try await threadRef.getDocument()
+        if !snap.exists {
+            try await threadRef.setData([
+                "participants": [senderUID, recipientUID],
+                "lastMessageText": text,
+                "lastMessageAt": FieldValue.serverTimestamp(),
+                "lastMessageSenderUID": senderUID,
+                "createdAt": FieldValue.serverTimestamp()
+            ])
+        } else {
+            try await threadRef.updateData([
+                "lastMessageText": text,
+                "lastMessageAt": FieldValue.serverTimestamp(),
+                "lastMessageSenderUID": senderUID
+            ])
+        }
+
+        try await threadRef.collection("messages").document().setData([
+            "senderUID": senderUID,
+            "senderName": senderName,
+            "senderAvatarID": senderAvatarID,
+            "senderLevel": senderLevel,
+            "text": text,
+            "createdAt": FieldValue.serverTimestamp()
+        ])
+    }
+
+    func listenToFriendMessages(
+        threadID: String,
+        onChange: @escaping @MainActor ([FriendChatMessage]) -> Void
+    ) -> ListenerRegistration {
+        db.collection(chatThreadsCollection)
+            .document(threadID)
+            .collection("messages")
+            .order(by: "createdAt", descending: false)
+            .limit(to: 200)
+            .addSnapshotListener { snap, _ in
+                Task { @MainActor in
+                    let rows = (snap?.documents ?? []).compactMap { self.parseFriendChatMessage(doc: $0) }
+                    onChange(rows)
+                }
+            }
+    }
+
+    private func parseFriendChatThread(doc: QueryDocumentSnapshot) -> FriendChatThread? {
+        let data = doc.data()
+        guard let participants = data["participants"] as? [String] else { return nil }
+        return FriendChatThread(
+            id: doc.documentID,
+            participants: participants,
+            lastMessageText: (data["lastMessageText"] as? String) ?? "",
+            lastMessageAt: (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? .distantPast,
+            lastMessageSenderUID: (data["lastMessageSenderUID"] as? String) ?? ""
+        )
+    }
+
+    private func parseFriendChatMessage(doc: QueryDocumentSnapshot) -> FriendChatMessage? {
+        let data = doc.data()
+        guard let senderUID = data["senderUID"] as? String,
+              let text = data["text"] as? String else { return nil }
+        return FriendChatMessage(
+            id: doc.documentID,
+            senderUID: senderUID,
+            senderName: (data["senderName"] as? String) ?? "Player",
+            senderAvatarID: (data["senderAvatarID"] as? String) ?? "avatar_note",
+            senderLevel: max(1, (data["senderLevel"] as? Int) ?? 1),
+            text: text,
+            createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? .distantPast
+        )
     }
 
     private func createPendingInvite(from myProfile: FirebaseUserProfile, to targetProfile: FirebaseUserProfile) async throws {

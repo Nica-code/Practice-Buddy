@@ -8,7 +8,6 @@ extension SettingsView {
                 appearanceSection
                 generalSection
                 accountSection
-                toolAccessSection
                 notificationsSection
                 #if DEBUG
                 if canShowAdsDebugSection {
@@ -122,40 +121,6 @@ extension SettingsView {
         }
     }
 
-    var toolAccessSection: some View {
-        Section {
-            settingsSectionCard {
-                Picker("Primary focus", selection: Binding(
-                    get: { purchaseManager.primaryFocus },
-                    set: { purchaseManager.setPrimaryFocus($0) }
-                )) {
-                    ForEach(PBPrimaryFocus.allCases) { focus in
-                        Text(LocalizedStringKey(focus.title)).tag(focus)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Toggle("Student Tools", isOn: Binding(
-                    get: { purchaseManager.canAccessStudentTools },
-                    set: { purchaseManager.setShowStudentTools($0) }
-                ))
-                .font(type.body)
-
-                Toggle("Teacher Tools", isOn: Binding(
-                    get: { purchaseManager.canAccessTeacherTools },
-                    set: { purchaseManager.setShowTeacherTools($0) }
-                ))
-                .font(type.body)
-
-                Text("Studio Manager is available under Teacher Tools.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-        } header: {
-            PBSectionHeaderLabel(title: "Tool Access")
-        }
-    }
-
     var accountSection: some View {
         Section {
             settingsSectionCard {
@@ -204,12 +169,7 @@ extension SettingsView {
                         .font(type.body)
                     Toggle("Friend requests", isOn: $notifyFriendRequests)
                         .font(type.body)
-                    Toggle("Studio invites", isOn: $notifyStudioInvites)
-                        .font(type.body)
                 }
-
-                Toggle("Assignments", isOn: $notifyAssignments)
-                    .font(type.body)
                 Toggle("Buddies", isOn: $notifyBuddies)
                     .font(type.body)
 

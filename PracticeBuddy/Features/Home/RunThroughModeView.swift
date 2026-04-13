@@ -9,7 +9,6 @@ struct RunThroughModeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var assignmentLinkManager: AssignmentLinkManager
 
     @AppStorage("pb.runthrough.noPauseMode") private var noPauseMode: Bool = false
     @AppStorage("pb.runthrough.useMetronome") private var useMetronome: Bool = false
@@ -23,8 +22,6 @@ struct RunThroughModeView: View {
     @State private var noteInput: String = ""
     @State private var pieceNameInput: String = ""
     @State private var selfRating: Int = 3
-    @State private var markLinkedAssignmentComplete: Bool = true
-    @State private var linkedAssignmentNote: String = ""
     @State private var statusMessage: String?
     @State private var markerLabel: String = "shift"
     @State private var markers: [RunThroughMarker] = []
@@ -143,15 +140,6 @@ struct RunThroughModeView: View {
                             }
                         }
 
-                        if let linked = assignmentLinkManager.linkedAssignment {
-                            Divider().padding(.vertical, 4)
-                            Text(L10n.f("Linked assignment: %@", linked.title))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                            Toggle("Mark linked assignment complete", isOn: $markLinkedAssignmentComplete)
-                            TextField("Assignment note (optional)", text: $linkedAssignmentNote, axis: .vertical)
-                                .lineLimit(2...5)
-                        }
                     }
                 }
                 .navigationTitle("Finish Run-through")
@@ -262,25 +250,6 @@ struct RunThroughModeView: View {
         )
         modelContext.insert(model)
         try? modelContext.save()
-
-        if assignmentLinkManager.linkedAssignment != nil {
-            let trimmed = linkedAssignmentNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            let note = trimmed.isEmpty
-                ? L10n.f(
-                    "Run-through saved in History (%@, rating %@/5).",
-                    DurationFormatter.string(from: elapsedSeconds),
-                    "\(selfRating)"
-                )
-                : trimmed
-            Task {
-                await assignmentLinkManager.submitLinkedPracticeResult(
-                    tool: "run_through",
-                    note: note,
-                    attachmentPath: url.path,
-                    markComplete: markLinkedAssignmentComplete
-                )
-            }
-        }
 
         statusMessage = "Run-through saved in History."
     }

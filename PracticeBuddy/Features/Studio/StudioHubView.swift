@@ -78,8 +78,8 @@ struct StudioHubView: View {
             type: type,
             title: "Social",
             subtitle: StudioSection(rawValue: sectionRawValue) == .chat
-                ? "Studio and friend conversations in one place."
-                : "Manage friends and studio connections."
+                ? "Your friend conversations in one place."
+                : "Manage your friends and connections."
         ) {
             Picker("Social", selection: sectionBinding) {
                 ForEach(StudioSection.allCases) { section in

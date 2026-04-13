@@ -182,7 +182,7 @@ struct SocialView: View {
                 Circle()
                     .fill(palette.surface)
                     .frame(width: 40, height: 40)
-                Image(systemName: thread.kind == .studio ? "building.2" : "person.2")
+                Image(systemName: "person.2")
                     .foregroundStyle(palette.accent)
             }
 
