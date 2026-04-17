@@ -109,14 +109,5 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>This app uses your advertising identifier to serve personalized ads and improve ad relevance. You can change your tracking preferences in Settings at any time.</string>
 </dict>
 </plist>

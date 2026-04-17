@@ -3,12 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
-	<true/>
-	<key>NSPrivacyTrackingDomains</key>
-	<array>
-		<string>firebase.google.com</string>
-		<string>googlesyndication.com</string>
-		<string>google-analytics.com</string>
-	</array>
+	<false/>
 </dict>
 </plist>
