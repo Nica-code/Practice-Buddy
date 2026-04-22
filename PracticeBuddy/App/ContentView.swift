@@ -41,6 +41,7 @@ struct ContentView: View {
     @StateObject private var friendRequestBadgeManager = FriendRequestBadgeManager()
     @StateObject private var presenceManager = FirebasePresenceManager()
     @StateObject private var socialChatManager = StudioChatViewModel()
+    @StateObject private var versionGate = AppVersionGateManager()
 
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
@@ -54,7 +55,13 @@ struct ContentView: View {
         let fontChoice = PBFontChoice.byID(selectedFontID)
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
-        rootContent
+        ZStack {
+            rootContent
+            if versionGate.shouldBlockLaunch {
+                versionGateView
+                    .zIndex(2000)
+            }
+        }
         .onAppear {
             migrateTabSelectionIfNeeded()
 
@@ -69,6 +76,7 @@ struct ContentView: View {
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
+            versionGate.checkIfNeeded()
             refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: true)
         }
         .onChange(of: colorScheme) {
@@ -97,6 +105,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                versionGate.checkIfNeeded()
                 refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: false)
             } else {
                 duelLeagueManager.pauseRealtime()
@@ -239,6 +248,54 @@ struct ContentView: View {
                 .tag(4)
             }
         }
+    }
+
+    @ViewBuilder
+    private var versionGateView: some View {
+        let palette = theme.resolvedPalette(for: colorScheme)
+        ZStack {
+            PBBackdropView(palette: palette)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                switch versionGate.state {
+                case .checking, .idle:
+                    ProgressView()
+                    Text("Checking for updates…")
+                        .font(.headline)
+                        .foregroundStyle(palette.textPrimary)
+                case .updateRequired(let latestVersion, _):
+                    Image(systemName: "arrow.down.app.fill")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                    Text("Update Required")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(palette.textPrimary)
+                    Text("A newer version (\(latestVersion)) is available. Please update to continue.")
+                        .font(.subheadline)
+                        .foregroundStyle(palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                    VStack(spacing: 8) {
+                        Button("Update") {
+                            versionGate.openUpdate()
+                        }
+                        .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+
+                        Button("I Updated, Check Again") {
+                            versionGate.recheckNow()
+                        }
+                        .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+                    }
+                case .upToDate:
+                    EmptyView()
+                }
+            }
+            .padding(PBLayout.padLG)
+            .frame(maxWidth: 420)
+            .pbModernCard(palette: palette)
+            .padding(PBLayout.padLG)
+        }
+        .allowsHitTesting(true)
     }
 
     private var socialTabBadgeCount: Int? {

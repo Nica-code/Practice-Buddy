@@ -19,6 +19,17 @@ struct DuelRecordingCaptureView: View {
         var inScalePitchClasses: Set<Int> = []
     }
 
+    private struct LayoutTuning {
+        let verticalSpacing: CGFloat
+        let horizontalPadding: CGFloat
+        let topPadding: CGFloat
+        let bottomPadding: CGFloat
+        let cardPadding: CGFloat
+        let overlayNumberSize: CGFloat
+        let maxContentWidth: CGFloat?
+        let compactMetrics: Bool
+    }
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var duelLeague: DuelLeagueManager
     @Environment(\.pbTheme) private var theme
@@ -105,62 +116,30 @@ struct DuelRecordingCaptureView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Duel Objective") {
-                Text(challenge.objective)
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Text("Scale collection: \(allowedPitchNamesText)")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                Text("Analysis mode: \(strictnessLabel)")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-                Text("Repeats are allowed. Record one combined take for pitch + rhythm.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            .listRowBackground(Color.clear)
+        GeometryReader { proxy in
+            let layout = layoutTuning(for: proxy.size)
+            ZStack {
+                PBBackdropView(palette: palette)
+                    .ignoresSafeArea()
 
-            combinedCaptureSection
-
-            if let finalMetrics {
-                Section("Ready to Submit") {
-                    Text(
-                        L10n.f(
-                            "Derived %@ (I %@ • R %@ • C %@)",
-                            "\(finalMetrics.derivedScore)",
-                            "\(finalMetrics.intonationScore)",
-                            "\(finalMetrics.rhythmScore)",
-                            "\(finalMetrics.consistencyScore)"
-                        )
-                    )
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                    .monospacedDigit()
-
-                    Button("Submit Take") {
-                        onComplete(finalMetrics)
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(palette.accent)
+                VStack(spacing: layout.verticalSpacing) {
+                    objectiveCard(layout)
+                    captureStatusCard(layout)
+                    liveMetricsCard(layout)
+                    Spacer(minLength: 0)
+                    actionFooter
                 }
-                .listRowBackground(Color.clear)
-            }
+                .frame(maxWidth: layout.maxContentWidth ?? .infinity)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.top, layout.topPadding)
+                .padding(.bottom, layout.bottomPadding)
 
-            if let statusMessage, !statusMessage.isEmpty {
-                Section {
-                    Text(statusMessage)
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                if phase == .preRoll {
+                    preRollOverlay(layout)
+                        .transition(.opacity)
                 }
-                .listRowBackground(Color.clear)
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(PBBackdropView(palette: palette))
         .navigationTitle("Record Duel Take")
         .navigationBarTitleDisplayMode(.inline)
         .onReceive(ticker) { _ in
@@ -171,83 +150,118 @@ struct DuelRecordingCaptureView: View {
         }
     }
 
-    private var combinedCaptureSection: some View {
-        Section("Record Take") {
-            Stepper(L10n.f("Tempo: %@ BPM", "\(rhythmBPM)"), value: $rhythmBPM, in: minimumRhythmBPM...220)
-                .font(type.body)
-                .disabled(phase == .preRoll || phase == .recording)
+    private func layoutTuning(for size: CGSize) -> LayoutTuning {
+        let h = size.height
+        let w = size.width
+        if h < 700 {
+            return LayoutTuning(
+                verticalSpacing: 8,
+                horizontalPadding: PBLayout.padSM,
+                topPadding: 6,
+                bottomPadding: 8,
+                cardPadding: PBLayout.padSM,
+                overlayNumberSize: 76,
+                maxContentWidth: nil,
+                compactMetrics: true
+            )
+        }
+        if h > 900 || w >= 430 {
+            return LayoutTuning(
+                verticalSpacing: 12,
+                horizontalPadding: PBLayout.padMD,
+                topPadding: 12,
+                bottomPadding: 12,
+                cardPadding: PBLayout.padLG,
+                overlayNumberSize: 108,
+                maxContentWidth: 560,
+                compactMetrics: false
+            )
+        }
+        return LayoutTuning(
+            verticalSpacing: 10,
+            horizontalPadding: PBLayout.padSM,
+            topPadding: 10,
+            bottomPadding: 10,
+            cardPadding: PBLayout.padMD,
+            overlayNumberSize: 96,
+            maxContentWidth: 520,
+            compactMetrics: false
+        )
+    }
 
-            switch phase {
-            case .preRoll:
-                HStack {
-                    Text("Starting in")
-                        .font(type.body)
+    private func objectiveCard(_ layout: LayoutTuning) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(challenge.objective)
+                .font(type.body.weight(.semibold))
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+            Text("Scale: \(allowedPitchNamesText)")
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(2)
+            Text("Mode: \(strictnessLabel) • Combined pitch + rhythm take")
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+        }
+        .padding(layout.cardPadding)
+        .pbModernCard(palette: palette)
+    }
+
+    private func captureStatusCard(_ layout: LayoutTuning) -> some View {
+        VStack(spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tempo")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Text("\(rhythmBPM) BPM")
+                        .font(type.number)
                         .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text("\(preRollSeconds)")
-                        .font(type.timer)
+                        .monospacedDigit()
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(phaseTitle)
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+                    Text(phaseValue)
+                        .font(type.number)
                         .foregroundStyle(palette.accent)
                         .monospacedDigit()
                 }
-            case .recording:
-                let remaining = max(0, Int((takeDuration - Date().timeIntervalSince(recordingStartedAt ?? .now)).rounded()))
-                HStack {
-                    Text("Recording")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text("\(remaining)s")
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
+            }
+
+            Stepper(L10n.f("Tempo: %@ BPM", "\(rhythmBPM)"), value: $rhythmBPM, in: minimumRhythmBPM...220)
+                .font(type.body)
+                .disabled(phase == .preRoll || phase == .recording)
+        }
+        .padding(layout.cardPadding)
+        .pbModernCard(palette: palette)
+    }
+
+    private func liveMetricsCard(_ layout: LayoutTuning) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if layout.compactMetrics {
+                VStack(spacing: 6) {
+                    HStack {
+                        metricChip(title: "Detected", value: tuner.detectedNoteName)
+                        metricChip(title: "Samples", value: "\(aggregate.totalSamples)")
+                    }
+                    HStack {
+                        metricChip(title: "In-scale", value: "\(Int((inScaleRatio * 100).rounded()))%")
+                        metricChip(title: "Unique tones", value: "\(aggregate.inScalePitchClasses.count)")
+                    }
                 }
-            default:
-                Text("Press Record. A 5s countdown starts, then one combined take is captured.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-            }
-
-            HStack {
-                Text("Detected")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(tuner.detectedNoteName)
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-            }
-
-            HStack {
-                Text("Samples")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text("\(aggregate.totalSamples)")
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("In-scale")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text("\(aggregate.inScaleSamples) (\(Int((inScaleRatio * 100).rounded()))%)")
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Unique scale tones hit")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text("\(aggregate.inScalePitchClasses.count)")
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
+            } else {
+                HStack {
+                    metricChip(title: "Detected", value: tuner.detectedNoteName)
+                    metricChip(title: "Samples", value: "\(aggregate.totalSamples)")
+                }
+                HStack {
+                    metricChip(title: "In-scale", value: "\(Int((inScaleRatio * 100).rounded()))%")
+                    metricChip(title: "Unique tones", value: "\(aggregate.inScalePitchClasses.count)")
+                }
             }
 
             if let summary = rhythmEngine.summary {
@@ -268,25 +282,112 @@ struct DuelRecordingCaptureView: View {
                     .foregroundStyle(palette.textSecondary)
             }
 
-            if phase == .complete && aggregate.totalSamples > 0 {
+            if let finalMetrics {
+                Divider().overlay(palette.textSecondary.opacity(0.25))
+                Text(
+                    L10n.f(
+                        "Derived %@ (I %@ • R %@ • C %@)",
+                        "\(finalMetrics.derivedScore)",
+                        "\(finalMetrics.intonationScore)",
+                        "\(finalMetrics.rhythmScore)",
+                        "\(finalMetrics.consistencyScore)"
+                    )
+                )
+                .font(type.body.weight(.semibold))
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+            } else if phase == .complete && aggregate.totalSamples > 0 {
                 Text("Intonation \(intonationScore) • Consistency \(intonationConsistency)")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
             }
 
-            Button(phase == .preRoll || phase == .recording ? "Stop Recording" : "Record") {
-                if phase == .preRoll || phase == .recording {
-                    stopRecordingAndFinalize()
-                } else {
-                    startCombinedRecordingWithPreRoll()
-                }
+            if let statusMessage, !statusMessage.isEmpty {
+                Text(statusMessage)
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
-            .disabled(!(phase == .ready || phase == .complete || phase == .preRoll || phase == .recording))
         }
-        .listRowBackground(Color.clear)
+        .padding(layout.cardPadding)
+        .pbModernCard(palette: palette)
+    }
+
+    private var actionFooter: some View {
+        VStack(spacing: 8) {
+            if let finalMetrics {
+                Button("Submit Take") {
+                    onComplete(finalMetrics)
+                    dismiss()
+                }
+                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+            } else {
+                Button(phase == .preRoll || phase == .recording ? "Stop Recording" : "Record") {
+                    if phase == .preRoll || phase == .recording {
+                        stopRecordingAndFinalize()
+                    } else {
+                        startCombinedRecordingWithPreRoll()
+                    }
+                }
+                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+                .disabled(!(phase == .ready || phase == .complete || phase == .preRoll || phase == .recording))
+            }
+        }
+    }
+
+    private func preRollOverlay(_ layout: LayoutTuning) -> some View {
+        ZStack {
+            Color.black.opacity(0.32)
+                .ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text(preRollSeconds > 0 ? "\(preRollSeconds)" : "Start")
+                    .font(.system(size: layout.overlayNumberSize, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                Text("Get ready")
+                    .font(type.body)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+        }
+    }
+
+    private var phaseTitle: String {
+        switch phase {
+        case .ready: return "Status"
+        case .preRoll: return "Countdown"
+        case .recording: return "Remaining"
+        case .complete: return "Status"
+        }
+    }
+
+    private var phaseValue: String {
+        switch phase {
+        case .ready: return "Ready"
+        case .preRoll: return preRollSeconds > 0 ? "\(preRollSeconds)" : "Start"
+        case .recording:
+            let remaining = max(0, Int((takeDuration - Date().timeIntervalSince(recordingStartedAt ?? .now)).rounded()))
+            return "\(remaining)s"
+        case .complete: return "Take Ready"
+        }
+    }
+
+    private func metricChip(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(type.footnote)
+                .foregroundStyle(palette.textSecondary)
+            Text(value)
+                .font(type.body.weight(.semibold))
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .pbSurfaceCard(palette: palette)
     }
 
     private func startCombinedRecordingWithPreRoll() {
