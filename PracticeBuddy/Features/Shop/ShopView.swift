@@ -28,6 +28,14 @@ struct ShopView: View {
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Subscription: PractiQuest Ad-Free")
+                        Text("Duration: \(subscriptionDurationLabel)")
+                        Text("Price: \(subscriptionPriceLabel)")
+                    }
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+
                     Text(statusText)
                         .font(type.footnote)
                         .foregroundStyle(statusColor)
@@ -73,6 +81,17 @@ struct ShopView: View {
                 }
                 .font(type.body)
                 .foregroundStyle(palette.textPrimary)
+
+                if let termsURL = AppInfo.termsOfUseURL {
+                    Link("Terms of Use (EULA)", destination: termsURL)
+                        .font(type.footnote)
+                        .foregroundStyle(theme.accent)
+                }
+                if let privacyURL = AppInfo.privacyPolicyURL {
+                    Link("Privacy Policy", destination: privacyURL)
+                        .font(type.footnote)
+                        .foregroundStyle(theme.accent)
+                }
             }
             .listRowBackground(palette.surface)
 
@@ -159,6 +178,20 @@ struct ShopView: View {
 
     private var trialEligible: Bool {
         !purchaseManager.hasAdFree && !purchaseManager.trialUsed
+    }
+
+    private var subscriptionDurationLabel: String {
+        guard let period = adFreeProduct?.subscription?.subscriptionPeriod else {
+            return "1 month (auto-renewing)"
+        }
+        return "\(offerDurationText(period)) (auto-renewing)"
+    }
+
+    private var subscriptionPriceLabel: String {
+        guard let adFreeProduct else {
+            return "Unavailable"
+        }
+        return "\(adFreeProduct.displayPrice) / month"
     }
 
     private var isServerTrialActive: Bool {

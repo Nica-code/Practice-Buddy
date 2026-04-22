@@ -64,6 +64,29 @@ enum AppInfo {
         return nil
     }
 
+    static var privacyPolicyURL: URL? {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "PBPrivacyPolicyURL") as? String {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "https" {
+                return url
+            }
+        }
+        return nil
+    }
+
+    static var termsOfUseURL: URL? {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "PBTermsOfUseURL") as? String {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "https" {
+                return url
+            }
+        }
+        if let fallback = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/") {
+            return fallback
+        }
+        return nil
+    }
+
     static var duelFunctionsBaseURL: URL? {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "PBDuelFunctionsBaseURL") as? String {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

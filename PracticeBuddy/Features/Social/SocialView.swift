@@ -10,6 +10,7 @@ struct SocialView: View {
 
     @State private var showNewChatSheet = false
     @State private var searchText: String = ""
+    @StateObject private var notificationStore = PBNotificationStore.shared
     @AppStorage("pb.social.chat.openFriendUID") private var openFriendUID: String = ""
     @AppStorage("pb.social.chat.openThreadID") private var openThreadID: String = ""
 
@@ -148,6 +149,13 @@ struct SocialView: View {
             viewModel.start(uid: uid)
             consumePendingOpenFriendUID()
             consumePendingOpenThreadID()
+            syncInAppNotifications()
+        }
+        .onChange(of: viewModel.threads) { _, _ in
+            syncInAppNotifications()
+        }
+        .onChange(of: viewModel.unreadCount) { _, _ in
+            syncInAppNotifications()
         }
         .onChange(of: openFriendUID) { _, _ in
             consumePendingOpenFriendUID()
@@ -174,6 +182,10 @@ struct SocialView: View {
             || thread.lastMessageText.localizedCaseInsensitiveContains(q)
             || thread.subtitle.localizedCaseInsensitiveContains(q)
         }
+    }
+
+    private func syncInAppNotifications() {
+        notificationStore.syncChatThreads(viewModel.threads)
     }
 
     private func threadRow(_ thread: SocialChatThread) -> some View {

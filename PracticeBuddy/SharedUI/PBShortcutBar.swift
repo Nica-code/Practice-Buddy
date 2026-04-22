@@ -12,6 +12,8 @@ struct PBShortcutBar: View {
     let items: [PBShortcutItem]
     let palette: PBTheme.Palette
     @Environment(\.pbTypography) private var type
+    @StateObject private var notifications = PBNotificationStore.shared
+    @State private var showNotificationsSheet = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -71,7 +73,67 @@ struct PBShortcutBar: View {
                 .buttonStyle(.plain)
                 .disabled(item.isDisabled)
             }
+
+            Button {
+                PBHaptics.tap()
+                showNotificationsSheet = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(palette.textPrimary)
+                        .frame(width: 42, height: 34)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    palette.surface.opacity(0.54),
+                                                    palette.surfaceAlt.opacity(0.44),
+                                                    palette.accent.opacity(0.16)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                )
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            .white.opacity(0.34),
+                                            palette.accent.opacity(0.30)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                        .clipShape(Capsule())
+
+                    if notifications.unreadCount > 0 {
+                        Text("\(min(notifications.unreadCount, 99))")
+                            .font(type.fontChoice.headlineFont(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(palette.accent))
+                            .offset(x: 6, y: -5)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
         }
         .animation(PBLayout.quickAnimation, value: items.map(\.isDisabled))
+        .animation(PBLayout.quickAnimation, value: notifications.unreadCount)
+        .fullScreenCover(isPresented: $showNotificationsSheet) {
+            PBNotificationsInboxView()
+        }
     }
 }

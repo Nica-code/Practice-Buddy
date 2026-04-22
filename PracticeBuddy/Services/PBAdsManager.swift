@@ -1,6 +1,9 @@
 import SwiftUI
 import Combine
 import os
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
 
 #if canImport(GoogleMobileAds)
 import GoogleMobileAds
@@ -92,6 +95,11 @@ final class PBAdsManager: ObservableObject {
             return "SDK linked, missing production ad unit IDs."
         }
         return "SDK linked, using production ad units."
+    }
+
+    var shouldLogAdDebug: Bool {
+        guard let user = currentAuthUser() else { return false }
+        return AppInfo.isMasterAccount(uid: user.uid, email: user.email)
     }
 
     init() {
@@ -193,28 +201,30 @@ final class PBAdsManager: ObservableObject {
 
         #if canImport(GoogleMobileAds)
         guard let adUnitID = rewardedAdUnitID() else {
-            PBLog.firebase.info("Rewarded ad unit unavailable for challenge \(challengeID, privacy: .public)")
+            logAdDebugInfo("Rewarded ad unit unavailable for challenge \(challengeID)")
             return false
         }
         do {
-            PBLog.firebase.info("Loading rewarded ad for challenge \(challengeID, privacy: .public)")
+            logAdDebugInfo("Loading rewarded ad for challenge \(challengeID)")
             let ad = try await RewardedAd.load(with: adUnitID, request: Request())
             guard let root = PBAdRootResolver.rootViewController() else {
-                PBLog.firebase.error("Rewarded ad presentation skipped: no root view controller")
+                logAdDebugError("Rewarded ad presentation skipped: no root view controller")
                 return false
             }
             return await withCheckedContinuation { continuation in
                 let bridge = PBRewardedBridge(
                     ad: ad,
-                    continuation: continuation
-                ) { [weak self] in
-                    self?.rewardedBridge = nil
-                }
+                    continuation: continuation,
+                    onFinish: { [weak self] in
+                        self?.rewardedBridge = nil
+                    },
+                    shouldLogDebug: shouldLogAdDebug
+                )
                 self.rewardedBridge = bridge
                 bridge.present(from: root)
             }
         } catch {
-            PBLog.firebase.error("Rewarded ad load failed: \(error.localizedDescription, privacy: .public)")
+            logAdDebugError("Rewarded ad load failed: \(error.localizedDescription)")
             return false
         }
         #else
@@ -247,10 +257,30 @@ final class PBAdsManager: ObservableObject {
     private func maybeStartSDK() {
         guard canRequestNetworkAds else { return }
         #if canImport(GoogleMobileAds)
-        PBLog.firebase.info("Starting Google Mobile Ads SDK")
+        logAdDebugInfo("Starting Google Mobile Ads SDK")
         MobileAds.shared.start(completionHandler: nil)
         #endif
     }
+
+    private func logAdDebugInfo(_ message: String) {
+        guard shouldLogAdDebug else { return }
+        PBLog.firebase.info("\(message, privacy: .public)")
+    }
+
+    private func logAdDebugError(_ message: String) {
+        guard shouldLogAdDebug else { return }
+        PBLog.firebase.error("\(message, privacy: .public)")
+    }
+
+    #if canImport(FirebaseAuth)
+    private func currentAuthUser() -> User? {
+        Auth.auth().currentUser
+    }
+    #else
+    private func currentAuthUser() -> Any? {
+        nil
+    }
+    #endif
 
     #if canImport(GoogleMobileAds)
     private var rewardedBridge: PBRewardedBridge?
@@ -275,15 +305,18 @@ private final class PBRewardedBridge: NSObject, FullScreenContentDelegate {
     private let onFinish: () -> Void
     private var didEarnReward = false
     private var didResume = false
+    private let shouldLogDebug: Bool
 
     init(
         ad: RewardedAd,
         continuation: CheckedContinuation<Bool, Never>,
-        onFinish: @escaping () -> Void
+        onFinish: @escaping () -> Void,
+        shouldLogDebug: Bool
     ) {
         self.ad = ad
         self.continuation = continuation
         self.onFinish = onFinish
+        self.shouldLogDebug = shouldLogDebug
         super.init()
         self.ad.fullScreenContentDelegate = self
     }
@@ -299,7 +332,9 @@ private final class PBRewardedBridge: NSObject, FullScreenContentDelegate {
     }
 
     func ad(_ ad: FullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: any Error) {
-        PBLog.firebase.error("Rewarded ad failed to present: \(error.localizedDescription, privacy: .public)")
+        if shouldLogDebug {
+            PBLog.firebase.error("Rewarded ad failed to present: \(error.localizedDescription, privacy: .public)")
+        }
         finish(result: false)
     }
 

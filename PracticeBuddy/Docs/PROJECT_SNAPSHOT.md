@@ -1,6 +1,6 @@
 PractiQuest — Project Snapshot (Current)
 
-Last updated: 2026-04-16
+Last updated: 2026-04-21
 Repository root: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy`
 Branch during snapshot update: `codex/launch-hardening`
 
@@ -80,6 +80,10 @@ Home currently centers around a consolidated practice flow:
   - active duel entry and recording capture flow
   - match history screen
   - season ladder scopes
+  - unified duel action card styling (Queue Duel / Invite Friend / Match History)
+  - outgoing invites surfaced as a dedicated card block for better clarity
+
+Play top shortcuts now include a bell icon with unread badge, opening a full-screen notifications inbox.
 
 Duel + rating state management is in `DuelLeagueManager` and synced to Firestore.
 
@@ -163,6 +167,15 @@ Push infrastructure present:
 - FCM token storage under `users/{uid}/devices/{deviceId}`
 - category preference sync from app to backend/user document
 - app routing handler for notification deep-links (`PBNotificationRoute`)
+- in-app notifications inbox (`PBInAppNotifications`) shared across tabs
+- top bell badge count currently aggregates:
+  - duel invites
+  - friend requests
+  - chat unread threads
+- tapping any in-app notification now routes to destination:
+  - duel invite -> Play duel entry
+  - friend request -> Social friends/pending requests
+  - chat message -> exact Social chat thread
 
 Cloud Functions include push triggers for:
 - friend invite created

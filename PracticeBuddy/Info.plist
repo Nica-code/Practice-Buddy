@@ -67,6 +67,10 @@
 	<false/>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
+	<key>PBPrivacyPolicyURL</key>
+	<string>https://practiquest.app/privacy</string>
+	<key>PBTermsOfUseURL</key>
+	<string>https://practiquest.app/terms</string>
 	<key>PBIsTestFlightBuild</key>
 	<false/>
 	<key>PBMasterEmails</key>

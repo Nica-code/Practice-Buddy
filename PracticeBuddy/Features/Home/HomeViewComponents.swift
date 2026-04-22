@@ -137,6 +137,22 @@ final class MetronomeEngine: ObservableObject {
     private var beatsPerBar: Int = 4
     private var subdivision: Subdivision = .none
     private var soundStyle: SoundStyle = .click
+    private var shouldResumeAfterInterruption = false
+    private var interruptionObserver: NSObjectProtocol?
+    private var routeChangeObserver: NSObjectProtocol?
+
+    init() {
+        installAudioSessionObservers()
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+        if let routeChangeObserver {
+            NotificationCenter.default.removeObserver(routeChangeObserver)
+        }
+    }
 
     static func clampBeatsPerBar(_ value: Int) -> Int {
         [2, 3, 4, 6].contains(value) ? value : 4
@@ -219,6 +235,7 @@ final class MetronomeEngine: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setPreferredIOBufferDuration(0.005)
             try session.setActive(true, options: [])
         } catch {
             // Non-fatal; metronome will just be silent if audio session fails.
@@ -369,6 +386,80 @@ final class MetronomeEngine: ObservableObject {
         }
 
         return buffer
+    }
+
+    private func installAudioSessionObservers() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let userInfo = notification.userInfo
+            let typeRaw = userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsRaw = userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+            Task { @MainActor in
+                self.handleAudioInterruption(typeRaw: typeRaw, optionsRaw: optionsRaw)
+            }
+        }
+
+        routeChangeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let userInfo = notification.userInfo
+            let reasonRaw = userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            Task { @MainActor in
+                self.handleAudioRouteChange(reasonRaw: reasonRaw)
+            }
+        }
+    }
+
+    private func handleAudioInterruption(typeRaw: UInt?, optionsRaw: UInt?) {
+        guard let typeRaw,
+              let type = AVAudioSession.InterruptionType(rawValue: typeRaw) else {
+            return
+        }
+
+        switch type {
+        case .began:
+            shouldResumeAfterInterruption = isRunning
+        case .ended:
+            guard shouldResumeAfterInterruption, isRunning else { return }
+            shouldResumeAfterInterruption = false
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw ?? 0)
+            if options.contains(.shouldResume) {
+                restartPlaybackGraphIfRunning()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleAudioRouteChange(reasonRaw: UInt?) {
+        guard isRunning else { return }
+        guard let reasonRaw,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw) else {
+            return
+        }
+
+        switch reason {
+        case .oldDeviceUnavailable, .newDeviceAvailable, .categoryChange, .override:
+            restartPlaybackGraphIfRunning()
+        default:
+            break
+        }
+    }
+
+    private func restartPlaybackGraphIfRunning() {
+        guard isRunning else { return }
+        setAudioSessionIfNeeded()
+        setupAudioIfNeeded()
+        rebuildBuffersIfPossible()
+        scheduleLoopPlaybackIfPossible()
+        startTicker()
     }
 }
 

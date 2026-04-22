@@ -112,7 +112,7 @@ final class FirebaseBuddiesRepository {
     private let usersCollection = "users"
     private let invitesCollection = "invites"
     private let friendshipsCollection = "friendships"
-    private let chatThreadsCollection = "chatThreads"
+    private let chatThreadsCollection = "friendChats"
 
     func currentUserID() -> String? {
         Auth.auth().currentUser?.uid
@@ -549,16 +549,14 @@ final class FirebaseBuddiesRepository {
     func ensureFriendThread(currentUID: String, friendUID: String) async throws {
         let threadID = friendThreadID(uidA: currentUID, uidB: friendUID)
         let ref = db.collection(chatThreadsCollection).document(threadID)
-        let snap = try await ref.getDocument()
-        if !snap.exists {
-            try await ref.setData([
-                "participants": [currentUID, friendUID],
-                "lastMessageText": "",
-                "lastMessageAt": FieldValue.serverTimestamp(),
-                "lastMessageSenderUID": "",
-                "createdAt": FieldValue.serverTimestamp()
-            ])
-        }
+        // Avoid pre-read: missing docs can fail read rules before first message exists.
+        try await ref.setData([
+            "participants": [currentUID, friendUID],
+            "lastMessageText": "",
+            "lastMessageAt": FieldValue.serverTimestamp(),
+            "lastMessageSenderUID": "",
+            "createdAt": FieldValue.serverTimestamp()
+        ], merge: true)
     }
 
     func sendFriendMessage(
@@ -586,7 +584,7 @@ final class FirebaseBuddiesRepository {
         ], merge: true)
 
         try await threadRef.collection("messages").document().setData([
-            "senderUID": senderUID,
+            "senderUid": senderUID,
             "senderName": senderName,
             "senderAvatarID": senderAvatarID,
             "senderLevel": senderLevel,
@@ -626,7 +624,8 @@ final class FirebaseBuddiesRepository {
 
     private func parseFriendChatMessage(doc: QueryDocumentSnapshot) -> FriendChatMessage? {
         let data = doc.data()
-        guard let senderUID = data["senderUID"] as? String,
+        let senderUID = (data["senderUid"] as? String) ?? (data["senderUID"] as? String)
+        guard let senderUID,
               let text = data["text"] as? String else { return nil }
         return FriendChatMessage(
             id: doc.documentID,

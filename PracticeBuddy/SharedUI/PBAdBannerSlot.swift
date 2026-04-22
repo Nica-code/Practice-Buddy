@@ -23,7 +23,10 @@ struct PBAdBannerSlot: View {
                     placeholder
                 } else if let adUnitID = adsManager.bannerAdUnitID(for: placement) {
                     #if canImport(GoogleMobileAds)
-                    PBAdMobBannerRepresentable(adUnitID: adUnitID)
+                    PBAdMobBannerRepresentable(
+                        adUnitID: adUnitID,
+                        shouldLogDebug: adsManager.shouldLogAdDebug
+                    )
                         .frame(height: 50)
                     #else
                     placeholder
@@ -63,9 +66,10 @@ struct PBAdBannerSlot: View {
 #if canImport(GoogleMobileAds)
 private struct PBAdMobBannerRepresentable: UIViewRepresentable {
     let adUnitID: String
+    let shouldLogDebug: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(shouldLogDebug: shouldLogDebug)
     }
 
     func makeUIView(context: Context) -> BannerView {
@@ -73,7 +77,9 @@ private struct PBAdMobBannerRepresentable: UIViewRepresentable {
         banner.adUnitID = adUnitID
         banner.rootViewController = PBAdRootViewControllerResolver.resolve()
         banner.delegate = context.coordinator
-        PBLog.firebase.info("Loading banner ad unit=\(adUnitID, privacy: .public)")
+        if shouldLogDebug {
+            PBLog.firebase.info("Loading banner ad unit=\(adUnitID, privacy: .public)")
+        }
         banner.load(Request())
         return banner
     }
@@ -83,18 +89,31 @@ private struct PBAdMobBannerRepresentable: UIViewRepresentable {
         uiView.delegate = context.coordinator
         if uiView.adUnitID != adUnitID {
             uiView.adUnitID = adUnitID
-            PBLog.firebase.info("Reloading banner ad unit=\(adUnitID, privacy: .public)")
+            if shouldLogDebug {
+                PBLog.firebase.info("Reloading banner ad unit=\(adUnitID, privacy: .public)")
+            }
             uiView.load(Request())
         }
     }
 
     final class Coordinator: NSObject, BannerViewDelegate {
+        private let shouldLogDebug: Bool
+
+        init(shouldLogDebug: Bool) {
+            self.shouldLogDebug = shouldLogDebug
+            super.init()
+        }
+
         func bannerViewDidReceiveAd(_ bannerView: BannerView) {
-            PBLog.firebase.info("Banner ad loaded unit=\(bannerView.adUnitID ?? "", privacy: .public)")
+            if shouldLogDebug {
+                PBLog.firebase.info("Banner ad loaded unit=\(bannerView.adUnitID ?? "", privacy: .public)")
+            }
         }
 
         func bannerView(_ bannerView: BannerView, didFailToReceiveAdWithError error: any Error) {
-            PBLog.firebase.error("Banner ad failed unit=\(bannerView.adUnitID ?? "", privacy: .public): \(error.localizedDescription, privacy: .public)")
+            if shouldLogDebug {
+                PBLog.firebase.error("Banner ad failed unit=\(bannerView.adUnitID ?? "", privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 }

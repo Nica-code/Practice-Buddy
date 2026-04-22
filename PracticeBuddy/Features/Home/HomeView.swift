@@ -865,6 +865,10 @@ struct HomeView: View {
                     Spacer()
                     metronomeControlButton
                 }
+
+                Text("When running, metronome playback continues while the app is in background.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
             }
         }
         .scrollContentBackground(.hidden)

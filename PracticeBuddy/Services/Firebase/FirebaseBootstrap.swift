@@ -26,6 +26,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     private var currentNonce: String?
     private var activeAppleAuthController: ASAuthorizationController?
     private let authUIDelegate = FirebaseAuthPresentationDelegate()
+    private let urlSession = URLSession.shared
 
     func start() async {
         guard !isReady, !isStarting else { return }
@@ -279,6 +280,54 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             let message = L10n.f("Sign out failed: %@", error.localizedDescription)
             statusMessage = message
             PBLog.firebase.error("Sign out failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func deleteCurrentAccount() async -> Bool {
+        guard let user = Auth.auth().currentUser else {
+            statusMessage = "No signed-in account to delete."
+            return false
+        }
+        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
+            statusMessage = "Account deletion is unavailable in this build."
+            return false
+        }
+
+        do {
+            let token = try await user.getIDToken()
+            let endpoint = baseURL.appendingPathComponent("deleteAccount")
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 30
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [:], options: [])
+
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                statusMessage = "Account deletion failed: Invalid server response."
+                return false
+            }
+            let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
+            guard (200..<300).contains(http.statusCode), (json?["ok"] as? Bool) == true else {
+                let message = (json?["error"] as? String) ?? "Account deletion failed (\(http.statusCode))."
+                statusMessage = message
+                return false
+            }
+
+            try? Auth.auth().signOut()
+            currentUserID = nil
+            currentUserEmail = nil
+            isAnonymousUser = true
+            statusMessage = "Account deleted."
+            PBLog.firebase.info("Deleted current Firebase account and signed out.")
+            return true
+        } catch {
+            let message = L10n.f("Account deletion failed: %@", error.localizedDescription)
+            statusMessage = message
+            PBLog.firebase.error("Account deletion failed: \(error.localizedDescription)")
             return false
         }
     }

@@ -158,6 +158,22 @@ exports.pushTestNotification = onRequest(async (req, res) => {
   }
 });
 
+exports.deleteAccount = onRequest(async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+
+  try {
+    const uid = await requireUID(req);
+    await deleteAccountAndData(uid);
+    res.status(200).json({ok: true});
+  } catch (error) {
+    logger.error("deleteAccount failed", error);
+    res.status(400).json({error: String(error.message || error)});
+  }
+});
+
 exports.duelQueueJoin = onRequest(async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
@@ -1202,6 +1218,121 @@ function randomDuelScaleName() {
       .map((r) => `${r} melodic minor`);
   const pool = major.concat(melodicMinor);
   return pool[Math.floor(Math.random() * pool.length)] || "C major";
+}
+
+async function deleteAccountAndData(uid) {
+  const normalizedUID = String(uid || "").trim();
+  if (!normalizedUID) {
+    throw new Error("Invalid auth user");
+  }
+
+  // Best-effort cleanup for user-owned and user-linked data.
+  await Promise.allSettled([
+    recursiveDeleteDoc(db.collection("users").doc(normalizedUID)),
+    recursiveDeleteDoc(db.collection("friendships").doc(normalizedUID)),
+    deleteSingleDoc(db.collection("duelQueue").doc(normalizedUID)),
+  ]);
+
+  await Promise.allSettled([
+    deleteInvitesForUID(normalizedUID),
+    deleteBuddyBacklinks(normalizedUID),
+    deleteFriendChatsForUID(normalizedUID),
+    deleteStudioMembershipsForUID(normalizedUID),
+    cancelOpenDuelChallengesForUID(normalizedUID),
+  ]);
+
+  try {
+    await admin.auth().deleteUser(normalizedUID);
+  } catch (error) {
+    const code = String(error?.code || "");
+    if (code !== "auth/user-not-found") {
+      throw error;
+    }
+  }
+}
+
+async function recursiveDeleteDoc(docRef) {
+  try {
+    await db.recursiveDelete(docRef);
+  } catch (error) {
+    logger.warn("recursive delete failed", {path: docRef.path, error: String(error?.message || error)});
+  }
+}
+
+async function deleteSingleDoc(docRef) {
+  try {
+    await docRef.delete();
+  } catch (error) {
+    logger.warn("single delete failed", {path: docRef.path, error: String(error?.message || error)});
+  }
+}
+
+async function deleteInvitesForUID(uid) {
+  const outbound = await db.collection("invites").where("fromUid", "==", uid).get();
+  const inbound = await db.collection("invites").where("toUid", "==", uid).get();
+  await deleteDocSnapshots([...outbound.docs, ...inbound.docs]);
+}
+
+async function deleteBuddyBacklinks(uid) {
+  const buddyBacklinks = await db.collectionGroup("buddies")
+      .where(admin.firestore.FieldPath.documentId(), "==", uid)
+      .get();
+  await deleteDocSnapshots(buddyBacklinks.docs);
+}
+
+async function deleteFriendChatsForUID(uid) {
+  const chats = await db.collection("friendChats")
+      .where("participants", "array-contains", uid)
+      .get();
+  await Promise.allSettled(chats.docs.map((doc) => db.recursiveDelete(doc.ref)));
+}
+
+async function deleteStudioMembershipsForUID(uid) {
+  const memberDocs = await db.collectionGroup("members")
+      .where(admin.firestore.FieldPath.documentId(), "==", uid)
+      .get();
+
+  for (const memberDoc of memberDocs.docs) {
+    const studioRef = memberDoc.ref.parent.parent;
+    if (!studioRef) continue;
+
+    try {
+      const studioSnap = await studioRef.get();
+      const ownerUID = String(studioSnap.data()?.ownerUid || "");
+      if (ownerUID === uid) {
+        await db.recursiveDelete(studioRef);
+      } else {
+        await memberDoc.ref.delete();
+      }
+    } catch (error) {
+      logger.warn("studio membership cleanup failed", {
+        path: memberDoc.ref.path,
+        error: String(error?.message || error),
+      });
+    }
+  }
+}
+
+async function cancelOpenDuelChallengesForUID(uid) {
+  const challenges = await db.collection("duelChallenges")
+      .where("participants", "array-contains", uid)
+      .get();
+  const updates = challenges.docs
+      .filter((doc) => {
+        const status = String(doc.data()?.status || "");
+        return status === "open" || status === "invited" || status === "active";
+      })
+      .map((doc) => doc.ref.set({
+        status: "canceled",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true}));
+
+  await Promise.allSettled(updates);
+}
+
+async function deleteDocSnapshots(docs) {
+  if (!Array.isArray(docs) || docs.length === 0) return;
+  await Promise.allSettled(docs.map((doc) => doc.ref.delete()));
 }
 
 async function requireUID(req) {

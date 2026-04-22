@@ -35,6 +35,10 @@ struct SettingsView: View {
     @State var scrollAnchorTarget: SettingsAnchor?
     @State var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State var showSignOutConfirmation: Bool = false
+    @State var showDeleteAccountConfirmation: Bool = false
+    @State var isDeletingAccount: Bool = false
+    @State var deleteAccountErrorMessage: String?
+    @State var showDeleteAccountError: Bool = false
     #if DEBUG
     @State var pushTestStatus: String?
     #endif
@@ -149,6 +153,33 @@ struct SettingsView: View {
             }
         } message: {
             Text("You can sign back in anytime with Apple or Google.")
+        }
+        .confirmationDialog(
+            "Delete Account Permanently?",
+            isPresented: $showDeleteAccountConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Account", role: .destructive) {
+                Task {
+                    isDeletingAccount = true
+                    defer { isDeletingAccount = false }
+                    let success = await firebase.deleteCurrentAccount()
+                    if success {
+                        selectedTab = 0
+                    } else {
+                        deleteAccountErrorMessage = firebase.statusMessage ?? "Account deletion failed."
+                        showDeleteAccountError = true
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete your account and cannot be undone.")
+        }
+        .alert("Account Deletion Failed", isPresented: $showDeleteAccountError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteAccountErrorMessage ?? "Account deletion failed. Please try again.")
         }
     }
 

@@ -124,6 +124,23 @@ extension SettingsView {
     var accountSection: some View {
         Section {
             settingsSectionCard {
+                if canShowAdsDebugSection {
+                    Toggle(
+                        "Simulate Free Mode (Master)",
+                        isOn: Binding(
+                            get: { purchaseManager.masterSimulateFreeMode },
+                            set: { purchaseManager.setMasterSimulateFreeMode($0) }
+                        )
+                    )
+                    .font(type.body)
+
+                    Text("On: hides subscription unlocks/ads-off state so you can test free-account behavior on this account.")
+                        .font(type.footnote)
+                        .foregroundStyle(palette.textSecondary)
+
+                    Divider()
+                }
+
                 Button(role: .destructive) {
                     showSignOutConfirmation = true
                 } label: {
@@ -138,7 +155,28 @@ extension SettingsView {
                 }
                 .buttonStyle(.plain)
 
+                Divider()
+
+                Button(role: .destructive) {
+                    showDeleteAccountConfirmation = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "trash.fill")
+                            .foregroundStyle(Color.red)
+                        Text(isDeletingAccount ? "Deleting Account..." : "Delete Account")
+                            .font(type.body)
+                            .foregroundStyle(Color.red)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeletingAccount)
+
                 Text("Sign out to switch accounts.")
+                    .font(type.footnote)
+                    .foregroundStyle(palette.textSecondary)
+
+                Text("Delete Account permanently removes your account and associated data.")
                     .font(type.footnote)
                     .foregroundStyle(palette.textSecondary)
             }

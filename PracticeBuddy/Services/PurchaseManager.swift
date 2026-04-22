@@ -47,12 +47,14 @@ final class PurchaseManager: ObservableObject {
     static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"
     static let accountTypeKey = "pb.pro.accountType"
     static let entitlementTierKey = "pb.pro.entitlementTier"
+    static let masterSimulateFreeModeKey = "pb.master.simulateFreeMode"
 
     @Published private(set) var ownedProductIDs: Set<String> = []
     @Published private(set) var isPro: Bool
     @Published private(set) var hasActiveSubscription: Bool
     @Published private(set) var entitlementTier: PBEntitlementTier
     @Published private(set) var accountType: PBAccountType
+    @Published private(set) var masterSimulateFreeMode: Bool
     @Published private(set) var trialUsed: Bool = false
     @Published private(set) var trialEndsAt: Date?
     @Published private(set) var syncStatus: String?
@@ -81,11 +83,13 @@ final class PurchaseManager: ObservableObject {
         let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
         let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
         let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
+        let storedMasterSimulateFree = defaults.bool(forKey: Self.masterSimulateFreeModeKey)
 
         hasActiveSubscription = storedSubscriptionActive
         entitlementTier = storedTier
         isPro = false
         accountType = storedType
+        masterSimulateFreeMode = storedMasterSimulateFree
         ownedProductIDs = storedSubscriptionIDs
         if hasActiveSubscription && ownedProductIDs.isEmpty {
             ownedProductIDs = Set(Self.adFreeSubscriptionProductIDs)
@@ -228,6 +232,18 @@ final class PurchaseManager: ObservableObject {
         Task { await pushLocalStateToFirestore() }
     }
 
+    func setMasterSimulateFreeMode(_ enabled: Bool) {
+        guard masterSimulateFreeMode != enabled else { return }
+        masterSimulateFreeMode = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.masterSimulateFreeModeKey)
+
+        if isMasterOverride {
+            enforceMasterAccessValues()
+        } else {
+            recalculateProAccess()
+        }
+    }
+
     func completeInitialAccountSetup(as type: PBAccountType) {
         applyAccountType(type)
         syncStatus = nil
@@ -331,7 +347,8 @@ final class PurchaseManager: ObservableObject {
 
     private func recalculateProAccess(now: Date = Date()) {
         let _ = now
-        let newPro = isMasterOverride || entitlementTier.isUnlocked || hasActiveSubscription
+        let masterUnlocked = isMasterOverride && !masterSimulateFreeMode
+        let newPro = masterUnlocked || entitlementTier.isUnlocked || hasActiveSubscription
         if isPro != newPro { isPro = newPro }
     }
 
@@ -356,7 +373,12 @@ final class PurchaseManager: ObservableObject {
     }
 
     private func enforceMasterAccessValues() {
-        applyEntitlementTier(.allAccess)
+        if masterSimulateFreeMode {
+            applySubscriptionState(false, productIDs: [])
+            applyEntitlementTier(.free)
+        } else {
+            applyEntitlementTier(.allAccess)
+        }
         recalculateProAccess()
     }
 

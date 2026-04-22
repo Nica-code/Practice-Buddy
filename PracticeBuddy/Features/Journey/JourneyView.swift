@@ -45,6 +45,7 @@ struct JourneyView: View {
     @State private var duelRecordedMetricsByChallengeID: [String: DuelDerivedMetrics] = [:]
     @StateObject private var playBuddiesVM = BuddiesViewModel()
     @State private var dismissedPlayInviteIDs: Set<String> = []
+    @StateObject private var notificationStore = PBNotificationStore.shared
     @AppStorage("pb.play.openChallengeID") private var openChallengeID: String = ""
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
@@ -173,6 +174,7 @@ struct JourneyView: View {
                 didSeedCompletedChallengeIDs = true
             }
             syncJourneyDuelSnapshot()
+            syncInAppNotifications()
             guard !didLoadDuelTargets else { return }
             didLoadDuelTargets = true
             Task {
@@ -193,9 +195,13 @@ struct JourneyView: View {
         }
         .onChange(of: playBuddiesVM.incomingInvites.map(\.id)) { _, ids in
             dismissedPlayInviteIDs.formIntersection(Set(ids))
+            syncInAppNotifications()
         }
         .onChange(of: duelLeague.activeChallenges.map(\.id)) { _, _ in
             consumePendingOpenChallengeID()
+        }
+        .onChange(of: duelLeague.incomingInvites.map(\.id)) { _, _ in
+            syncInAppNotifications()
         }
         .onChange(of: duelLeague.recentCompleted.map(\.id)) { _, ids in
             let current = Set(ids)
@@ -323,6 +329,11 @@ struct JourneyView: View {
             losses: duelLeague.duelLosses,
             draws: duelLeague.duelDraws
         )
+    }
+
+    private func syncInAppNotifications() {
+        notificationStore.syncDuelInvites(duelLeague.incomingInvites, cachedNames: duelLeague.userDisplayNames)
+        notificationStore.syncFriendRequests(playBuddiesVM.incomingInvites)
     }
 
     private var playFriendRequestBannerSection: some View {
@@ -601,7 +612,7 @@ struct JourneyView: View {
                 )
             }
 
-            HStack {
+            VStack(spacing: 10) {
                 Menu {
                     if duelLeague.friendCandidates.isEmpty {
                         Text("No friend targets")
@@ -614,37 +625,43 @@ struct JourneyView: View {
                         }
                     }
                 } label: {
-                    Label("Invite Friend", systemImage: "person.badge.plus")
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.badge.plus")
+                        Text("Invite Friend")
+                            .font(type.button)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
                 .disabled(duelLeague.isActionBusy || firebase.currentUserID == nil || firebase.isAnonymousUser || hasPendingActiveForMe)
 
-            }
-
-            if !duelLeague.incomingInvites.isEmpty {
-                DisclosureGroup("Incoming Invites (\(duelLeague.incomingInvites.count))") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(duelLeague.incomingInvites) { challenge in
-                            incomingInviteRow(challenge)
-                        }
+                Button {
+                    showMatchHistorySheet = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock.arrow.circlepath")
+                        Text("Match History")
+                            .font(type.button)
                     }
-                    .padding(.top, 6)
+                    .frame(maxWidth: .infinity)
                 }
-                .font(type.footnote)
-                .foregroundStyle(palette.textPrimary)
+                .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+                .disabled(duelLeague.matchHistory.isEmpty)
             }
 
             if !duelLeague.outgoingInvites.isEmpty {
-                DisclosureGroup("Outgoing Invites (\(duelLeague.outgoingInvites.count))") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Outgoing Invites (\(duelLeague.outgoingInvites.count))")
+                        .font(type.fontChoice.headlineFont(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.textPrimary)
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(duelLeague.outgoingInvites) { challenge in
                             outgoingInviteRow(challenge)
                         }
                     }
-                    .padding(.top, 6)
                 }
-                .font(type.footnote)
-                .foregroundStyle(palette.textPrimary)
+                .padding(10)
+                .pbSurfaceCard(palette: palette)
             }
 
             if !duelLeague.activeChallenges.isEmpty {
@@ -672,15 +689,6 @@ struct JourneyView: View {
                 .font(type.footnote)
                 .foregroundStyle(palette.textPrimary)
             }
-
-            Button {
-                showMatchHistorySheet = true
-            } label: {
-                Label("Match History", systemImage: "clock.arrow.circlepath")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
-            .disabled(duelLeague.matchHistory.isEmpty)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Season Ladder")
