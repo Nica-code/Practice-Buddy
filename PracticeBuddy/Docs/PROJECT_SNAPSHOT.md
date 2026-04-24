@@ -1,6 +1,6 @@
 PractiQuest — Project Snapshot (Current)
 
-Last updated: 2026-04-21
+Last updated: 2026-04-23
 Repository root: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy`
 Branch during snapshot update: `codex/launch-hardening`
 
@@ -49,6 +49,12 @@ Firebase auth handling is in `FirebaseBootstrap` and includes:
 - Apple sign-in with nonce
 - email/password sign-up and sign-in
 - sign-out support
+
+Latest production hotfix (2026-04-23):
+- fixed Apple sign-in duplicate credential handling path
+- fixed Google sign-in fallback when link-on-anonymous returns `credentialAlreadyInUse`
+- validated on physical iPhone with clean install + sign in/out + re-sign-in cycles
+- build approved by App Review after this auth fix upload
 
 Display name constraints are normalized and Firestore rules enforce valid format/length.
 

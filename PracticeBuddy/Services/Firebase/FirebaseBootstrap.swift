@@ -104,6 +104,10 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     func handleAppleSignInCompletion(_ result: Result<ASAuthorization, Error>) {
+        defer {
+            currentNonce = nil
+            activeAppleAuthController = nil
+        }
         switch result {
         case .failure(let error):
             statusMessage = L10n.f("Apple sign-in failed: %@", error.localizedDescription)
@@ -152,12 +156,10 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         handleAppleSignInCompletion(.success(authorization))
-        activeAppleAuthController = nil
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         handleAppleSignInCompletion(.failure(error))
-        activeAppleAuthController = nil
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -182,20 +184,8 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         PBLog.firebase.info("Starting Google sign-in flow.")
         let provider = OAuthProvider(providerID: "google.com")
         provider.customParameters = ["prompt": "select_account"]
-
-        if let user = Auth.auth().currentUser, user.isAnonymous {
-            user.link(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
-                Task { @MainActor in
-                    self?.handleGoogleProviderResult(result: result, error: error)
-                }
-            }
-        } else {
-            Auth.auth().signIn(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
-                Task { @MainActor in
-                    self?.handleGoogleProviderResult(result: result, error: error)
-                }
-            }
-        }
+        let shouldLinkAnonymous = (Auth.auth().currentUser?.isAnonymous == true)
+        runGoogleSignIn(provider: provider, attemptLink: shouldLinkAnonymous)
     }
 
     @discardableResult
@@ -352,6 +342,31 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         PBLog.firebase.info("Signed in with Google.")
     }
 
+    private func runGoogleSignIn(provider: OAuthProvider, attemptLink: Bool) {
+        if attemptLink, let user = Auth.auth().currentUser, user.isAnonymous {
+            user.link(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let ns = error as NSError?,
+                       ns.domain == AuthErrorDomain,
+                       ns.code == AuthErrorCode.credentialAlreadyInUse.rawValue {
+                        // Fall back to direct Google sign-in if this Google account already exists.
+                        self.runGoogleSignIn(provider: provider, attemptLink: false)
+                        return
+                    }
+                    self.handleGoogleProviderResult(result: result, error: error)
+                }
+            }
+            return
+        }
+
+        Auth.auth().signIn(with: provider, uiDelegate: authUIDelegate) { [weak self] result, error in
+            Task { @MainActor in
+                self?.handleGoogleProviderResult(result: result, error: error)
+            }
+        }
+    }
+
     private func signInWithCredential(_ credential: AuthCredential, providerName: String) async {
         do {
             let result: AuthDataResult
@@ -370,7 +385,8 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             if ns.domain == AuthErrorDomain,
                ns.code == AuthErrorCode.credentialAlreadyInUse.rawValue {
                 do {
-                    let result = try await signIn(with: credential)
+                    let fallbackCredential = (ns.userInfo[AuthErrorUserInfoUpdatedCredentialKey] as? AuthCredential) ?? credential
+                    let result = try await signIn(with: fallbackCredential)
                     refreshAuthState(user: result.user)
                     statusMessage = L10n.f("Signed in with %@.", providerName)
                     return
