@@ -31,14 +31,9 @@ struct PBTheme: Identifiable {
     /// In your original Classic, you special-cased dark chrome to pure black.
     /// We apply that uniformly to all themes so tab backgrounds & nav chrome are identical.
     func chromeBackground(for colorScheme: ColorScheme) -> Color {
-        // Pink Neon intentionally keeps pink chrome in dark mode too.
-        if id == "pink_neon" {
-            return resolvedPalette(for: colorScheme).background
-        }
-        if colorScheme == .dark {
-            return .black
-        }
-        return resolvedPalette(for: colorScheme).background
+        // Chrome now follows the palette in both modes so the liquid-glass surfaces
+        // float over a tinted backdrop instead of pure black.
+        resolvedPalette(for: colorScheme).background
     }
 
     var background: Color { dynamicColor(\.background) }
@@ -62,9 +57,21 @@ extension PBTheme {
 
     private static func classicBase(accent: Color) -> PBTheme.Palette {
         .init(
-            background: Color(uiColor: .systemGroupedBackground),
-            surface: Color(uiColor: .secondarySystemGroupedBackground),
-            surfaceAlt: Color(uiColor: .tertiarySystemGroupedBackground),
+            background: Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.035, green: 0.040, blue: 0.062, alpha: 1.0)
+                    : UIColor.systemGroupedBackground
+            }),
+            surface: Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.075, green: 0.082, blue: 0.118, alpha: 1.0)
+                    : UIColor.secondarySystemGroupedBackground
+            }),
+            surfaceAlt: Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.120, green: 0.130, blue: 0.180, alpha: 1.0)
+                    : UIColor.tertiarySystemGroupedBackground
+            }),
             textPrimary: .primary,
             textSecondary: .secondary,
             accent: accent
@@ -94,18 +101,18 @@ extension PBTheme {
         id: "classic",
         name: "Sonata",
         access: .free,
-        palette: classicBase(accent: Color(red: 0.17, green: 0.47, blue: 0.74)),
+        palette: classicBase(accent: Color(red: 0.28, green: 0.52, blue: 0.96)),
         dynamicPalette: { scheme in
             if scheme == .dark {
-                return classicBase(accent: Color(red: 0.17, green: 0.47, blue: 0.74))
+                return classicBase(accent: Color(red: 0.45, green: 0.68, blue: 1.0))
             }
             return themedLightBase(
-                background: Color(red: 198.0 / 255.0, green: 224.0 / 255.0, blue: 233.0 / 255.0), // Pantone-like 2905 family
-                surface: Color(red: 225.0 / 255.0, green: 240.0 / 255.0, blue: 246.0 / 255.0),
-                surfaceAlt: Color(red: 174.0 / 255.0, green: 210.0 / 255.0, blue: 224.0 / 255.0),
-                accent: Color(red: 0.17, green: 0.47, blue: 0.74),
+                background: Color(red: 218.0 / 255.0, green: 240.0 / 255.0, blue: 255.0 / 255.0),
+                surface: Color(red: 238.0 / 255.0, green: 248.0 / 255.0, blue: 255.0 / 255.0),
+                surfaceAlt: Color(red: 170.0 / 255.0, green: 219.0 / 255.0, blue: 255.0 / 255.0),
+                accent: Color(red: 0.08, green: 0.38, blue: 1.00),
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.13, green: 0.16, blue: 0.20)
+                textSecondary: Color(red: 0.09, green: 0.14, blue: 0.22)
             )
         }
     )
@@ -116,19 +123,20 @@ extension PBTheme {
         id: "midnight",
         name: "Legato",
         access: .free,
-        palette: classicBase(accent: Color(red: 0.14, green: 0.56, blue: 0.35)),
+        palette: classicBase(accent: Color(red: 0.10, green: 0.74, blue: 0.52)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 0.14, green: 0.56, blue: 0.35)
+            let lightAccent = Color(red: 0.05, green: 0.66, blue: 0.46)
+            let darkAccent = Color(red: 0.30, green: 0.92, blue: 0.66)
             if scheme == .dark {
-                return classicBase(accent: accent)
+                return classicBase(accent: darkAccent)
             }
             return themedLightBase(
-                background: Color(red: 201.0 / 255.0, green: 228.0 / 255.0, blue: 204.0 / 255.0), // Pantone-like 345 family
-                surface: Color(red: 225.0 / 255.0, green: 241.0 / 255.0, blue: 227.0 / 255.0),
-                surfaceAlt: Color(red: 171.0 / 255.0, green: 210.0 / 255.0, blue: 177.0 / 255.0),
-                accent: accent,
+                background: Color(red: 211.0 / 255.0, green: 248.0 / 255.0, blue: 236.0 / 255.0),
+                surface: Color(red: 235.0 / 255.0, green: 255.0 / 255.0, blue: 247.0 / 255.0),
+                surfaceAlt: Color(red: 144.0 / 255.0, green: 236.0 / 255.0, blue: 207.0 / 255.0),
+                accent: lightAccent,
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.12, green: 0.18, blue: 0.14)
+                textSecondary: Color(red: 0.05, green: 0.18, blue: 0.14)
             )
         }
     )
@@ -138,19 +146,20 @@ extension PBTheme {
         id: "concert_hall",
         name: "Concert Hall",
         access: .free,
-        palette: classicBase(accent: Color(red: 250.0 / 255.0, green: 187.0 / 255.0, blue: 20.0 / 255.0)),
+        palette: classicBase(accent: Color(red: 1.00, green: 0.78, blue: 0.18)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 250.0 / 255.0, green: 187.0 / 255.0, blue: 20.0 / 255.0)
+            let lightAccent = Color(red: 0.98, green: 0.74, blue: 0.10)
+            let darkAccent = Color(red: 1.00, green: 0.86, blue: 0.32)
             if scheme == .dark {
-                return classicBase(accent: accent)
+                return classicBase(accent: darkAccent)
             }
             return themedLightBase(
-                background: Color(red: 255.0 / 255.0, green: 243.0 / 255.0, blue: 207.0 / 255.0),
-                surface: Color(red: 255.0 / 255.0, green: 231.0 / 255.0, blue: 173.0 / 255.0),
-                surfaceAlt: Color(red: 255.0 / 255.0, green: 211.0 / 255.0, blue: 107.0 / 255.0),
-                accent: accent,
+                background: Color(red: 255.0 / 255.0, green: 246.0 / 255.0, blue: 210.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 251.0 / 255.0, blue: 232.0 / 255.0),
+                surfaceAlt: Color(red: 168.0 / 255.0, green: 231.0 / 255.0, blue: 242.0 / 255.0),
+                accent: lightAccent,
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.20, green: 0.15, blue: 0.07)
+                textSecondary: Color(red: 0.20, green: 0.14, blue: 0.06)
             )
         }
     )
@@ -161,19 +170,20 @@ extension PBTheme {
         id: "warm_maple",
         name: "Luthier",
         access: .free,
-        palette: classicBase(accent: Color(red: 242.0 / 255.0, green: 138.0 / 255.0, blue: 49.0 / 255.0)),
+        palette: classicBase(accent: Color(red: 1.00, green: 0.50, blue: 0.18)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 242.0 / 255.0, green: 138.0 / 255.0, blue: 49.0 / 255.0)
+            let lightAccent = Color(red: 0.98, green: 0.46, blue: 0.14)
+            let darkAccent = Color(red: 1.00, green: 0.62, blue: 0.30)
             if scheme == .dark {
-                return classicBase(accent: accent)
+                return classicBase(accent: darkAccent)
             }
             return themedLightBase(
-                background: Color(red: 255.0 / 255.0, green: 240.0 / 255.0, blue: 228.0 / 255.0),
-                surface: Color(red: 255.0 / 255.0, green: 225.0 / 255.0, blue: 203.0 / 255.0),
-                surfaceAlt: Color(red: 255.0 / 255.0, green: 192.0 / 255.0, blue: 138.0 / 255.0),
-                accent: accent,
+                background: Color(red: 255.0 / 255.0, green: 232.0 / 255.0, blue: 216.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 244.0 / 255.0, blue: 230.0 / 255.0),
+                surfaceAlt: Color(red: 255.0 / 255.0, green: 169.0 / 255.0, blue: 118.0 / 255.0),
+                accent: lightAccent,
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.23, green: 0.14, blue: 0.08)
+                textSecondary: Color(red: 0.24, green: 0.10, blue: 0.05)
             )
         }
     )
@@ -183,17 +193,18 @@ extension PBTheme {
         id: "appassionato",
         name: "Appassionato",
         access: .free,
-        palette: classicBase(accent: Color(red: 248.0 / 255.0, green: 11.0 / 255.0, blue: 4.0 / 255.0)),
+        palette: classicBase(accent: Color(red: 0.98, green: 0.18, blue: 0.32)),
         dynamicPalette: { scheme in
-            let accent = Color(red: 248.0 / 255.0, green: 11.0 / 255.0, blue: 4.0 / 255.0)
+            let lightAccent = Color(red: 0.95, green: 0.10, blue: 0.28)
+            let darkAccent = Color(red: 1.00, green: 0.36, blue: 0.48)
             if scheme == .dark {
-                return classicBase(accent: accent)
+                return classicBase(accent: darkAccent)
             }
             return themedLightBase(
-                background: Color(red: 255.0 / 255.0, green: 227.0 / 255.0, blue: 226.0 / 255.0),
-                surface: Color(red: 255.0 / 255.0, green: 208.0 / 255.0, blue: 206.0 / 255.0),
-                surfaceAlt: Color(red: 255.0 / 255.0, green: 173.0 / 255.0, blue: 169.0 / 255.0),
-                accent: accent,
+                background: Color(red: 255.0 / 255.0, green: 220.0 / 255.0, blue: 228.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 236.0 / 255.0, blue: 241.0 / 255.0),
+                surfaceAlt: Color(red: 177.0 / 255.0, green: 222.0 / 255.0, blue: 255.0 / 255.0),
+                accent: lightAccent,
                 textPrimary: Color.black,
                 textSecondary: Color(red: 0.24, green: 0.07, blue: 0.06)
             )
@@ -206,31 +217,31 @@ extension PBTheme {
         name: "Cantabile",
         access: .free,
         palette: .init(
-            background: Color(red: 244.0 / 255.0, green: 194.0 / 255.0, blue: 214.0 / 255.0), // Pantone-like 1895 family
-            surface: Color(red: 250.0 / 255.0, green: 223.0 / 255.0, blue: 235.0 / 255.0),
-            surfaceAlt: Color(red: 236.0 / 255.0, green: 176.0 / 255.0, blue: 202.0 / 255.0),
+            background: Color(red: 252.0 / 255.0, green: 218.0 / 255.0, blue: 234.0 / 255.0),
+            surface: Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 245.0 / 255.0),
+            surfaceAlt: Color(red: 245.0 / 255.0, green: 188.0 / 255.0, blue: 218.0 / 255.0),
             textPrimary: Color.black,
-            textSecondary: Color(red: 0.16, green: 0.12, blue: 0.15),
-            accent: Color(red: 0.84, green: 0.40, blue: 0.62)
+            textSecondary: Color(red: 0.20, green: 0.10, blue: 0.18),
+            accent: Color(red: 0.96, green: 0.28, blue: 0.62)
         ),
         dynamicPalette: { scheme in
             if scheme == .dark {
                 return .init(
-                    background: Color(red: 0.205, green: 0.120, blue: 0.185),
-                    surface: Color(red: 0.260, green: 0.155, blue: 0.235),
-                    surfaceAlt: Color(red: 0.330, green: 0.195, blue: 0.295),
-                    textPrimary: Color(red: 0.996, green: 0.952, blue: 0.980),
-                    textSecondary: Color(red: 0.945, green: 0.820, blue: 0.905),
-                    accent: Color(red: 0.985, green: 0.700, blue: 0.865)
+                    background: Color(red: 0.100, green: 0.045, blue: 0.132),
+                    surface: Color(red: 0.170, green: 0.072, blue: 0.205),
+                    surfaceAlt: Color(red: 0.255, green: 0.105, blue: 0.315),
+                    textPrimary: Color(red: 1.000, green: 0.965, blue: 0.985),
+                    textSecondary: Color(red: 0.965, green: 0.820, blue: 0.910),
+                    accent: Color(red: 1.00, green: 0.46, blue: 0.78)
                 )
             }
             return .init(
-                background: Color(red: 244.0 / 255.0, green: 194.0 / 255.0, blue: 214.0 / 255.0),
-                surface: Color(red: 250.0 / 255.0, green: 223.0 / 255.0, blue: 235.0 / 255.0),
-                surfaceAlt: Color(red: 236.0 / 255.0, green: 176.0 / 255.0, blue: 202.0 / 255.0),
+                background: Color(red: 255.0 / 255.0, green: 224.0 / 255.0, blue: 241.0 / 255.0),
+                surface: Color(red: 255.0 / 255.0, green: 240.0 / 255.0, blue: 250.0 / 255.0),
+                surfaceAlt: Color(red: 190.0 / 255.0, green: 214.0 / 255.0, blue: 255.0 / 255.0),
                 textPrimary: Color.black,
-                textSecondary: Color(red: 0.16, green: 0.12, blue: 0.15),
-                accent: Color(red: 0.84, green: 0.40, blue: 0.62)
+                textSecondary: Color(red: 0.20, green: 0.10, blue: 0.18),
+                accent: Color(red: 0.96, green: 0.28, blue: 0.62)
             )
         }
     )

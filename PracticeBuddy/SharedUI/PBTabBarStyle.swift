@@ -33,14 +33,14 @@ enum PBTabBarStyle {
         )
 
         let baseBackground = colorScheme == .dark
-            ? UIColor.black.withAlphaComponent(0.72)
-            : UIColor.systemBackground.withAlphaComponent(0.86)
-        let accentOverlay = accent.withAlphaComponent(colorScheme == .dark ? 0.12 : 0.08)
+            ? UIColor(red: 0.06, green: 0.065, blue: 0.09, alpha: 0.82)
+            : UIColor.systemBackground.withAlphaComponent(0.78)
+        let accentOverlay = accent.withAlphaComponent(colorScheme == .dark ? 0.20 : 0.14)
         appearance.backgroundColor = blendedColor(base: baseBackground, overlay: accentOverlay)
-        appearance.shadowColor = UIColor.separator.withAlphaComponent(colorScheme == .dark ? 0.22 : 0.12)
+        appearance.shadowColor = accent.withAlphaComponent(colorScheme == .dark ? 0.28 : 0.18)
 
         let selected = accent
-        let unselected = accent.withAlphaComponent(colorScheme == .dark ? 0.62 : 0.72)
+        let unselected = accent.withAlphaComponent(colorScheme == .dark ? 0.58 : 0.62)
         let selectedTextFont = fontChoice.uiTabBarSelectedFont(size: 10)
         let normalTextFont = fontChoice.uiTabBarNormalFont(size: 10)
 
@@ -64,7 +64,7 @@ enum PBTabBarStyle {
                 .font: normalTextFont
             ]
 
-            itemAppearance.selected.badgeBackgroundColor = selected.withAlphaComponent(0.92)
+            itemAppearance.selected.badgeBackgroundColor = selected.withAlphaComponent(0.96)
             itemAppearance.normal.badgeBackgroundColor = selected.withAlphaComponent(0.74)
         }
 

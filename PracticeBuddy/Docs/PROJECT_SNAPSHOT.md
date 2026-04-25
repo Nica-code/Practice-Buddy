@@ -161,9 +161,15 @@ Configured production IDs are in `Info.plist`:
 - rewarded duel unit id
 
 ## 11) UI/Theming State
-Recent shared styling refactor pushed UI toward Liquid Glass aesthetics through shared primitives:
-- `PBLayout` (card/backdrop glass styling)
-- `PBShortcutBar` (glass chip styling)
+Massive Update Part 1 completed a broad visual refresh while preserving the app skeleton and feature wiring.
+
+Current shared design direction:
+- bold, youthful Liquid Glass styling across cards, backdrops, shortcut chips, buttons, and tab chrome
+- animated stage-light backdrop through `PBBackdropView`
+- layered frosted surfaces through `PBLayout` card modifiers
+- brighter theme palettes in `PBTheme`
+- upgraded top shortcut chips through `PBShortcutBar`
+- more translucent, accent-tinted bottom tab bar through `PBTabBarStyle`
 
 This centralization improves consistency across tabs/popups that use shared components.
 
@@ -240,6 +246,12 @@ Active app languages:
 Onboarding now allows immediate language selection before sign-in.
 
 ## 18) Latest Updates (2026-04-25)
+- Massive Update Part 1 is complete:
+  - Home tab renamed to Practice
+  - Live Activity extension added and validated on device
+  - notification routing/badge reliability hardened
+  - custom profile photo upload added and refined
+  - visual redesign pushed through shared design tokens
 - Live Activity extension was added and wired:
   - `PracticeBuddyLiveActivity/PracticeBuddyLiveActivityBundle.swift`
   - `PracticeBuddyLiveActivity/PracticeTimerLiveActivityWidget.swift`
@@ -260,6 +272,11 @@ Onboarding now allows immediate language selection before sign-in.
 - Season Ladder redesign shipped (Global + Friends):
   - row cards with avatar + rank + rating + stat chips
   - expanded actions preserved (`Go to Profile`, `Duel Challenge`)
+- Liquid Glass redesign expanded after initial pass:
+  - stronger shared glass surface layers
+  - richer animated background treatment
+  - more premium shortcut bar and tab bar styling
+  - updated theme palette support colors while preserving all theme ids
 
 ## 19) Current Build/Source Control Status at Time of Snapshot
 - Branch: `codex/launch-hardening`

@@ -3,10 +3,10 @@ import UIKit
 
 /// Centralized spacing + corner radius tokens so the UI feels consistent everywhere.
 enum PBLayout {
-    // Corner radii
-    static let radiusControl: Double = 14
-    static let radiusCard: Double = 18
-    static let radiusSheet: Double = 22
+    // Soft glass silhouette tokens used across the whole app.
+    static let radiusControl: Double = 18
+    static let radiusCard: Double = 24
+    static let radiusSheet: Double = 30
 
     // Padding scale
     static let padXS: Double = 8
@@ -15,63 +15,128 @@ enum PBLayout {
     static let padLG: Double = 18
     static let padXL: Double = 24
 
-    // Surface depth tokens
-    static let borderWidth: Double = 1.0
-    static let cardShadowY: Double = 3.0
-    static let cardShadowRadius: Double = 9.0
-    static let cardShadowOpacity: Double = 0.085
-    static let cardAmbientOpacity: Double = 0.035
-    static let glassTintOpacity: Double = 0.28
-    static let glassHighlightOpacity: Double = 0.36
+    // Surface depth tokens — tuned for the liquid-glass refresh.
+    static let borderWidth: Double = 1.15
+    static let cardShadowY: Double = 10.0
+    static let cardShadowRadius: Double = 26.0
+    static let cardShadowOpacity: Double = 0.20
+    static let cardAmbientOpacity: Double = 0.08
+    static let glassTintOpacity: Double = 0.40
+    static let glassHighlightOpacity: Double = 0.72
 
     // Motion tokens
-    static let quickAnimation = Animation.snappy(duration: 0.22, extraBounce: 0.02)
-    static let springAnimation = Animation.spring(response: 0.34, dampingFraction: 0.86)
+    static let quickAnimation = Animation.snappy(duration: 0.22, extraBounce: 0.04)
+    static let springAnimation = Animation.spring(response: 0.34, dampingFraction: 0.84)
 }
 
+/// Animated, vibrant backdrop with flowing stage-light bands. It keeps every
+/// screen connected without adding per-screen decorative code.
 struct PBBackdropView: View {
     let palette: PBTheme.Palette
 
+    @State private var driftPhase: Double = 0
+
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    palette.background.opacity(0.98),
-                    palette.surface.opacity(0.90),
-                    palette.background.opacity(0.98)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            Rectangle().fill(
+                RadialGradient(
+                    colors: [
+                        palette.surfaceAlt.opacity(0.72),
+                        palette.background.opacity(0.98),
+                        palette.background
+                    ],
+                    center: .topLeading,
+                    startRadius: 0,
+                    endRadius: 760
+                )
             )
 
-            RoundedRectangle(cornerRadius: 140, style: .continuous)
-                .fill(palette.accent.opacity(0.14))
-                .frame(width: 320, height: 220)
-                .blur(radius: 30)
-                .offset(x: 145, y: -260)
-
-            RoundedRectangle(cornerRadius: 120, style: .continuous)
-                .fill(palette.textSecondary.opacity(0.12))
-                .frame(width: 280, height: 200)
-                .blur(radius: 34)
-                .offset(x: -150, y: 260)
-
-            LinearGradient(
-                colors: [
-                    .white.opacity(0.08),
-                    .clear,
-                    palette.accent.opacity(0.08)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            Rectangle().fill(
+                LinearGradient(
+                    colors: [
+                        palette.accent.opacity(0.38),
+                        palette.surface.opacity(0.10),
+                        palette.surfaceAlt.opacity(0.24),
+                        Color.white.opacity(0.14),
+                        palette.background.opacity(0.0)
+                    ],
+                    startPoint: UnitPoint(x: 0.05 + sin(driftPhase) * 0.06, y: 0.04),
+                    endPoint: UnitPoint(x: 0.92, y: 1.0 + cos(driftPhase) * 0.05)
+                )
             )
             .blendMode(.plusLighter)
-            .ignoresSafeArea()
+            .opacity(0.92)
+
+            Rectangle().fill(
+                AngularGradient(
+                    colors: [
+                        palette.accent.opacity(0.0),
+                        palette.accent.opacity(0.16),
+                        Color.white.opacity(0.20),
+                        palette.surfaceAlt.opacity(0.18),
+                        palette.accent.opacity(0.0)
+                    ],
+                    center: UnitPoint(x: 0.58 + sin(driftPhase * 0.45) * 0.08, y: 0.34)
+                )
+            )
+            .blur(radius: 44)
+            .opacity(0.78)
+            .blendMode(.screen)
+
+            Rectangle().fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.22),
+                        .clear,
+                        palette.accent.opacity(0.12),
+                        .clear
+                    ],
+                    startPoint: UnitPoint(x: 0.0, y: 0.16 + cos(driftPhase * 0.7) * 0.05),
+                    endPoint: UnitPoint(x: 1.0, y: 0.86)
+                )
+            )
+            .mask(
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.9), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .blendMode(.plusLighter)
+
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color.black.opacity(0.045)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .blendMode(.multiply)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.035))
+                .background(.ultraThinMaterial.opacity(0.14))
+                .mask(
+                    LinearGradient(
+                        colors: [.white.opacity(0.35), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .blendMode(.plusLighter)
         }
         .ignoresSafeArea()
+        .onAppear {
+            withAnimation(.easeInOut(duration: 18).repeatForever(autoreverses: true)) {
+                driftPhase = .pi * 2
+            }
+        }
     }
 }
 
+/// The star of the makeover: a layered liquid-glass surface.
+/// Material base → tinted gradient sheen → bright bevel stroke → inner top highlight.
 private struct PBGlassSurface: View {
     let palette: PBTheme.Palette
     let cornerRadius: Double
@@ -79,42 +144,64 @@ private struct PBGlassSurface: View {
     let strokeOpacity: Double
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                palette.surface.opacity(max(0.12, tintOpacity)),
-                                palette.surfaceAlt.opacity(max(0.10, tintOpacity * 0.76)),
-                                palette.accent.opacity(max(0.05, tintOpacity * 0.40))
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            shape.fill(.ultraThinMaterial)
+
+            shape.fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(min(0.56, tintOpacity * 1.22)),
+                        palette.surface.opacity(max(0.12, tintOpacity * 0.62)),
+                        palette.surfaceAlt.opacity(max(0.10, tintOpacity * 0.48)),
+                        palette.accent.opacity(max(0.08, tintOpacity * 0.40))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(PBLayout.glassHighlightOpacity),
-                                palette.accent.opacity(strokeOpacity),
-                                .white.opacity(0.06)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: PBLayout.borderWidth
-                    )
+            .blendMode(.plusLighter)
+
+            shape.fill(
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        Color.white.opacity(0.16),
+                        .clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: max(0, cornerRadius - 0.5), style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 0.6)
-                    .blendMode(.screen)
+            .blendMode(.screen)
+
+            shape.stroke(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(PBLayout.glassHighlightOpacity),
+                        palette.accent.opacity(strokeOpacity * 1.25),
+                        Color.white.opacity(0.18),
+                        palette.accent.opacity(strokeOpacity * 0.75)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: PBLayout.borderWidth
             )
+
+            shape
+                .inset(by: 0.5)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.70), .clear],
+                        startPoint: .top,
+                        endPoint: .center
+                    ),
+                    lineWidth: 0.8
+                )
+                .blendMode(.screen)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -129,8 +216,26 @@ private struct PBModernCardModifier: ViewModifier {
                     palette: palette,
                     cornerRadius: PBLayout.radiusCard,
                     tintOpacity: PBLayout.glassTintOpacity,
-                    strokeOpacity: 0.24
+                    strokeOpacity: 0.42
                 )
+            )
+            .shadow(
+                color: palette.accent.opacity(PBLayout.cardShadowOpacity),
+                radius: PBLayout.cardShadowRadius,
+                x: 0,
+                y: PBLayout.cardShadowY
+            )
+            .shadow(
+                color: Color.white.opacity(0.10),
+                radius: 3,
+                x: 0,
+                y: -1
+            )
+            .shadow(
+                color: Color.black.opacity(PBLayout.cardAmbientOpacity),
+                radius: 4,
+                x: 0,
+                y: 3
             )
     }
 }
@@ -146,9 +251,15 @@ private struct PBFlatCardModifier: ViewModifier {
                 PBGlassSurface(
                     palette: palette,
                     cornerRadius: cornerRadius,
-                    tintOpacity: PBLayout.glassTintOpacity * 0.78,
-                    strokeOpacity: 0.18
+                    tintOpacity: PBLayout.glassTintOpacity * 0.88,
+                    strokeOpacity: 0.28
                 )
+            )
+            .shadow(
+                color: palette.accent.opacity(0.10),
+                radius: 10,
+                x: 0,
+                y: 4
             )
     }
 }
@@ -164,8 +275,8 @@ private struct PBSurfaceCardModifier: ViewModifier {
                 PBGlassSurface(
                     palette: palette,
                     cornerRadius: cornerRadius,
-                    tintOpacity: PBLayout.glassTintOpacity * 0.62,
-                    strokeOpacity: 0.16
+                    tintOpacity: PBLayout.glassTintOpacity * 0.72,
+                    strokeOpacity: 0.24
                 )
             )
     }
@@ -196,43 +307,71 @@ struct PBActionButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed
-        let backgroundColor: Color = {
-            switch variant {
-            case .primary:
-                return palette.accent.opacity(pressed ? 0.84 : 1.0)
-            case .secondary:
-                return palette.surfaceAlt.opacity(pressed ? 0.85 : 1.0)
-            }
-        }()
         let foregroundColor: Color = {
             switch variant {
-            case .primary:
-                return Color.white
-            case .secondary:
-                return palette.textPrimary
+            case .primary:   return Color.white
+            case .secondary: return palette.textPrimary
             }
         }()
 
         return configuration.label
             .foregroundStyle(foregroundColor)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                    .fill(backgroundColor)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                            .stroke(variant == .secondary ? palette.accent.opacity(0.20) : Color.clear, lineWidth: 1)
-                    )
+                ZStack {
+                    let shape = RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                    switch variant {
+                    case .primary:
+                        shape.fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.18),
+                                    palette.accent.opacity(pressed ? 0.92 : 1.0),
+                                    palette.accent.opacity(pressed ? 0.66 : 0.76),
+                                    Color.black.opacity(0.10)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        shape
+                            .inset(by: 0.5)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.65), .clear],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                ),
+                                lineWidth: 0.9
+                            )
+                            .blendMode(.screen)
+                    case .secondary:
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.24),
+                                    palette.surfaceAlt.opacity(pressed ? 0.60 : 0.46),
+                                    palette.accent.opacity(pressed ? 0.18 : 0.11)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                            .blendMode(.plusLighter)
+                        shape.stroke(palette.accent.opacity(0.42), lineWidth: 1)
+                    }
+                }
             )
-            .scaleEffect(pressed ? 0.98 : 1.0)
+            .scaleEffect(pressed ? 0.97 : 1.0)
             .shadow(
                 color: variant == .primary ?
-                    Color.black.opacity(PBLayout.cardShadowOpacity) :
+                    palette.accent.opacity(pressed ? 0.18 : 0.34) :
                     Color.black.opacity(PBLayout.cardAmbientOpacity),
-                radius: PBLayout.cardShadowRadius * 0.75,
+                radius: variant == .primary ? 18 : 8,
                 x: 0,
-                y: 2
+                y: variant == .primary ? 9 : 3
             )
             .animation(PBLayout.quickAnimation, value: pressed)
     }
@@ -250,10 +389,10 @@ struct PBSectionHeaderLabel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(type.footnote.weight(.semibold))
-                .foregroundStyle(palette.textPrimary.opacity(0.92))
+                .font(type.footnote.weight(.bold))
+                .foregroundStyle(palette.textPrimary.opacity(0.95))
                 .textCase(.uppercase)
-                .tracking(0.45)
+                .tracking(0.9)
             if let detail {
                 Text(detail)
                     .font(type.footnote)

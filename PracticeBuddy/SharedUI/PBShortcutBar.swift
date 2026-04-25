@@ -16,7 +16,7 @@ struct PBShortcutBar: View {
     @State private var showNotificationsSheet = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             ForEach(items) { item in
                 Button(action: {
                     if !item.isDisabled { PBHaptics.tap() }
@@ -34,8 +34,8 @@ struct PBShortcutBar: View {
                     }
                     .foregroundStyle(item.isDisabled ? palette.textSecondary.opacity(0.72) : palette.textPrimary)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 10)
                     .background(
                         Capsule(style: .continuous)
                             .fill(.ultraThinMaterial)
@@ -44,9 +44,10 @@ struct PBShortcutBar: View {
                                     .fill(
                                         LinearGradient(
                                             colors: [
-                                                palette.surface.opacity(item.isDisabled ? 0.36 : 0.54),
-                                                palette.surfaceAlt.opacity(item.isDisabled ? 0.28 : 0.44),
-                                                palette.accent.opacity(item.isDisabled ? 0.06 : 0.16)
+                                                Color.white.opacity(item.isDisabled ? 0.14 : 0.28),
+                                                palette.surface.opacity(item.isDisabled ? 0.34 : 0.54),
+                                                palette.surfaceAlt.opacity(item.isDisabled ? 0.24 : 0.42),
+                                                palette.accent.opacity(item.isDisabled ? 0.06 : 0.20)
                                             ],
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
@@ -59,8 +60,9 @@ struct PBShortcutBar: View {
                             .stroke(
                                 LinearGradient(
                                     colors: [
-                                        .white.opacity(0.34),
-                                        palette.accent.opacity(item.isDisabled ? 0.10 : 0.30)
+                                        .white.opacity(item.isDisabled ? 0.28 : 0.58),
+                                        palette.accent.opacity(item.isDisabled ? 0.10 : 0.40),
+                                        .white.opacity(0.16)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -69,6 +71,12 @@ struct PBShortcutBar: View {
                             )
                     )
                     .clipShape(Capsule())
+                    .shadow(
+                        color: item.isDisabled ? .clear : palette.accent.opacity(0.16),
+                        radius: 9,
+                        x: 0,
+                        y: 5
+                    )
                 }
                 .buttonStyle(.plain)
                 .disabled(item.isDisabled)
@@ -82,7 +90,7 @@ struct PBShortcutBar: View {
                     Image(systemName: "bell.fill")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(palette.textPrimary)
-                        .frame(width: 42, height: 34)
+                        .frame(width: 44, height: 38)
                         .background(
                             Capsule(style: .continuous)
                                 .fill(.ultraThinMaterial)
@@ -91,9 +99,10 @@ struct PBShortcutBar: View {
                                         .fill(
                                             LinearGradient(
                                                 colors: [
+                                                    Color.white.opacity(0.28),
                                                     palette.surface.opacity(0.54),
                                                     palette.surfaceAlt.opacity(0.44),
-                                                    palette.accent.opacity(0.16)
+                                                    palette.accent.opacity(0.24)
                                                 ],
                                                 startPoint: .topLeading,
                                                 endPoint: .bottomTrailing
@@ -106,8 +115,9 @@ struct PBShortcutBar: View {
                                 .stroke(
                                     LinearGradient(
                                         colors: [
-                                            .white.opacity(0.34),
-                                            palette.accent.opacity(0.30)
+                                            .white.opacity(0.58),
+                                            palette.accent.opacity(0.42),
+                                            .white.opacity(0.16)
                                         ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -116,6 +126,7 @@ struct PBShortcutBar: View {
                                 )
                         )
                         .clipShape(Capsule())
+                        .shadow(color: palette.accent.opacity(0.18), radius: 10, x: 0, y: 5)
 
                     if notifications.unreadCount > 0 {
                         Text("\(min(notifications.unreadCount, 99))")
