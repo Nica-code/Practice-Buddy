@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct UserProfileView: View {
     private enum ProfileField {
@@ -21,7 +23,11 @@ struct UserProfileView: View {
     @State private var animateHeader = false
     @State private var showShopSheet = false
     @State private var avatarStatusMessage: String?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var pendingProfilePhotoData: Data?
+    @State private var showPhotoActions: Bool = false
     @FocusState private var focusedField: ProfileField?
+    @StateObject private var profilePhotoManager = ProfilePhotoManager()
 
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var equippedFrameID: String? { journey.equippedRewardID(for: .profileFrame) }
@@ -82,6 +88,22 @@ struct UserProfileView: View {
             bio = profile.bio
             instrument = profile.instrument
         }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                if let data = try? await newItem.loadTransferable(type: Data.self), !data.isEmpty {
+                    await MainActor.run {
+                        pendingProfilePhotoData = data
+                        avatarStatusMessage = "Uploading photo..."
+                    }
+                    await applySelectedProfilePhoto(data)
+                } else {
+                    await MainActor.run {
+                        avatarStatusMessage = "Could not load selected photo."
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $showShopSheet) {
             NavigationStack {
                 ShopView()
@@ -111,7 +133,90 @@ struct UserProfileView: View {
 
             if let profile = buddiesVM.myProfile {
                 HStack(spacing: 10) {
-                    PBAvatarView(avatarID: avatarID, displayName: profile.displayName, size: 52)
+                    ZStack(alignment: .bottomTrailing) {
+                        PBAvatarView(
+                            avatarID: avatarID,
+                            displayName: profile.displayName,
+                            profilePhotoURL: profile.profilePhotoURL,
+                            size: 72
+                        )
+                        Button {
+                            showPhotoActions = true
+                        } label: {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(
+                                    Circle()
+                                        .fill(palette.accent)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("Change profile photo"))
+                        .popover(isPresented: $showPhotoActions, attachmentAnchor: .point(.bottom), arrowEdge: .top) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 10) {
+                                    PBAvatarView(
+                                        avatarID: avatarID,
+                                        displayName: buddiesVM.myProfile?.displayName ?? "User",
+                                        profilePhotoURL: buddiesVM.myProfile?.profilePhotoURL,
+                                        size: 34
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Profile Photo")
+                                            .font(type.body.weight(.semibold))
+                                            .foregroundStyle(palette.textPrimary)
+                                        Text("Choose how your profile appears")
+                                            .font(type.footnote)
+                                            .foregroundStyle(palette.textSecondary)
+                                    }
+                                }
+
+                                Divider()
+
+                                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "photo.badge.plus")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(palette.accent)
+                                        Text("Upload New Photo")
+                                            .font(type.body.weight(.semibold))
+                                            .foregroundStyle(palette.textPrimary)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
+                                            .fill(palette.accent.opacity(0.12))
+                                    )
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(role: .destructive) {
+                                    removeCustomPhoto()
+                                    showPhotoActions = false
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 13, weight: .semibold))
+                                        Text("Remove Current Photo")
+                                            .font(type.body)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 10)
+                                }
+                                .foregroundStyle((buddiesVM.myProfile?.profilePhotoURL ?? "").isEmpty ? palette.textSecondary : Color.red)
+                                .disabled((buddiesVM.myProfile?.profilePhotoURL ?? "").isEmpty)
+                                .buttonStyle(.plain)
+                            }
+                            .padding(12)
+                            .frame(width: 280)
+                            .presentationCompactAdaptation(.popover)
+                        }
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(profile.displayName)
                             .font(type.sectionTitle)
@@ -122,6 +227,10 @@ struct UserProfileView: View {
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                         }
+                        Text("Tap the camera icon to upload or remove your photo.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary.opacity(0.88))
+                            .lineLimit(2)
                     }
                     Spacer()
                 }
@@ -274,6 +383,15 @@ struct UserProfileView: View {
 
                 avatarCarousel(title: "Free", styles: PBAvatarStyle.freeStyles)
                 avatarCarousel(title: "Token Unlocks", styles: PBAvatarStyle.tokenStyles)
+                if profilePhotoManager.isUploading {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Uploading profile photo...")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
 
                 if let avatarStatusMessage, !avatarStatusMessage.isEmpty {
                     Text(avatarStatusMessage)
@@ -437,8 +555,55 @@ struct UserProfileView: View {
     private func saveProfile() {
         focusedField = nil
         Task {
-            await buddiesVM.updateProfile(avatarID: avatarID, bio: bio, instrument: instrument)
+            await buddiesVM.updateProfile(
+                avatarID: avatarID,
+                profilePhotoURL: nil,
+                bio: bio,
+                instrument: instrument
+            )
             await buddiesVM.syncPublicLevel(journey.level)
+        }
+    }
+
+    private func applySelectedProfilePhoto(_ data: Data) async {
+        guard let uid = buddiesVM.myProfile?.uid else {
+            await MainActor.run {
+                avatarStatusMessage = "Profile is not ready yet."
+            }
+            return
+        }
+
+        if let uploadedURL = await profilePhotoManager.uploadProfilePhoto(uid: uid, imageData: data) {
+            await buddiesVM.updateProfile(
+                avatarID: avatarID,
+                profilePhotoURL: uploadedURL,
+                bio: bio,
+                instrument: instrument
+            )
+            await MainActor.run {
+                pendingProfilePhotoData = nil
+                avatarStatusMessage = "Photo updated."
+                showPhotoActions = false
+            }
+        } else {
+            await MainActor.run {
+                avatarStatusMessage = profilePhotoManager.lastErrorMessage ?? "Could not upload selected photo."
+            }
+        }
+    }
+
+    private func removeCustomPhoto() {
+        pendingProfilePhotoData = nil
+        Task {
+            guard let uid = buddiesVM.myProfile?.uid else { return }
+            await profilePhotoManager.deleteProfilePhoto(uid: uid)
+            await buddiesVM.updateProfile(
+                avatarID: avatarID,
+                profilePhotoURL: "",
+                bio: bio,
+                instrument: instrument
+            )
+            avatarStatusMessage = "Removed custom photo."
         }
     }
 }
@@ -516,7 +681,12 @@ struct PublicUserProfileView: View {
                     }
                 } else if let profile {
                     HStack(spacing: 10) {
-                        PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 48)
+                        PBAvatarView(
+                            avatarID: profile.avatarID,
+                            displayName: profile.displayName,
+                            profilePhotoURL: profile.profilePhotoURL,
+                            size: 48
+                        )
                         VStack(alignment: .leading, spacing: 4) {
                             Text(profile.displayName)
                                 .font(type.sectionTitle)

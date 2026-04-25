@@ -122,7 +122,12 @@ struct FriendsView: View {
                     selectedTab = 3
                 } label: {
                     HStack(spacing: 10) {
-                        PBAvatarView(avatarID: profile.avatarID, displayName: profile.displayName, size: 36)
+                        PBAvatarView(
+                            avatarID: profile.avatarID,
+                            displayName: profile.displayName,
+                            profilePhotoURL: profile.profilePhotoURL,
+                            size: 36
+                        )
                         VStack(alignment: .leading, spacing: 2) {
                             Text("My Profile")
                                 .font(type.body)
@@ -356,7 +361,12 @@ struct FriendsView: View {
             } else {
                 ForEach(Array(buddiesVM.buddies.enumerated()), id: \.element.id) { _, buddy in
                     HStack {
-                        PBAvatarView(avatarID: buddy.avatarID, displayName: buddy.displayName, size: 30)
+                        PBAvatarView(
+                            avatarID: buddy.avatarID,
+                            displayName: buddy.displayName,
+                            profilePhotoURL: buddiesVM.buddyProfilePhotoURL(buddy.id, fallback: buddy.profilePhotoURL),
+                            size: 30
+                        )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(buddy.displayName)
                                 .font(type.body)
@@ -427,7 +437,12 @@ struct FriendsView: View {
                                     .frame(width: 34, alignment: .leading)
                                     .monospacedDigit()
 
-                                PBAvatarView(avatarID: row.avatarID, displayName: row.name, size: 26)
+                                PBAvatarView(
+                                    avatarID: row.avatarID,
+                                    displayName: row.name,
+                                    profilePhotoURL: row.profilePhotoURL,
+                                    size: 26
+                                )
 
                                 Text(row.name)
                                     .font(type.body)

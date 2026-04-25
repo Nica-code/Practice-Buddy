@@ -1712,6 +1712,8 @@ enum DuelLeaderboardScope: String, CaseIterable, Identifiable {
 struct DuelLeaderboardRow: Identifiable, Equatable {
     let id: String
     let displayName: String
+    let avatarID: String
+    let profilePhotoURL: String
     let points: Int
     let rating: Int
     let wins: Int
@@ -2597,6 +2599,8 @@ final class DuelLeagueManager: ObservableObject {
         return DuelLeaderboardRow(
             id: documentID,
             displayName: displayName,
+            avatarID: ((data["avatarID"] as? String) ?? "avatar_note").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "avatar_note" : ((data["avatarID"] as? String) ?? "avatar_note"),
+            profilePhotoURL: ((data["profilePhotoURL"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             points: max(0, (data["duelSeasonPoints"] as? Int) ?? 0),
             rating: rating,
             wins: max(0, (data["duelSeasonWins"] as? Int) ?? 0),

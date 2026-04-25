@@ -263,7 +263,12 @@ struct SocialView: View {
                             showNewChatSheet = false
                         } label: {
                             HStack(spacing: 10) {
-                                PBAvatarView(avatarID: buddy.avatarID, displayName: buddy.displayName, size: 30)
+                                PBAvatarView(
+                                    avatarID: buddy.avatarID,
+                                    displayName: buddy.displayName,
+                                    profilePhotoURL: buddy.profilePhotoURL,
+                                    size: 30
+                                )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(buddy.displayName)
                                         .font(type.body)

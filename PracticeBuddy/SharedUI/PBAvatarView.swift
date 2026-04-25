@@ -71,11 +71,28 @@ struct PBAvatarStyle: Equatable, Identifiable {
 struct PBAvatarView: View {
     let avatarID: String
     let displayName: String
+    var profilePhotoURL: String? = nil
     var size: CGFloat = 36
 
     var body: some View {
         let style = PBAvatarStyle.byID(avatarID)
-        if let fullBody = UIImage(named: style.fullBodyAssetName) {
+        if let profilePhotoURL, let url = URL(string: profilePhotoURL) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    fallbackAvatar(style: style)
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .contentShape(Circle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(displayName) profile photo"))
+        } else if let fullBody = UIImage(named: style.fullBodyAssetName) {
             ZStack {
                 RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                     .fill(style.color.opacity(0.12))
@@ -92,19 +109,24 @@ struct PBAvatarView: View {
             .accessibilityLabel(Text("\(displayName) avatar"))
             .accessibilityValue(Text("\(style.title), \(style.subtitle)"))
         } else {
-            ZStack {
-                Circle()
-                    .fill(style.color.opacity(0.2))
-
-                Image(systemName: style.symbolName)
-                    .font(.system(size: size * 0.44, weight: .semibold))
-                    .foregroundStyle(style.color)
-            }
-            .frame(width: size, height: size)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("\(displayName) avatar"))
-            .accessibilityValue(Text("\(style.title), \(style.subtitle)"))
+            fallbackAvatar(style: style)
         }
+    }
+
+    @ViewBuilder
+    private func fallbackAvatar(style: PBAvatarStyle) -> some View {
+        ZStack {
+            Circle()
+                .fill(style.color.opacity(0.2))
+
+            Image(systemName: style.symbolName)
+                .font(.system(size: size * 0.44, weight: .semibold))
+                .foregroundStyle(style.color)
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(displayName) avatar"))
+        .accessibilityValue(Text("\(style.title), \(style.subtitle)"))
     }
 }
 

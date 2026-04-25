@@ -60,6 +60,9 @@ private final class PBNotificationDelegate: NSObject, UNUserNotificationCenterDe
     ) {
         if let route = PBNotificationCenter.route(for: response) {
             PBLog.firebase.info("Notification tap routed: \(String(describing: route), privacy: .public)")
+            Task { @MainActor in
+                PBNotificationCenter.cachePendingRoute(route)
+            }
             NotificationCenter.default.post(
                 name: .pbNotificationRouteRequested,
                 object: route
@@ -99,6 +102,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 #if canImport(FirebaseMessaging)
         Messaging.messaging().apnsToken = deviceToken
 #endif
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable : Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        if let route = PBNotificationCenter.route(categoryIdentifier: "", userInfo: userInfo) {
+            Task { @MainActor in
+                PBNotificationCenter.cachePendingRoute(route)
+            }
+            NotificationCenter.default.post(name: .pbNotificationRouteRequested, object: route)
+        }
+        completionHandler(.newData)
     }
 
     func application(

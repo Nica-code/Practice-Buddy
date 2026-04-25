@@ -717,30 +717,55 @@ struct JourneyView: View {
                         .foregroundStyle(palette.textSecondary)
                 } else {
                     ForEach(Array(duelLeague.leaderboardRows.enumerated()), id: \.element.id) { idx, row in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Button {
                                 withAnimation(.snappy(duration: 0.2)) {
                                     expandedLadderUserID = (expandedLadderUserID == row.id) ? nil : row.id
                                 }
                             } label: {
-                                HStack {
+                                HStack(spacing: 10) {
                                     Text("#\(idx + 1)")
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textSecondary)
-                                        .frame(width: 30, alignment: .leading)
+                                        .font(type.body.weight(.semibold))
+                                        .foregroundStyle(rankColor(idx))
+                                        .frame(width: 32, alignment: .leading)
                                         .monospacedDigit()
-                                    Text(row.displayName)
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textPrimary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.84)
-                                        .allowsTightening(true)
+
+                                    PBAvatarView(
+                                        avatarID: row.avatarID,
+                                        displayName: row.displayName,
+                                        profilePhotoURL: row.profilePhotoURL,
+                                        size: 34
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(row.displayName)
+                                            .font(type.body.weight(.semibold))
+                                            .foregroundStyle(palette.textPrimary)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.84)
+                                            .allowsTightening(true)
+                                        HStack(spacing: 6) {
+                                            miniStatChip(label: "Pts \(row.points)")
+                                            miniStatChip(label: "W \(row.wins)")
+                                            miniStatChip(label: "M \(row.matches)")
+                                        }
+                                    }
+
                                     Spacer()
-                                    Text(L10n.f("Rating %@", "\(row.rating)"))
-                                        .font(type.footnote)
-                                        .foregroundStyle(palette.textSecondary)
-                                        .monospacedDigit()
+
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("Rating")
+                                            .font(type.footnote)
+                                            .foregroundStyle(palette.textSecondary)
+                                        Text("\(row.rating)")
+                                            .font(type.body.weight(.semibold))
+                                            .foregroundStyle(palette.textPrimary)
+                                            .monospacedDigit()
+                                    }
                                 }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 10)
+                                .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
                             }
                             .buttonStyle(.plain)
 
@@ -763,6 +788,7 @@ struct JourneyView: View {
                                     .disabled(firebase.currentUserID == row.id || firebase.isAnonymousUser)
                                 }
                                 .font(type.footnote)
+                                .padding(.leading, 42)
                             }
                         }
                     }
@@ -807,6 +833,27 @@ struct JourneyView: View {
             }
         } header: {
             PBSectionHeaderLabel(title: "Duels & League")
+        }
+    }
+
+    private func miniStatChip(label: String) -> some View {
+        Text(label)
+            .font(type.footnote)
+            .foregroundStyle(palette.textSecondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(palette.surface)
+            )
+    }
+
+    private func rankColor(_ index: Int) -> Color {
+        switch index {
+        case 0: return Color.orange
+        case 1: return Color.mint
+        case 2: return Color.blue
+        default: return palette.textSecondary
         }
     }
 

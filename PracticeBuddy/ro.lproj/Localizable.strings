@@ -1029,3 +1029,12 @@
 "You can sign back in anytime with Apple or Google." = "Te poți autentifica din nou oricând cu Apple sau Google.";
 "Signed out." = "Te-ai deconectat.";
 "Sign out failed: %@" = "Deconectarea a eșuat: %@";
+"Practice: Start Practice" = "Studiu: Începe sesiunea";
+"Profile photo" = "Fotografie profil";
+"Upload Photo" = "Încarcă fotografie";
+"Remove Photo" = "Șterge fotografia";
+"Photo selected. Tap Save Profile to apply." = "Fotografia a fost selectată. Apasă Salvează profilul pentru aplicare.";
+"Could not load selected photo." = "Nu am putut încărca fotografia selectată.";
+"Removed custom photo." = "Fotografia personalizată a fost eliminată.";
+"Practice Session" = "Sesiune de studiu";
+"Practice Timer" = "Cronometru de studiu";

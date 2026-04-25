@@ -57,6 +57,8 @@
 	<string>PractiQuest uses your calendar to add scheduled lessons, studio classes, and recitals.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PractiQuest uses your microphone for tuner, intonation, rhythm, and duel analysis features.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>PBAdMobBannerPlayAdUnitID</key>
 	<string>ca-app-pub-6233840432120177/8238699892</string>
 	<key>PBAdMobRewardedDuelAdUnitID</key>
@@ -67,10 +69,6 @@
 	<false/>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
-	<key>PBPrivacyPolicyURL</key>
-	<string>https://practiquest.app/privacy</string>
-	<key>PBTermsOfUseURL</key>
-	<string>https://practiquest.app/terms</string>
 	<key>PBIsTestFlightBuild</key>
 	<false/>
 	<key>PBMasterEmails</key>
@@ -80,6 +78,10 @@
 	</array>
 	<key>PBMasterUIDs</key>
 	<array/>
+	<key>PBPrivacyPolicyURL</key>
+	<string>https://practiquest.app/privacy</string>
+	<key>PBTermsOfUseURL</key>
+	<string>https://practiquest.app/terms</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>PlayfairDisplay-Regular.ttf</string>

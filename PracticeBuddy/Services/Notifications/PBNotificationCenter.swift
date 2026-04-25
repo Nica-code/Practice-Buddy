@@ -38,6 +38,8 @@ extension Notification.Name {
 
 @MainActor
 enum PBNotificationCenter {
+    private static var pendingRoute: PBNotificationRoute?
+
     static func registerCategories() {
         let categories: Set<UNNotificationCategory> = [
             UNNotificationCategory(
@@ -276,5 +278,14 @@ enum PBNotificationCenter {
         content.userInfo = userInfo
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
+    }
+
+    static func cachePendingRoute(_ route: PBNotificationRoute) {
+        pendingRoute = route
+    }
+
+    static func consumePendingRoute() -> PBNotificationRoute? {
+        defer { pendingRoute = nil }
+        return pendingRoute
     }
 }

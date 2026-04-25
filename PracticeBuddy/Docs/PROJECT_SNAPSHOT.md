@@ -1,6 +1,6 @@
 PractiQuest — Project Snapshot (Current)
 
-Last updated: 2026-04-23
+Last updated: 2026-04-25
 Repository root: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy`
 Branch during snapshot update: `codex/launch-hardening`
 
@@ -26,7 +26,7 @@ Public app name is `PractiQuest`. Internal project/repo naming remains `Practice
 
 ## 3) App Structure (Current)
 Top tabs:
-1. Home
+1. Practice
 2. Play (Journey / Duels)
 3. Social
 4. Profile
@@ -239,17 +239,39 @@ Active app languages:
 
 Onboarding now allows immediate language selection before sign-in.
 
-## 18) Current Build/Source Control Status at Time of Snapshot
+## 18) Latest Updates (2026-04-25)
+- Live Activity extension was added and wired:
+  - `PracticeBuddyLiveActivity/PracticeBuddyLiveActivityBundle.swift`
+  - `PracticeBuddyLiveActivity/PracticeTimerLiveActivityWidget.swift`
+  - `PracticeBuddyLiveActivity/PracticeLiveActivityAttributes.swift`
+- App-side Live Activity manager hardened for reuse/end lifecycle:
+  - `PracticeBuddy/Services/PracticeLiveActivityManager.swift`
+- Notification routing and icon badge reliability hardened:
+  - cold-launch pending route consume in app shell
+  - background remote-notification route handling in AppDelegate
+  - app icon badge now follows unified in-app notification unread store
+- Profile photo UX updated:
+  - camera-button anchored popover near avatar (instead of bottom dialog)
+  - immediate upload on selection (no extra Save Profile step)
+  - upload/remove helper text under avatar
+- Friends-name bug fixed:
+  - prevented accidental overwrite of local buddy rows with current user name
+  - added local buddy directory repair pass on startup
+- Season Ladder redesign shipped (Global + Friends):
+  - row cards with avatar + rank + rating + stat chips
+  - expanded actions preserved (`Go to Profile`, `Duel Challenge`)
+
+## 19) Current Build/Source Control Status at Time of Snapshot
 - Branch: `codex/launch-hardening`
 - HEAD commit observed in audit: `72ce230`
 - Local uncommitted change observed: build number bump in `project.pbxproj` (`CURRENT_PROJECT_VERSION` 19 -> 20)
 
-## 19) Known Follow-up Items
+## 20) Known Follow-up Items
 - Firestore rules still contain legacy studio/assignment blocks; can be cleaned once no longer needed by any deployed clients/functions.
 - Snapshot had previously drifted; this version replaces stale sections describing removed Studio Manager/Planner and assignment-linked home flows.
 - Validate release entitlements/cert context (`aps-environment`) before App Store production submission builds.
 
-## 20) Key Files to Start From
+## 21) Key Files to Start From
 - App shell and pipeline orchestration:
   - `PracticeBuddy/App/ContentView.swift`
 - Home practice flow:

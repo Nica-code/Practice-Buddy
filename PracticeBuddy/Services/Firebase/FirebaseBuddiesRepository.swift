@@ -8,6 +8,7 @@ struct FirebaseUserProfile: Equatable {
     let friendCode: String
     let nameEditUsed: Bool
     let avatarID: String
+    let profilePhotoURL: String
     let bio: String
     let instrument: String
     let publicLevel: Int
@@ -19,6 +20,7 @@ struct BuddySummary: Identifiable, Equatable {
     let friendCode: String
     let sinceAt: Date
     let avatarID: String
+    let profilePhotoURL: String
     let publicLevel: Int
 }
 
@@ -54,6 +56,7 @@ struct BuddyPublicStats: Equatable {
     let publicLevel: Int
     let duelLeague: String
     let duelRating: Int
+    let profilePhotoURL: String
 }
 
 enum BuddyInviteStatus: String {
@@ -138,6 +141,7 @@ final class FirebaseBuddiesRepository {
                     friendCode: profile.friendCode,
                     nameEditUsed: profile.nameEditUsed,
                     avatarID: profile.avatarID,
+                    profilePhotoURL: profile.profilePhotoURL,
                     bio: profile.bio,
                     instrument: profile.instrument,
                     publicLevel: profile.publicLevel
@@ -163,6 +167,7 @@ final class FirebaseBuddiesRepository {
                 "friendCode": code,
                 "nameEditUsed": false,
                 "avatarID": "avatar_note",
+                "profilePhotoURL": "",
                 "bio": "",
                 "instrument": "",
                 "publicLevel": 1,
@@ -177,6 +182,7 @@ final class FirebaseBuddiesRepository {
                 friendCode: code,
                 nameEditUsed: false,
                 avatarID: "avatar_note",
+                profilePhotoURL: "",
                 bio: "",
                 instrument: "",
                 publicLevel: 1
@@ -272,7 +278,14 @@ final class FirebaseBuddiesRepository {
                 let leagueRaw = ((data?["duelLeague"] as? String) ?? "bronze").trimmingCharacters(in: .whitespacesAndNewlines)
                 let league = leagueRaw.isEmpty ? "Bronze" : leagueRaw.capitalized
                 let rating = max(0, (data?["duelRating"] as? Int) ?? 0)
-                onChange(BuddyPublicStats(publicLevel: level, duelLeague: league, duelRating: rating))
+                onChange(
+                    BuddyPublicStats(
+                        publicLevel: level,
+                        duelLeague: league,
+                        duelRating: rating,
+                        profilePhotoURL: (data?["profilePhotoURL"] as? String) ?? ""
+                    )
+                )
             }
         }
     }
@@ -292,7 +305,12 @@ final class FirebaseBuddiesRepository {
                 let leagueRaw = ((data["duelLeague"] as? String) ?? "bronze").trimmingCharacters(in: .whitespacesAndNewlines)
                 let league = leagueRaw.isEmpty ? "Bronze" : leagueRaw.capitalized
                 let rating = max(0, (data["duelRating"] as? Int) ?? 0)
-                output[doc.documentID] = BuddyPublicStats(publicLevel: level, duelLeague: league, duelRating: rating)
+                output[doc.documentID] = BuddyPublicStats(
+                    publicLevel: level,
+                    duelLeague: league,
+                    duelRating: rating,
+                    profilePhotoURL: (data["profilePhotoURL"] as? String) ?? ""
+                )
             }
         }
         return output
@@ -371,6 +389,7 @@ final class FirebaseBuddiesRepository {
     func updateProfileDetails(
         uid: String,
         avatarID: String,
+        profilePhotoURL: String? = nil,
         rawBio: String,
         rawInstrument: String
     ) async throws {
@@ -378,12 +397,72 @@ final class FirebaseBuddiesRepository {
         let cleanInstrument = String(rawInstrument.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
         let cleanAvatar = avatarID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "avatar_note" : avatarID
 
-        try await db.collection(usersCollection).document(uid).setData([
+        var patch: [String: Any] = [
             "avatarID": cleanAvatar,
             "bio": cleanBio,
             "instrument": cleanInstrument,
             "updatedAt": FieldValue.serverTimestamp()
-        ], merge: true)
+        ]
+        if let profilePhotoURL {
+            patch["profilePhotoURL"] = profilePhotoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        try await db.collection(usersCollection).document(uid).setData(patch, merge: true)
+
+        let myProfile = try await db.collection(usersCollection).document(uid).getDocument()
+        let displayName = (myProfile.data()?["displayName"] as? String) ?? generatedDefaultDisplayName(for: uid)
+        let friendCode = (myProfile.data()?["friendCode"] as? String) ?? ""
+        let publicLevel = max(1, (myProfile.data()?["publicLevel"] as? Int) ?? 1)
+        let effectivePhotoURL = (patch["profilePhotoURL"] as? String) ?? ((myProfile.data()?["profilePhotoURL"] as? String) ?? "")
+
+        let buddiesSnapshot = try await db.collection(friendshipsCollection)
+            .document(uid)
+            .collection("buddies")
+            .getDocuments()
+
+        let batch = db.batch()
+        for doc in buddiesSnapshot.documents {
+            let buddyUID = doc.documentID
+            let remoteBuddyRef = db.collection(friendshipsCollection)
+                .document(buddyUID)
+                .collection("buddies")
+                .document(uid)
+            let patchData: [String: Any] = [
+                "displayName": displayName,
+                "friendCode": friendCode,
+                "avatarID": cleanAvatar,
+                "profilePhotoURL": effectivePhotoURL,
+                "publicLevel": publicLevel
+            ]
+            batch.setData(patchData, forDocument: remoteBuddyRef, merge: true)
+        }
+        if !buddiesSnapshot.documents.isEmpty {
+            try await batch.commit()
+        }
+    }
+
+    func repairLocalBuddyDirectory(uid: String) async throws {
+        let buddiesRef = db.collection(friendshipsCollection).document(uid).collection("buddies")
+        let buddiesSnapshot = try await buddiesRef.getDocuments()
+        if buddiesSnapshot.documents.isEmpty { return }
+
+        let buddyUIDs = buddiesSnapshot.documents.map(\.documentID).filter { !$0.isEmpty }
+        let stats = try await fetchPublicStats(forUIDs: buddyUIDs)
+
+        let batch = db.batch()
+        for buddyUID in buddyUIDs {
+            guard let profile = try? await fetchUserProfile(uid: buddyUID) else { continue }
+            let stat = stats[buddyUID]
+            let localBuddyRef = buddiesRef.document(buddyUID)
+            batch.setData([
+                "displayName": profile.displayName,
+                "friendCode": profile.friendCode,
+                "avatarID": profile.avatarID,
+                "profilePhotoURL": profile.profilePhotoURL,
+                "publicLevel": max(1, stat?.publicLevel ?? profile.publicLevel)
+            ], forDocument: localBuddyRef, merge: true)
+        }
+        try await batch.commit()
     }
 
     func updatePublicLevel(uid: String, level: Int) async throws {
@@ -477,6 +556,7 @@ final class FirebaseBuddiesRepository {
             "displayName": invite.fromDisplayName,
             "friendCode": invite.fromFriendCode,
             "avatarID": "avatar_note",
+            "profilePhotoURL": "",
             "publicLevel": 1,
             "sinceAt": now
         ], forDocument: meBuddyRef, merge: true)
@@ -485,6 +565,7 @@ final class FirebaseBuddiesRepository {
             "displayName": invite.toDisplayName,
             "friendCode": invite.toFriendCode,
             "avatarID": "avatar_note",
+            "profilePhotoURL": "",
             "publicLevel": 1,
             "sinceAt": now
         ], forDocument: themBuddyRef, merge: true)
@@ -699,6 +780,7 @@ final class FirebaseBuddiesRepository {
             friendCode: friendCode,
             nameEditUsed: (data["nameEditUsed"] as? Bool) ?? false,
             avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+            profilePhotoURL: (data["profilePhotoURL"] as? String) ?? "",
             bio: (data["bio"] as? String) ?? "",
             instrument: (data["instrument"] as? String) ?? "",
             publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
@@ -754,6 +836,7 @@ final class FirebaseBuddiesRepository {
                 friendCode: friendCode,
                 sinceAt: sinceAt,
                 avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+                profilePhotoURL: (data["profilePhotoURL"] as? String) ?? "",
                 publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
             )
         }

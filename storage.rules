@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/profile/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSelf(uid)
+        && fileName == "photo.jpg"
+        && request.resource != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Backward-compatible legacy path used by older builds.
+    match /users/{uid}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSelf(uid)
+        && (fileName == "photo.jpg" || fileName == "profile.jpg")
+        && request.resource != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

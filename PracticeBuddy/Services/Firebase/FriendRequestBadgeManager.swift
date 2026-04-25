@@ -5,6 +5,7 @@ import FirebaseFirestore
 @MainActor
 final class FriendRequestBadgeManager: ObservableObject {
     @Published private(set) var incomingCount: Int = 0
+    @Published private(set) var pendingInvites: [BuddyInvite] = []
 
     private let repository: FirebaseBuddiesRepository
     private var listener: ListenerRegistration?
@@ -29,6 +30,7 @@ final class FriendRequestBadgeManager: ObservableObject {
         previousInviteIDs = []
         listener = repository.listenToIncomingInvites(uid: uid) { [weak self] invites in
             guard let self else { return }
+            self.pendingInvites = invites
             self.incomingCount = invites.count
             let currentIDs = Set(invites.map(\.id))
             if self.didReceiveInitialSnapshot {
@@ -51,6 +53,7 @@ final class FriendRequestBadgeManager: ObservableObject {
         listener = nil
         configuredUID = nil
         incomingCount = 0
+        pendingInvites = []
         didReceiveInitialSnapshot = false
         previousInviteIDs = []
     }

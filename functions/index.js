@@ -1517,15 +1517,17 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
   const response = await admin.messaging().sendEachForMulticast({
     tokens,
     notification: {
-      title: String(title || "PracticeBuddy"),
+      title: String(title || "PractiQuest"),
       body: String(body || ""),
     },
     data: payloadData,
     apns: {
+      headers: {
+        "apns-priority": "10",
+      },
       payload: {
         aps: {
           sound: "default",
-          badge: 1,
           category: String(category || ""),
         },
       },

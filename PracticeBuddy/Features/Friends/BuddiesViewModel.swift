@@ -16,6 +16,7 @@ struct StudioLeaderboardRow: Identifiable, Equatable {
     let duelRating: Int
     let isMe: Bool
     let avatarID: String
+    let profilePhotoURL: String
     let publicLevel: Int
 }
 
@@ -69,6 +70,7 @@ final class BuddiesViewModel: ObservableObject {
         do {
             myProfile = try await repository.ensureCurrentUserProfile()
             attachListeners(uid: uid)
+            try? await repository.repairLocalBuddyDirectory(uid: uid)
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -164,12 +166,13 @@ final class BuddiesViewModel: ObservableObject {
         }
     }
 
-    func updateProfile(avatarID: String, bio: String, instrument: String) async {
+    func updateProfile(avatarID: String, profilePhotoURL: String? = nil, bio: String, instrument: String) async {
         guard let uid = configuredUID else { return }
         do {
             try await repository.updateProfileDetails(
                 uid: uid,
                 avatarID: avatarID,
+                profilePhotoURL: profilePhotoURL,
                 rawBio: bio,
                 rawInstrument: instrument
             )
@@ -241,7 +244,12 @@ final class BuddiesViewModel: ObservableObject {
 
         do {
             let stats = try await repository.fetchPublicStats(forUIDs: [profile.uid] + buddyIDs)
-            let myStats = stats[profile.uid] ?? BuddyPublicStats(publicLevel: profile.publicLevel, duelLeague: "Bronze", duelRating: 0)
+            let myStats = stats[profile.uid] ?? BuddyPublicStats(
+                publicLevel: profile.publicLevel,
+                duelLeague: "Bronze",
+                duelRating: 0,
+                profilePhotoURL: profile.profilePhotoURL
+            )
             var rows: [StudioLeaderboardRow] = [
                 StudioLeaderboardRow(
                     id: profile.uid,
@@ -249,18 +257,25 @@ final class BuddiesViewModel: ObservableObject {
                     duelRating: myStats.duelRating,
                     isMe: true,
                     avatarID: profile.avatarID,
+                    profilePhotoURL: myStats.profilePhotoURL,
                     publicLevel: myStats.publicLevel
                 )
             ]
 
             rows += buddies.map { buddy in
-                let buddyStats = stats[buddy.id] ?? BuddyPublicStats(publicLevel: buddy.publicLevel, duelLeague: "Bronze", duelRating: 0)
+                let buddyStats = stats[buddy.id] ?? BuddyPublicStats(
+                    publicLevel: buddy.publicLevel,
+                    duelLeague: "Bronze",
+                    duelRating: 0,
+                    profilePhotoURL: buddy.profilePhotoURL
+                )
                 return StudioLeaderboardRow(
                     id: buddy.id,
                     name: buddy.displayName,
                     duelRating: buddyStats.duelRating,
                     isMe: false,
                     avatarID: buddy.avatarID,
+                    profilePhotoURL: buddyStats.profilePhotoURL,
                     publicLevel: buddyStats.publicLevel
                 )
             }
@@ -289,6 +304,11 @@ final class BuddiesViewModel: ObservableObject {
 
     func buddyDisplayLeague(_ uid: String) -> String {
         buddyStatsByUID[uid]?.duelLeague ?? "Bronze"
+    }
+
+    func buddyProfilePhotoURL(_ uid: String, fallback: String = "") -> String {
+        let resolved = (buddyStatsByUID[uid]?.profilePhotoURL ?? fallback).trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolved
     }
 
     private func attachListeners(uid: String) {

@@ -41,6 +41,7 @@ struct ContentView: View {
     @StateObject private var friendRequestBadgeManager = FriendRequestBadgeManager()
     @StateObject private var presenceManager = FirebasePresenceManager()
     @StateObject private var socialChatManager = StudioChatViewModel()
+    @StateObject private var notificationStore = PBNotificationStore.shared
     @StateObject private var versionGate = AppVersionGateManager()
 
     @State private var didInit = false
@@ -115,9 +116,21 @@ struct ContentView: View {
             }
         }
         .onChange(of: friendRequestBadgeManager.incomingCount) { _, _ in
+            syncInAppNotificationStore()
             updateAppIconBadge()
         }
         .onChange(of: socialChatManager.unreadCount) { _, _ in
+            syncInAppNotificationStore()
+            updateAppIconBadge()
+        }
+        .onReceive(duelLeagueManager.$incomingInvites) { _ in
+            syncInAppNotificationStore()
+            updateAppIconBadge()
+        }
+        .onReceive(duelLeagueManager.$userDisplayNames) { _ in
+            syncInAppNotificationStore()
+        }
+        .onReceive(notificationStore.$items) { _ in
             updateAppIconBadge()
         }
         .onChange(of: tutorialReplayToken) { _, _ in
@@ -132,6 +145,13 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pbNotificationRouteRequested)) { notification in
             guard let route = notification.object as? PBNotificationRoute else { return }
             applyNotificationRoute(route)
+        }
+        .task {
+            await MainActor.run {
+                if let route = PBNotificationCenter.consumePendingRoute() {
+                    applyNotificationRoute(route)
+                }
+            }
         }
         .overlay {
             if showFirstRunTutorial {
@@ -201,7 +221,7 @@ struct ContentView: View {
                         .navigationTitle("")
                         .navigationBarTitleDisplayMode(.inline)
                 }
-                .tabItem { Label("Home", systemImage: "house") }
+                .tabItem { Label("Practice", systemImage: "figure.mind.and.body") }
                 .tag(0)
 
                 NavigationStack {
@@ -322,7 +342,7 @@ struct ContentView: View {
             FirstRunTutorialStep(
                 id: "home",
                 tabIndex: 0,
-                title: "Home: Start Practice",
+                title: "Practice: Start Practice",
                 message: "Use Start Practice for quick sessions. Practice tools and Session Builder are on Dashboard."
             ),
             FirstRunTutorialStep(
@@ -358,6 +378,7 @@ struct ContentView: View {
         syncPresence()
         syncSocialChatBadge()
         syncPushPipeline()
+        syncInAppNotificationStore()
         updateAppIconBadge()
         syncTutorialPresentation(force: forceTutorialSync)
     }
@@ -486,12 +507,21 @@ struct ContentView: View {
             }
             return
         }
-        badgeCount = friendRequestBadgeManager.incomingCount + socialChatManager.unreadCount
+        badgeCount = notificationStore.unreadCount
         if #available(iOS 17.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(badgeCount) { _ in }
         } else {
             UIApplication.shared.applicationIconBadgeNumber = badgeCount
         }
+    }
+
+    private func syncInAppNotificationStore() {
+        notificationStore.syncFriendRequests(friendRequestBadgeManager.pendingInvites)
+        notificationStore.syncChatThreads(socialChatManager.threads)
+        notificationStore.syncDuelInvites(
+            duelLeagueManager.incomingInvites,
+            cachedNames: duelLeagueManager.userDisplayNames
+        )
     }
 
     private func handleIncomingURL(_ url: URL) {

@@ -55,6 +55,7 @@ struct HomeView: View {
     @StateObject private var social = LocalSocialProvider()
     @StateObject private var appShield = PracticeAppShieldManager()
     @StateObject private var checkInManager = PracticeCheckInManager()
+    @StateObject private var liveActivity = PracticeLiveActivityManager.shared
     @State private var metronomePulseScale: CGFloat = 1.0
     @State private var metronomeTempoDraft: Double = 80
     @State private var isDraggingMetronomeTempo: Bool = false
@@ -453,6 +454,7 @@ struct HomeView: View {
             .onChange(of: metronomeSoundStyleRaw) { _, _ in applyMetronomeConfiguration() }
             .onChange(of: activeSessionBuilderPlan) { _, _ in
                 queueSessionBuilderNotificationSync()
+                syncLiveActivity()
             }
             .onReceive(metronome.$pulseToken.dropFirst().removeDuplicates()) { token in
                 guard token > 0 else { return }
@@ -496,6 +498,7 @@ struct HomeView: View {
         if isRunning {
             startTicker()
         }
+        syncLiveActivity()
         if !didRunInitialHomeBootstrap {
             didRunInitialHomeBootstrap = true
             if !templatesLoaded {
@@ -525,6 +528,7 @@ struct HomeView: View {
         appShield.stopShielding()
         sessionBuilderNotificationSyncTask?.cancel()
         sessionBuilderNotificationSyncTask = nil
+        syncLiveActivity()
     }
 
     private func handleIsRunningChange(_: Bool, running: Bool) {
@@ -534,6 +538,7 @@ struct HomeView: View {
         } else {
             stopTicker()
         }
+        syncLiveActivity()
     }
 
     private func handleDistractionBlockChange(_: Bool, enabled: Bool) {
@@ -607,6 +612,7 @@ struct HomeView: View {
             if isRunning, activeSessionBuilderPlan != nil {
                 queueSessionBuilderNotificationSync(force: true)
             }
+            syncLiveActivity()
         } else if isRunning {
             if backgroundEnteredAt == nil {
                 backgroundEnteredAt = Date()
@@ -614,6 +620,7 @@ struct HomeView: View {
             if checkInFlowEnabled {
                 scheduleBackgroundCheckInNotification()
             }
+            syncLiveActivity()
         }
     }
 
@@ -703,6 +710,7 @@ struct HomeView: View {
             unverifiedSeconds += 1
             checkInStatusMessage = nil
         }
+        syncLiveActivity()
     }
 
     private func applyBackgroundElapsedCatchUp() {
@@ -1520,6 +1528,7 @@ struct HomeView: View {
             }
         }
         queueSessionBuilderNotificationSync()
+        syncLiveActivity()
     }
 
     private func stopTapped() {
@@ -1530,6 +1539,7 @@ struct HomeView: View {
             saveDraft.pieces = [makeEmptyPiece()]
         }
         queueSessionBuilderNotificationSync()
+        syncLiveActivity()
         showSaveSheet = true
     }
 
@@ -1561,6 +1571,7 @@ struct HomeView: View {
         lastSessionNotificationSignature = ""
         queueSessionBuilderNotificationSync()
         isSavingSession = false
+        liveActivity.end()
     }
 
     private func handleSaveSheetDismiss() {
@@ -2181,6 +2192,7 @@ struct HomeView: View {
             appShield.stopShielding()
         }
         clearPendingCheckInNotifications()
+        syncLiveActivity()
     }
 
     private func resetTrackedPracticeCounters() {
@@ -2190,5 +2202,46 @@ struct HomeView: View {
         missedCheckInCountSaved = 0
         checkInEventsJSON = ""
         checkInManager.reset()
+    }
+
+    private func syncLiveActivity() {
+        guard isRunning else {
+            liveActivity.end()
+            return
+        }
+
+        if let plan = activeSessionBuilderPlan {
+            let rows = sessionTaskProgressRows(for: plan, elapsedSeconds: currentElapsedSeconds)
+            let currentRow = rows.first(where: { $0.isCurrent }) ?? rows.first(where: { !$0.isComplete }) ?? rows.last
+            let totalSeconds = max(0, plan.tasks.reduce(0) { $0 + max(0, $1.minutes) * 60 })
+            let elapsed = max(0, currentElapsedSeconds)
+            let remaining = max(0, totalSeconds - elapsed)
+            let progress = totalSeconds > 0 ? min(1, Double(elapsed) / Double(totalSeconds)) : 0
+            let taskTitle = currentRow?.title ?? "Session"
+            let taskRemaining = currentRow.map { mmss($0.remainingSeconds) } ?? mmss(remaining)
+
+            liveActivity.ensureUpdated(
+                isRunning: true,
+                mode: .session(
+                    title: "Practice Session",
+                    subtitle: "\(taskTitle) • \(taskRemaining) left",
+                    elapsedSeconds: elapsed,
+                    remainingSeconds: remaining,
+                    progress: progress
+                )
+            )
+            return
+        }
+
+        let verified = DurationFormatter.string(from: effectiveVerifiedSeconds)
+        let unverified = DurationFormatter.string(from: effectiveUnverifiedSeconds)
+        liveActivity.ensureUpdated(
+            isRunning: true,
+            mode: .timer(
+                title: "Practice Timer",
+                subtitle: "Verified \(verified) • Unverified \(unverified)",
+                elapsedSeconds: currentElapsedSeconds
+            )
+        )
     }
 }
