@@ -277,11 +277,20 @@ Onboarding now allows immediate language selection before sign-in.
   - richer animated background treatment
   - more premium shortcut bar and tab bar styling
   - updated theme palette support colors while preserving all theme ids
+- App Store release-prep patch:
+  - app + Live Activity extension marketing version bumped from `1.0.1` to `1.0.2`
+  - build number remains `27` for the new `1.0.2` train
+  - next App Store Connect upload should target/create version `1.0.2`
+- Season Ladder cleanup:
+  - removed mini-stat chips under player names (`Pts`, `W`, `M`)
+  - rows now focus on avatar + aligned username + rating/action for a cleaner card
 
 ## 19) Current Build/Source Control Status at Time of Snapshot
 - Branch: `codex/launch-hardening`
-- HEAD commit observed in audit: `72ce230`
-- Local uncommitted change observed: build number bump in `project.pbxproj` (`CURRENT_PROJECT_VERSION` 19 -> 20)
+- HEAD commit before this snapshot update: `8c0ae3c`
+- Current app marketing version: `1.0.2`
+- Current build number: `27`
+- Latest simulator build check: `BUILD SUCCEEDED`
 
 ## 20) Known Follow-up Items
 - Firestore rules still contain legacy studio/assignment blocks; can be cleaned once no longer needed by any deployed clients/functions.

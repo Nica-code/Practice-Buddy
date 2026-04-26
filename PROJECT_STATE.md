@@ -1,221 +1,100 @@
 # PractiQuest — Development State Snapshot
 
-**Last Updated**: 2026-04-16  
-**Current Version**: 1.0.0  
+**Last Updated**: 2026-04-25  
+**Current App Version**: 1.0.2  
+**Current Build Number**: 27  
 **Active Branch**: `codex/launch-hardening`  
-**Build Status**: ✅ `BUILD SUCCEEDED` (Release configuration)
+**Build Status**: `BUILD SUCCEEDED` via simulator build check
 
 ---
 
-## ✅ Recently Completed (Session: 2026-04-16)
+## Current Product State
 
-### App Store Launch Preparation
-- **Added NSUserTrackingUsageDescription** to Info.plist (required for Google AdMob IDFA)
-- **Created PrivacyInfo.xcprivacy** — Apple privacy manifest declaring Firebase & AdMob data tracking
-- **Verified Rights & Certificates questionnaire** answers for App Store Connect submission
+PractiQuest is live on the App Store and continuing through rapid post-launch updates. The public app name is `PractiQuest`; the internal Xcode project, bundle identifier, URL scheme, and repository still retain the original `PracticeBuddy` naming for continuity.
 
-### Code Polish & Optimization (from prior session)
-- **HistoryView.swift**: Replaced 5× silent `try? modelContext.save()` with logged `do/catch` error handling
-- **SocialView.swift**: 
-  - Updated skeleton card padding from magic number `10` → `PBLayout.padSM` (12)
-  - Changed pin icon color from hardcoded `.orange` → `palette.accent.opacity(0.85)` for theme consistency
-- **StudioHubView.swift**: Replaced magic number paddings (8, 4) with `PBLayout.padXS` constants
-- **FirebaseBuddiesRepository.swift**: Eliminated unnecessary `getDocument()` read in `sendFriendMessage` — now uses `setData(merge: true)` upsert pattern
-- **WarmUpGeneratorView.swift**: Added `.lineLimit(2)` guards to step title Text elements
-- **JourneyProgressManager.swift**: Replaced crash-prone `Dictionary(uniqueKeysWithValues:)` with `reduce(into:)`, added error logging to Firestore inventory sync
-- **StudioChatViewModel.swift**: Fixed two `Dictionary(uniqueKeysWithValues:)` crash risks with `reduce(into:)`
+Current top tabs:
+- Practice
+- Play
+- Social
+- Profile
+- Settings
 
 ---
 
-## 🚀 Next Steps: App Store Submission
+## Latest Completed Work
 
-### Immediate (You Must Do)
-1. **Open App Store Connect** → Your PractiQuest app
-2. **Build Selection**: Select the latest green build (1.0.0)
-3. **Rights & Certificates** questionnaire:
-   - Encryption: **YES** (Firebase/TLS)
-   - IDFA: **YES** (Google AdMob)
-   - Third-party content: **NO**
-4. **Review Notes** (optional but helpful):
-   ```
-   PractiQuest is a music practice companion with gamified warm-up 
-   routines, friend duels, and global leaderboards. Users track 
-   practice sessions over time. The app uses an optional in-app 
-   subscription to remove ads. No special demo account needed.
-   ```
-5. **Click "Add for Review"** → Submit
+### Massive Update Part 1
+- Renamed the old Home tab to `Practice` and updated the tab identity.
+- Added a Live Activity extension for active practice/session progress.
+- Hardened notification routing and in-app notification badge behavior.
+- Added custom profile photo upload/removal with Firebase Storage-backed profile images.
+- Refined profile photo UX with a camera-button popover near the avatar and helper text.
+- Fixed friend display-name handling so friends no longer incorrectly show as the current user.
+- Added a redesigned Season Ladder with avatar-based player cards.
+- Expanded the Liquid Glass design refresh across shared cards, backgrounds, shortcut chips, and tab chrome.
 
-### App Review Timeline
-- **Typical**: 24–48 hours for approval/rejection
-- **If rejected**: Fix issues and resubmit new build (same process)
-- **If approved**: Choose release date or immediate release
-
-### Post-Approval (v1.0.1 Planning)
-- Monitor analytics and user reviews
-- Plan minor updates (bug fixes, performance tweaks)
-- Consider features: push notifications, analytics dashboard
+### Latest Release-Prep Patch
+- Bumped app + Live Activity extension marketing version from `1.0.1` to `1.0.2` because App Store Connect closed the `1.0.1` pre-release train after approval.
+- Kept build number at `27` for the new `1.0.2` train.
+- Removed Season Ladder mini-stat text under player names (`Pts`, `W`, `M`) so rows now show avatar + aligned username + rating/action only.
 
 ---
 
-## 📋 Known Issues & Backlog
+## Current Build / App Store Notes
 
-### Current (No Blockers)
-- None identified
-
-### Future Enhancements
-- [ ] Push notifications for friend requests / duel invites
-- [ ] User analytics dashboard
-- [ ] Performance optimization (profile with Instruments if needed)
-- [ ] Localization beyond English (if expanding to other markets)
+- Archive the main `PracticeBuddy` scheme; the Live Activity extension is embedded automatically.
+- App Store Connect should use/create version `1.0.2` for the next upload.
+- If App Store Connect rejects build number `27` under `1.0.2`, increment build to `28` and archive again.
+- Third-party framework dSYM upload warnings for Firebase/Google frameworks are not the current blocker; they affect crash symbolication quality for those frameworks, not app binary validity.
 
 ---
 
-## 🔑 Key File Locations
+## Important Systems
 
-```
-PracticeBuddy/
-├── PracticeBuddy/                    # Main app target
-│   ├── Info.plist                    # Config, privacy keys ✅ UPDATED
-│   ├── PrivacyInfo.xcprivacy         # Apple privacy manifest ✅ NEW
-│   ├── Features/
-│   │   ├── Home/
-│   │   │   └── WarmUpGeneratorView.swift
-│   │   ├── Studio/
-│   │   │   └── StudioHubView.swift
-│   │   ├── Social/
-│   │   │   ├── SocialView.swift
-│   │   │   └── StudioChatViewModel.swift
-│   │   ├── History/
-│   │   │   └── HistoryView.swift
-│   │   └── [other features]
-│   ├── Services/
-│   │   ├── Firebase/
-│   │   │   ├── FirebaseBuddiesRepository.swift
-│   │   │   └── [other Firebase services]
-│   │   ├── JourneyProgressManager.swift
-│   │   └── [other services]
-│   └── Design System/
-│       ├── PBLayout.swift
-│       ├── PBTheme.swift
-│       └── PBTypography.swift
-├── CLAUDE.md                         # Claude instructions ✅ UPDATED
-└── PROJECT_STATE.md                  # This file
-```
+### Practice
+- Practice Timer
+- Verified Mode / Family Controls shielding
+- Practice Session Builder with task progress
+- Practice Tools: Metronome and Tuner
+- Live Activity support for active practice/session state
+
+### Play / Duels
+- Level, XP, quests, rewards, duel league, queue, invites, active duel entry, match history, season ladder.
+- Season Ladder now uses cleaner player rows without extra mini-stat clutter.
+
+### Social / Chat
+- Friends, requests, direct chat, unread state, notification routing, badge contribution.
+
+### Profile
+- Token-gated avatar/icon unlocks remain as fallback.
+- Uploaded profile photo overrides avatar globally where supported.
+
+### Monetization
+- Ad-supported free app.
+- Ad-Free monthly subscription product id: `com.alexmalaimare.practicebuddy.adfree.monthly`.
+- Google Mobile Ads configured for banner/rewarded placements.
 
 ---
 
-## 💻 Build & Deployment
+## Key Files
 
-### Current Build
-- **Version**: 1.0.0
-- **Build Number**: (latest from Xcode — check App Store Connect)
-- **Configuration**: Release
-- **Status**: ✅ Compiles without warnings or errors
-- **Bundle ID**: `com.alexmalaimare.practicebuddy`
-- **Team ID**: Apple Development team (Z8P96233CK)
-
-### Git Status
-```
-Branch: codex/launch-hardening
-Last commit: Polish pass: error logging, UI consistency, sendFriendMessage optimization
-  (7 files changed: HistoryView, SocialView, StudioHubView, 
-   FirebaseBuddiesRepository, WarmUpGeneratorView, JourneyProgressManager, 
-   StudioChatViewModel)
-```
+- `PracticeBuddy/App/ContentView.swift`
+- `PracticeBuddy/Features/Home/HomeView.swift`
+- `PracticeBuddy/Features/Journey/JourneyView.swift`
+- `PracticeBuddy/Features/Profile/UserProfileView.swift`
+- `PracticeBuddy/Features/Studio/StudioHubView.swift`
+- `PracticeBuddy/Features/Social/StudioChatViewModel.swift`
+- `PracticeBuddy/Services/PracticeLiveActivityManager.swift`
+- `PracticeBuddyLiveActivity/PracticeTimerLiveActivityWidget.swift`
+- `PracticeBuddy/Services/PBAdsManager.swift`
+- `PracticeBuddy/Services/PurchaseManager.swift`
+- `functions/index.js`
+- `firestore.rules`
 
 ---
 
-## 🏗️ Architecture Overview
+## Known Follow-Up Items
 
-### Tech Stack
-- **iOS**: SwiftUI, SwiftData (local persistence)
-- **Backend**: Firebase Firestore (user accounts, social, leaderboards)
-- **Auth**: Firebase Auth + Google Sign-In
-- **Ads**: Google AdMob (Google Mobile Ads SDK)
-- **Subscription**: App Store In-App Purchase (handled by iOS)
-
-### Key Features
-1. **Warm-up Generator**: Customizable practice routines
-2. **Duel Ladder**: Real-time competitive practice sessions
-3. **Leaderboard**: Global rankings
-4. **Social**: Friend requests, direct messaging, challenge invites
-5. **Practice Tracking**: Session history with metrics
-6. **Subscription**: Ad-free experience ($X.99/month)
-
-### Design System
-- **PBTheme**: Color palette, theme support (light/dark)
-- **PBLayout**: Spacing constants (`padXS`, `padSM`, `padMD`, `radiusCard`, etc.)
-- **PBTypography**: Font styles (`body`, `sectionTitle`, `button`, etc.)
-- **PBHaptics**: Haptic feedback system
-
----
-
-## 🔗 Important URLs & IDs
-
-```
-GitHub: https://github.com/Nica-code/Practice-Buddy.git
-Branch: codex/launch-hardening
-
-App Store Connect:
-  - Bundle ID: com.alexmalaimare.practicebuddy
-  - App Name: PractiQuest
-  - Category: Music
-
-Firebase:
-  - Project ID: practice-buddy-xyz (verify in Google Cloud Console)
-  - Firestore: Enabled
-  - Authentication: Email + Google Sign-In enabled
-
-Google AdMob:
-  - Publisher ID: ca-app-pub-6233840432120177~4024122715
-  - Banner Unit: ca-app-pub-6233840432120177/8238699892
-  - Rewarded Unit: ca-app-pub-6233840432120177/3504547263
-
-Invites:
-  - Deep Link Base URL: https://practicebuddytracker.web.app
-```
-
----
-
-## 💡 Design Decisions & Gotchas
-
-### Intentional Patterns (Don't Change)
-- **`ITSAppUsesNonExemptEncryption: false`** — Correct because encryption is TLS/HTTPS only (not app-level crypto APIs)
-- **Green dot for "online" status** — Intentionally semantic (not `palette.accent`) to match universal "online" color
-- **Orange for warnings** — Intentional semantic color, kept separate from theme accent
-- **`setData(merge: true)` in Firestore** — Chosen over read-before-write for performance
-- **`try?` in fire-and-forget tasks** — Intentional pattern; errors are logged separately
-
-### Recent Crash Fixes
-- **Dictionary(uniqueKeysWithValues:)** → Replaced with `reduce(into:)` in 3 places to prevent runtime crashes on duplicate keys
-- **Silent error swallowing** → Added `PBLog` calls to 6 locations where errors were previously ignored
-
-### Known Complexity Areas
-- **TunerEngine** uses `Task { @MainActor in }` wrapper — NOT removable; runs on AVAudio callback thread (not main actor)
-- **Large view files** (HomeView 1500+, JourneyView 2000+, HistoryView 2000+) — Do NOT decompose without testing; complex state management
-- **Firebase initialization** — Uses `didInit` flags and `currentUID == uid` guards to prevent double-init; changing to `.task` is risky
-
----
-
-## 📝 Session Notes
-
-- **App Store submission** now unblocked with Info.plist + PrivacyInfo.xcprivacy fixes
-- **No functional changes** in this session — only App Store compliance + minor UI polish
-- **All 7 prior polish tasks** (from previous session) were completed and merged
-- **Build is green** and ready for upload to App Store Connect
-- **No known issues** blocking submission
-
----
-
-## 🎯 For Next Session
-
-When you start a new chat:
-1. ✅ Read this PROJECT_STATE.md first
-2. ✅ Refer to memory files (user profile, project overview, launch status)
-3. ✅ Check if you want to submit to App Store, or if you have new feature requests
-4. ✅ Ask Claude if any context is stale or needs updating
-
-If you're **continuing development** (post-launch):
-- Reference the **"Next Steps"** section above
-- Check **"Known Issues & Backlog"** for what to work on next
-- Refer to **"Design Decisions & Gotchas"** to avoid breaking intentional patterns
+- Continue real-device verification for push banners, badges, sounds, and tap routing across foreground/background/terminated states.
+- Consider cleanup of legacy Firestore rules paths only after confirming no deployed clients/functions still rely on them.
+- If dSYM warnings become operationally important, investigate Firebase/Google SDK symbol upload workflow separately.

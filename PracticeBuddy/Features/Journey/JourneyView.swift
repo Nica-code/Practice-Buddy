@@ -737,19 +737,12 @@ struct JourneyView: View {
                                         size: 34
                                     )
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.displayName)
-                                            .font(type.body.weight(.semibold))
-                                            .foregroundStyle(palette.textPrimary)
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.84)
-                                            .allowsTightening(true)
-                                        HStack(spacing: 6) {
-                                            miniStatChip(label: "Pts \(row.points)")
-                                            miniStatChip(label: "W \(row.wins)")
-                                            miniStatChip(label: "M \(row.matches)")
-                                        }
-                                    }
+                                    Text(row.displayName)
+                                        .font(type.body.weight(.semibold))
+                                        .foregroundStyle(palette.textPrimary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.84)
+                                        .allowsTightening(true)
 
                                     Spacer()
 
