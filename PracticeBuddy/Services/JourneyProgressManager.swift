@@ -259,6 +259,11 @@ final class JourneyProgressManager: ObservableObject {
         updateQuestProgress(from: [])
     }
 
+    deinit {
+        inventoryListener?.remove()
+        telemetryCancellable?.cancel()
+    }
+
     func handleSessionSnapshot(_ sessions: [PracticeSessionModel]) {
         lastSessions = sessions
         if !defaults.bool(forKey: Keys.seeded) {
@@ -1847,6 +1852,10 @@ final class DuelLeagueManager: ObservableObject {
         case cancelInvite(challengeID: String)
         case cancelQueue
         case submitAttempt(challengeID: String, metrics: DuelDerivedMetrics, requiredMinTempoBPM: Int)
+    }
+
+    deinit {
+        listeners.forEach { $0.remove() }
     }
 
     func start(uid: String?) {

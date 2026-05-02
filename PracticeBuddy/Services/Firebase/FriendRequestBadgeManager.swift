@@ -17,6 +17,10 @@ final class FriendRequestBadgeManager: ObservableObject {
         self.repository = repository ?? FirebaseBuddiesRepository()
     }
 
+    deinit {
+        listener?.remove()
+    }
+
     func start(uid: String) {
         guard !uid.isEmpty else {
             stop()
