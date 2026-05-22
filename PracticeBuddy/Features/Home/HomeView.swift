@@ -319,6 +319,9 @@ struct HomeView: View {
 
     var body: some View {
         lifecycleScaffold
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PBAdBannerSlot(placement: .playBottomBanner)
+        }
         .sheet(isPresented: $showSaveSheet, onDismiss: handleSaveSheetDismiss) {
             saveSheet
         }

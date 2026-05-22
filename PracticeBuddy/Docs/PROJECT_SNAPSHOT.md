@@ -1,6 +1,24 @@
 PractiQuest — Project Snapshot (Current)
 
-Last updated: 2026-04-25
+Last updated: 2026-05-22
+
+## Latest Change — 2026-05-22
+
+**Push notifications fix (for `1.0.3` App Store update):**
+- `aps-environment` in `PracticeBuddy/PracticeBuddy.entitlements` changed from `development` → `production`. Previous live build registered APNs sandbox tokens while FCM sent via production gateway, silently dropping every push. This was the root cause of "notifications never arrive" on the live App Store build.
+- Verified Cloud Functions push triggers all deployed in `practicebuddytracker` (us-central1, nodejs22): `onFriendInviteCreated`, `onFriendChatMessageCreated`, `onStudioChatMessageCreated`, full duel suite, `pushTestNotification`.
+- Expect one-time silent miss per updating user as stale sandbox tokens get pruned by `pruneInvalidDeviceTokens` in `functions/index.js`; flow normalizes from second push onward.
+
+**Banner ads expanded to three more surfaces:**
+- `Features/Home/HomeView.swift` (Practice tab)
+- `Features/Profile/ProfileTabView.swift` (Profile tab)
+- `Features/History/HistoryView.swift` (History screen)
+- All reuse `PBAdBannerSlot(placement: .playBottomBanner)` → production unit `ca-app-pub-6233840432120177/8238699892`. Pre-existing banners on Play/Social/Friends unchanged.
+
+**Deferred ad work (not blocking this update):** `SKAdNetworkItems` in Info.plist, ATT prompt + `NSUserTrackingUsageDescription`, Google UMP consent flow.
+
+---
+
 Repository root: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy`
 Branch during snapshot update: `codex/launch-hardening`
 
@@ -284,10 +302,15 @@ Onboarding now allows immediate language selection before sign-in.
 - Season Ladder cleanup:
   - removed mini-stat chips under player names (`Pts`, `W`, `M`)
   - rows now focus on avatar + aligned username + rating/action for a cleaner card
+- Memory safety cleanup from commit `a0dced4`:
+  - added defensive `deinit` cleanup to `FriendRequestBadgeManager`
+  - added defensive cleanup for `JourneyProgressManager` inventory listener and telemetry cancellable
+  - added defensive `DuelLeagueManager` realtime listener cleanup
+  - normal runtime cleanup still flows through existing explicit `stop()` / `pauseRealtime()` paths
 
 ## 19) Current Build/Source Control Status at Time of Snapshot
 - Branch: `codex/launch-hardening`
-- HEAD commit before this snapshot update: `8c0ae3c`
+- HEAD commit before this snapshot update: `a0dced4`
 - Current app marketing version: `1.0.2`
 - Current build number: `27`
 - Latest simulator build check: `BUILD SUCCEEDED`
@@ -296,6 +319,7 @@ Onboarding now allows immediate language selection before sign-in.
 - Firestore rules still contain legacy studio/assignment blocks; can be cleaned once no longer needed by any deployed clients/functions.
 - Snapshot had previously drifted; this version replaces stale sections describing removed Studio Manager/Planner and assignment-linked home flows.
 - Validate release entitlements/cert context (`aps-environment`) before App Store production submission builds.
+- Defer remaining optimization-audit ideas unless a real performance issue appears; query-level Firestore sorting needs data/index verification before replacing current in-memory sorts.
 
 ## 21) Key Files to Start From
 - App shell and pipeline orchestration:

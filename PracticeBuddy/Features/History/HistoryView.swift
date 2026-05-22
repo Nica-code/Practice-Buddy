@@ -118,6 +118,9 @@ struct HistoryView: View {
 
     var body: some View {
         historyList
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                PBAdBannerSlot(placement: .playBottomBanner)
+            }
             .scrollContentBackground(.hidden)
             .background(chrome.ignoresSafeArea())
             .toolbarBackground(chrome, for: .navigationBar)

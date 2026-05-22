@@ -35,6 +35,9 @@ struct ProfileTabView: View {
                     }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PBAdBannerSlot(placement: .playBottomBanner)
+        }
         .task(id: firebase.currentUserID) {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
