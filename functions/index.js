@@ -150,8 +150,21 @@ exports.pushTestNotification = onRequest(async (req, res) => {
       body = "Open Social to verify friend-request routing.";
     }
 
-    await safePushToUser(uid, {title, body, prefKey, data, category});
-    res.status(200).json({ok: true});
+    const result = await pushToUser(uid, {title, body, prefKey, data, category});
+    if (!result.sent) {
+      const detail = result.failureCodes?.length
+        ? `Firebase failure codes: ${result.failureCodes.join(", ")}`
+        : result.detail || null;
+      res.status(409).json({
+        ok: false,
+        error: `Push test was not delivered: ${result.reason}${detail ? ` (${detail})` : ""}`,
+        reason: result.reason,
+        detail,
+        failureCodes: result.failureCodes || [],
+      });
+      return;
+    }
+    res.status(200).json({ok: true, ...result});
   } catch (error) {
     logger.error("pushTestNotification failed", error);
     res.status(400).json({error: String(error.message || error)});
@@ -1468,20 +1481,27 @@ function clampInt(value, min, max, fallback = min) {
 
 async function safePushToUser(uid, {title, body, prefKey, data, category}) {
   try {
-    await pushToUser(uid, {title, body, prefKey, data, category});
+    return await pushToUser(uid, {title, body, prefKey, data, category});
   } catch (error) {
     logger.warn("push notification failed", {uid, error: String(error?.message || error)});
+    return {sent: false, reason: "send_error", detail: String(error?.message || error)};
   }
 }
 
 async function pushToUser(uid, {title, body, prefKey, data, category}) {
   const normalizedUid = String(uid || "").trim();
-  if (!normalizedUid) return;
+  if (!normalizedUid) return {sent: false, reason: "missing_uid"};
 
   const userSnap = await db.collection("users").doc(normalizedUid).get();
-  if (!userSnap.exists) return;
+  if (!userSnap.exists) {
+    logger.warn("push skipped: user document missing", {uid: normalizedUid});
+    return {sent: false, reason: "missing_user"};
+  }
   const userData = userSnap.data() || {};
-  if (prefKey && userData[prefKey] === false) return;
+  if (prefKey && userData[prefKey] === false) {
+    logger.info("push skipped: notification preference disabled", {uid: normalizedUid, prefKey});
+    return {sent: false, reason: "preference_disabled", detail: prefKey};
+  }
 
   const deviceSnap = await db.collection("users")
       .doc(normalizedUid)
@@ -1493,6 +1513,10 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
         tokenType: String(doc.data()?.tokenType || "legacy").trim().toLowerCase(),
       }))
       .filter((row) => row.token.length > 0);
+  if (tokenRows.length === 0) {
+    logger.warn("push skipped: no device tokens stored for user", {uid: normalizedUid});
+    return {sent: false, reason: "no_device_tokens"};
+  }
   const tokens = tokenRows
       .filter((row) => {
         if (row.tokenType === "apns") return false;
@@ -1504,10 +1528,16 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
     if (tokenRows.length > 0) {
       logger.warn("No FCM-compatible push token available for user", {uid: normalizedUid});
     }
-    return;
+    return {
+      sent: false,
+      reason: "no_fcm_tokens",
+      detail: `stored token types: ${Array.from(new Set(tokenRows.map((row) => row.tokenType || "legacy"))).join(", ")}`,
+    };
   }
 
   const payloadData = normalizePushData(data);
+  const previousBadge = clampInt(userData.notificationBadgeCount, 0, 99, 0);
+  const badge = clampInt(previousBadge + 1, 1, 99, 1);
   logger.info("sending push notification", {
     uid: normalizedUid,
     tokenCount: tokens.length,
@@ -1527,8 +1557,13 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
       },
       payload: {
         aps: {
+          alert: {
+            title: String(title || "PractiQuest"),
+            body: String(body || ""),
+          },
           sound: "default",
           category: String(category || ""),
+          badge,
         },
       },
     },
@@ -1537,8 +1572,28 @@ async function pushToUser(uid, {title, body, prefKey, data, category}) {
     uid: normalizedUid,
     successCount: response.successCount,
     failureCount: response.failureCount,
+    failureCodes: response.responses
+        .filter((result) => result && result.error)
+        .map((result) => String(result.error.code || "unknown"))
+        .slice(0, 5),
   });
   await pruneInvalidDeviceTokens(normalizedUid, tokens, response.responses);
+  if (response.successCount > 0) {
+    await db.collection("users").doc(normalizedUid).set({
+      notificationBadgeCount: badge,
+      notificationBadgeUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+  }
+  return {
+    sent: response.successCount > 0,
+    reason: response.successCount > 0 ? "sent" : "all_tokens_failed",
+    successCount: response.successCount,
+    failureCount: response.failureCount,
+    failureCodes: Array.from(new Set(response.responses
+        .filter((result) => result && result.error)
+        .map((result) => String(result.error.code || "unknown")))),
+    badge,
+  };
 }
 
 function normalizePushData(data) {
