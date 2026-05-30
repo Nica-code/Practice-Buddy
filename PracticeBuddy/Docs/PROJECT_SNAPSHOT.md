@@ -1,8 +1,40 @@
 PractiQuest — Project Snapshot (Current)
 
-Last updated: 2026-05-22
+Last updated: 2026-05-30
+Current version: 1.0.5 (build 30) — pending App Store upload
+Active branch: `codex/launch-hardening` (all work below pushed to GitHub)
 
-## Latest Change — 2026-05-22
+## Latest Change — 2026-05-30
+
+**Push notifications — full pipeline now complete:**
+- Root cause was twofold: (1) `aps-environment` was `development` (fixed → `production` in `PracticeBuddy.entitlements`), and (2) the **APNs Authentication Key (.p8) was missing from Firebase**. Nica created key `854Y5FY5F6` (Team `73J84HKXBC`, Production/Team-scoped) and is uploading it to Firebase Console → Cloud Messaging.
+- Committed the FCM token-ordering fix: set `Messaging.apnsToken` before fetching the FCM token (required because `FirebaseAppDelegateProxyEnabled=false`).
+- `functions/index.js` `pushToUser` now returns `{sent, reason, failureCodes, badge}`, adds the APNs alert payload + server-side badge increment. **NOT deployed yet — run `firebase deploy --only functions` before/after shipping.**
+- Added `*.p8` / `AuthKey_*.p8` to `.gitignore`. The key lives only in `~/Downloads`, never in the repo.
+- Caveat: key is Production-scoped, so Debug-from-Xcode (sandbox) test pushes may not deliver — test via TestFlight/live build.
+
+**Notification permission priming (new):** `PBNotificationPrimerView` soft pre-prompt shown before the one-shot OS dialog when status is `.notDetermined`, wired via `ContentView.syncPushPipeline()` + `handleNotificationPrimerEnable/Skip`.
+
+**UX polish pass:**
+- `PBSkeletonCard` now used for genuine content-loading states in `ProfileTabView` + `UserProfileView` (inline action spinners left as-is).
+- New reusable `PBEmptyState` (icon + title + message + optional CTA) on empty buddy list + new-chat picker.
+- `PBAdBannerSlot` given shared chrome treatment (top hairline + matched background) across all 6 banners.
+- Clearer Pro-gate copy in History (export + advanced analytics).
+- Exact-token cornerRadius/padding literals aligned to `PBLayout` in Settings theme/font pickers (no visual change).
+
+**Duel Leaderboard revamp:** Season Ladder renamed to "Duel Leaderboard" with trophy header + level badges (`publicLevel` added to `DuelLeaderboardRow`); global query made index-free; redundant Studio "Leaderboard" shortcut replaced with Chat.
+
+**New reusable SharedUI components:** `PBNotificationPrimerView`, `PBEmptyState` (auto-compiled via Xcode synchronized file groups).
+
+**Outstanding before/around App Store upload:**
+1. Upload the `.p8` APNs key to Firebase (Key ID `854Y5FY5F6`, Team `73J84HKXBC`).
+2. `firebase deploy --only functions` to ship the push-diagnostics + badge changes.
+3. Create version `1.0.5` in App Store Connect.
+4. Still deferred (non-blocking): `SKAdNetworkItems`, ATT prompt + `NSUserTrackingUsageDescription`, Google UMP consent flow.
+
+---
+
+## Earlier Change — 2026-05-22
 
 **Push notifications fix (for `1.0.3` App Store update):**
 - `aps-environment` in `PracticeBuddy/PracticeBuddy.entitlements` changed from `development` → `production`. Previous live build registered APNs sandbox tokens while FCM sent via production gateway, silently dropping every push. This was the root cause of "notifications never arrive" on the live App Store build.

@@ -1,10 +1,11 @@
 # PractiQuest — Development State Snapshot
 
-**Last Updated**: 2026-05-22
-**Current App Version**: 1.0.2 (next archive should bump to 1.0.3)
-**Current Build Number**: 27 (next archive should bump to 28+)
-**Active Branch**: `codex/launch-hardening`
+**Last Updated**: 2026-05-30
+**Current App Version**: 1.0.5 (build 30) — pending App Store upload
+**Active Branch**: `codex/launch-hardening` (all commits pushed to GitHub)
 **Build Status**: `BUILD SUCCEEDED` via simulator build check
+
+**Before uploading 1.0.5:** (1) upload `.p8` APNs key to Firebase (Key ID `854Y5FY5F6`, Team `73J84HKXBC`); (2) `firebase deploy --only functions`; (3) create version 1.0.5 in App Store Connect.
 
 ---
 
