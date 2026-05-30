@@ -8,6 +8,28 @@
 
 ---
 
+## 2026-05-30 — APNs Key + UX Polish Pass
+
+### Push notifications — root cause resolved
+- **APNs Authentication Key (.p8) was the missing piece.** Nica created key `854Y5FY5F6` (Team `73J84HKXBC`, Production/Team-scoped) and is uploading it to Firebase Console → Cloud Messaging → Apple app config. With this + the `aps-environment=production` fix, the production push pipeline is complete.
+- Key file lives only in `~/Downloads` (never in repo). Added `*.p8` / `AuthKey_*.p8` to `.gitignore` as a safety net.
+- Committed the previously-uncommitted FCM token-ordering fix (set `Messaging.apnsToken` before fetching FCM token — required because `FirebaseAppDelegateProxyEnabled=false`). Commit `cd8e90c`.
+- **Caveat:** the key is Production-scoped, so Debug-from-Xcode (sandbox APNs) test pushes may not deliver. Test via TestFlight/live build. The `#if DEBUG` "Send Test Push" button stays debug-only (Nica's choice).
+
+### UX polish pass (commit `b570ede`)
+- **Notification permission priming:** new `PBNotificationPrimerView` (soft pre-prompt) shown before the one-shot OS dialog when status is `.notDetermined`, wired through `ContentView.syncPushPipeline()` + `handleNotificationPrimerEnable/Skip`. Preserves the OS prompt and lifts opt-in.
+- **Skeletons:** replaced genuine content-loading spinners with `PBSkeletonCard` in `ProfileTabView` and `UserProfileView`. NOTE: the other ~8 `ProgressView()` instances are correct inline action spinners (Submitting/Updating/Uploading) and were intentionally left.
+- **Empty states:** new reusable `PBEmptyState` (icon + title + message + optional CTA), applied to the empty buddy list (`FriendsView`) and new-chat friend picker (`SocialView`). SocialView's main thread-list empty state was already polished.
+- **Ad banner seams:** `PBAdBannerSlot` now has a shared top hairline + matched background so all 6 banners read as chrome.
+- **Paywall copy:** History export + advanced-analytics messages now name the Pro gate clearly instead of "currently unavailable".
+- **Token alignment:** exact-match cornerRadius/padding literals (18→radiusControl, 12→padSM, 24→padXL) mapped to `PBLayout` in Settings theme/font pickers. Non-token micro-spacing left untouched to avoid visual drift.
+- Build: `BUILD SUCCEEDED`. New SharedUI files auto-compile via Xcode synchronized file groups (no pbxproj edit needed).
+
+### Still uncommitted in the tree (NOT mine — pre-existing work from another session)
+`PracticeBuddy.xcodeproj/project.pbxproj`, `Features/Journey/JourneyView.swift`, `Features/Studio/StudioHubView.swift`, `Services/JourneyProgressManager.swift`, `functions/index.js`. Review before archiving 1.0.3.
+
+---
+
 ## 2026-05-22 — Notifications + Ads Hardening
 
 ### Push Notification Fix (root cause of "no notifications on live App Store build")
