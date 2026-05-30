@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# APNs / push auth keys — NEVER commit these (belong in Firebase Console only)
+*.p8
+AuthKey_*.p8

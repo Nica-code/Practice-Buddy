@@ -96,12 +96,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     ) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         PBLog.firebase.info("APNs registration succeeded. Token length: \(token.count, privacy: .public)")
-        Task { @MainActor in
-            await PushTokenManager.shared.upsertCurrentToken(token, kind: .apns)
-        }
 #if canImport(FirebaseMessaging)
         Messaging.messaging().apnsToken = deviceToken
 #endif
+        Task { @MainActor in
+            await PushTokenManager.shared.upsertCurrentToken(token, kind: .apns)
+            await PushTokenManager.shared.syncFCMRegistrationTokenIfPossible()
+        }
     }
 
     func application(
