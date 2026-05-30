@@ -251,9 +251,13 @@ struct SocialView: View {
     private var newChatSheet: some View {
         List {
             if viewModel.friendCandidates.isEmpty {
-                Text("No friends yet.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                PBEmptyState(
+                    icon: "person.crop.circle.badge.plus",
+                    title: "No friends yet",
+                    message: "Add buddies from the Friends tab, then start a chat with them here."
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             } else {
                 Section {
                     ForEach(viewModel.friendCandidates) { buddy in

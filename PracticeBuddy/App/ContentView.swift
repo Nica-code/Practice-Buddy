@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var lastPipelineSyncKey: String?
     @State private var lastPipelineSyncAt: Date = .distantPast
     @State private var showFirstRunTutorial: Bool = false
+    @State private var showNotificationPrimer: Bool = false
     private let buddiesRepository = FirebaseBuddiesRepository()
 
     var body: some View {
@@ -192,6 +193,12 @@ struct ContentView: View {
                 title: Text(LocalizedStringKey(state.title)),
                 message: Text(LocalizedStringKey(state.message)),
                 dismissButton: .default(Text("OK"))
+            )
+        }
+        .sheet(isPresented: $showNotificationPrimer) {
+            PBNotificationPrimerView(
+                onEnable: handleNotificationPrimerEnable,
+                onSkip: handleNotificationPrimerSkip
             )
         }
     }
@@ -476,8 +483,16 @@ struct ContentView: View {
             let hasPrompted = defaults.bool(forKey: promptKey)
 
             if !hasPrompted {
-                _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
+                // Show a soft pre-prompt before the one-shot OS dialog when the user
+                // hasn't decided yet. If they already resolved it at the OS level
+                // (e.g. a reinstall), skip the primer and proceed normally.
+                let status = await PBNotificationCenter.authorizationStatus()
+                if status == .notDetermined {
+                    showNotificationPrimer = true
+                    return
+                }
                 defaults.set(true, forKey: promptKey)
+                await PushTokenManager.shared.registerForRemoteNotificationsIfAuthorized()
             } else {
                 await PushTokenManager.shared.registerForRemoteNotificationsIfAuthorized()
             }
@@ -493,6 +508,26 @@ struct ContentView: View {
                 buddiesEnabled: defaults.object(forKey: PBNotificationPreferenceKey.buddies) as? Bool ?? true
             )
         }
+    }
+
+    private func handleNotificationPrimerEnable() {
+        showNotificationPrimer = false
+        guard let uid = firebase.currentUserID, !uid.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: "pb.notifications.prompted.\(uid)")
+        Task { @MainActor in
+            // Triggers the one-shot OS permission dialog, then runs the rest of the
+            // push pipeline (token sync + preference upload) now that prompted=true.
+            _ = await PBNotificationCenter.requestAuthorizationIfNeeded()
+            syncPushPipeline()
+        }
+    }
+
+    private func handleNotificationPrimerSkip() {
+        showNotificationPrimer = false
+        guard let uid = firebase.currentUserID, !uid.isEmpty else { return }
+        // Record that we primed so we don't nag on every launch. Users can still
+        // enable later from Settings, which routes to the system settings page.
+        UserDefaults.standard.set(true, forKey: "pb.notifications.prompted.\(uid)")
     }
 
     private func updateAppIconBadge() {
@@ -512,6 +547,9 @@ struct ContentView: View {
             UNUserNotificationCenter.current().setBadgeCount(badgeCount) { _ in }
         } else {
             UIApplication.shared.applicationIconBadgeNumber = badgeCount
+        }
+        Task { @MainActor in
+            await PushTokenManager.shared.updateServerBadgeCount(badgeCount)
         }
     }
 

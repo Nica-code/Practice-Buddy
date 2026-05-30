@@ -4,18 +4,16 @@ import UIKit
 import AuthenticationServices
 
 struct FriendsView: View {
-    private struct LeaderboardActionUser: Identifiable, Hashable {
+    private struct SocialActionUser: Identifiable, Hashable {
         let id: String
         let displayName: String
     }
 
     private enum SocialScrollAnchor: String {
         case pendingRequests = "social.pendingRequests"
-        case leaderboard = "social.leaderboard"
     }
 
     @EnvironmentObject private var journey: JourneyProgressManager
-    @EnvironmentObject private var duelLeague: DuelLeagueManager
     @EnvironmentObject private var adsManager: PBAdsManager
     @Environment(\.pbTheme) private var theme
     @Environment(\.pbTypography) private var type
@@ -26,9 +24,7 @@ struct FriendsView: View {
 
     @State private var inviteCodeInput: String = ""
     @State private var displayNameInput: String = ""
-    @State private var expandedLeaderboardUserID: String?
-    @State private var profileTarget: LeaderboardActionUser?
-    @State private var pendingLeaderboardRefreshTask: Task<Void, Never>?
+    @State private var profileTarget: SocialActionUser?
 
     @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
     @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
@@ -42,9 +38,6 @@ struct FriendsView: View {
                     }
                     socialSection("Friends") {
                         buddiesCard
-                    }
-                    socialSection("Leaderboard") {
-                        leaderboardCard
                     }
                 }
                 .padding(.horizontal)
@@ -67,22 +60,14 @@ struct FriendsView: View {
             guard let uid = firebase.currentUserID else { return }
             await buddiesVM.start(for: uid)
             await buddiesVM.syncPublicLevel(journey.level)
-            await buddiesVM.refreshLeaderboard()
         }
         .task(id: journey.level) {
             guard firebase.currentUserID != nil else { return }
             await buddiesVM.syncPublicLevel(journey.level)
         }
-        .onChange(of: buddiesVM.buddies) { _, _ in
-            queueLeaderboardRefresh()
-        }
         .onChange(of: buddiesVM.myProfile?.displayName) { _, newValue in
             guard let newValue, !newValue.isEmpty else { return }
             displayNameInput = newValue
-        }
-        .onDisappear {
-            pendingLeaderboardRefreshTask?.cancel()
-            pendingLeaderboardRefreshTask = nil
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -266,7 +251,6 @@ struct FriendsView: View {
             PBHaptics.tap()
             Task {
                 _ = await buddiesVM.sendInvite(friendCode: code)
-                await buddiesVM.refreshLeaderboard()
             }
         }
     }
@@ -352,12 +336,12 @@ struct FriendsView: View {
                 .foregroundStyle(theme.textSecondary)
 
             if buddiesVM.buddies.isEmpty {
-                Text("Add friends to build your buddy list.")
-                    .font(type.footnote)
-                    .foregroundStyle(theme.textSecondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .pbSurfaceCard(palette: palette)
+                PBEmptyState(
+                    icon: "person.2.badge.plus",
+                    title: "No buddies yet",
+                    message: "Share your friend code above to add your first practice buddy."
+                )
+                .pbSurfaceCard(palette: palette)
             } else {
                 ForEach(Array(buddiesVM.buddies.enumerated()), id: \.element.id) { _, buddy in
                     HStack {
@@ -400,7 +384,7 @@ struct FriendsView: View {
                         Spacer()
                         Button("Visit Profile") {
                             PBHaptics.tap()
-                            profileTarget = LeaderboardActionUser(id: buddy.id, displayName: buddy.displayName)
+                            profileTarget = SocialActionUser(id: buddy.id, displayName: buddy.displayName)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -411,89 +395,6 @@ struct FriendsView: View {
                 }
             }
         }
-    }
-
-    private var leaderboardCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if buddiesVM.leaderboardRows.isEmpty {
-                Text("Add buddies to see ranking.")
-                    .font(type.footnote)
-                    .foregroundStyle(theme.textSecondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .pbSurfaceCard(palette: palette)
-            } else {
-                ForEach(Array(buddiesVM.leaderboardRows.enumerated()), id: \.element.id) { idx, row in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button {
-                            withAnimation(.snappy(duration: 0.2)) {
-                                expandedLeaderboardUserID = (expandedLeaderboardUserID == row.id) ? nil : row.id
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("#\(idx + 1)")
-                                    .font(type.footnote)
-                                    .foregroundStyle(theme.textSecondary)
-                                    .frame(width: 34, alignment: .leading)
-                                    .monospacedDigit()
-
-                                PBAvatarView(
-                                    avatarID: row.avatarID,
-                                    displayName: row.name,
-                                    profilePhotoURL: row.profilePhotoURL,
-                                    size: 26
-                                )
-
-                                Text(row.name)
-                                    .font(type.body)
-                                    .foregroundStyle(theme.textPrimary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.82)
-                                    .allowsTightening(true)
-
-                                Spacer()
-
-                                PBLevelBadgeView(level: row.publicLevel)
-
-                                Text(L10n.f("Rating %@", "\(row.duelRating)"))
-                                    .font(type.footnote)
-                                    .foregroundStyle(theme.textSecondary)
-                                    .monospacedDigit()
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        if expandedLeaderboardUserID == row.id {
-                            HStack(spacing: 8) {
-                                Button("Go to Profile") {
-                                    PBHaptics.tap()
-                                    profileTarget = LeaderboardActionUser(id: row.id, displayName: row.name)
-                                    expandedLeaderboardUserID = nil
-                                }
-                                .buttonStyle(.bordered)
-
-                                Button("Duel Challenge") {
-                                    PBHaptics.tap()
-                                    Task {
-                                        await duelLeague.inviteTargetedDuel(targetUID: row.id, source: .friend, octaves: duelLeague.activeLeagueRequirement.octaves)
-                                    }
-                                    expandedLeaderboardUserID = nil
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(firebase.currentUserID == row.id || firebase.isAnonymousUser)
-                            }
-                            .font(type.footnote)
-                        }
-                    }
-                    .padding(10)
-                    .pbSurfaceCard(palette: palette)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PBLayout.padMD)
-        .pbModernCard(palette: palette)
-        .id(SocialScrollAnchor.leaderboard.rawValue)
     }
 
     private func leagueChipColor(for league: String) -> Color {
@@ -538,12 +439,4 @@ struct FriendsView: View {
         return components.url
     }
 
-    private func queueLeaderboardRefresh() {
-        pendingLeaderboardRefreshTask?.cancel()
-        pendingLeaderboardRefreshTask = Task {
-            try? await Task.sleep(for: .milliseconds(220))
-            guard !Task.isCancelled else { return }
-            await buddiesVM.refreshLeaderboard()
-        }
-    }
 }

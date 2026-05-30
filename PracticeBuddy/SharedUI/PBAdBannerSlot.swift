@@ -37,6 +37,16 @@ struct PBAdBannerSlot: View {
             }
             .padding(.horizontal, PBLayout.padSM)
             .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(alignment: .top) {
+                ZStack(alignment: .top) {
+                    palette.background.opacity(0.92)
+                    Rectangle()
+                        .fill(palette.textSecondary.opacity(0.12))
+                        .frame(height: 0.5)
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }

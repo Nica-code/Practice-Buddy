@@ -14,13 +14,20 @@ struct ProfileTabView: View {
     var body: some View {
         Group {
             if firebase.currentUserID == nil {
-                VStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading your account…")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                VStack(spacing: PBLayout.padMD) {
+                    PBSkeletonCard(lines: 2)
+                        .padding(PBLayout.padMD)
+                        .pbModernCard(palette: palette)
+                    PBSkeletonCard(lines: 4)
+                        .padding(PBLayout.padMD)
+                        .pbModernCard(palette: palette)
+                    PBSkeletonCard(lines: 3)
+                        .padding(PBLayout.padMD)
+                        .pbModernCard(palette: palette)
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(PBLayout.padLG)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background {
                     PBBackdropView(palette: palette)
                 }

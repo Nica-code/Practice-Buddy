@@ -181,13 +181,13 @@ struct HistoryView: View {
             } message: {
                 Text(exportErrorMessage ?? "Unknown error.")
             }
-            .alert("Feature Unavailable", isPresented: $showProLockedAlert) {
+            .alert("Exporting is a Pro feature", isPresented: $showProLockedAlert) {
                 Button("Not Now", role: .cancel) {}
-                Button("Open Subscription") {
+                Button("See Pro") {
                     selectedTab = 4
                 }
             } message: {
-                Text("This feature is currently unavailable.")
+                Text("Upgrade to Pro to export your practice history as CSV or JSON.")
             }
             .sheet(isPresented: $showShareSheet) {
                 if let exportURL {
@@ -266,10 +266,10 @@ struct HistoryView: View {
 
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Advanced analytics is currently unavailable.")
+                    Text("Unlock advanced analytics with Pro to see deeper trends across your sessions.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
-                    Button("Open Subscription") {
+                    Button("See Pro") {
                         selectedTab = 4
                     }
                     .font(type.button)

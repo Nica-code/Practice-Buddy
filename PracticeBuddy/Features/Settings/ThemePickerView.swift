@@ -14,7 +14,7 @@ struct ThemePickerView: View {
             VStack(spacing: 14) {
 
                 livePreviewCard(theme: themeManager.theme)
-                    .padding(.top, 12)
+                    .padding(.top, PBLayout.padSM)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Themes")
@@ -31,7 +31,7 @@ struct ThemePickerView: View {
                         themeRow(themeManager.customTheme)
                     }
                 }
-                .padding(.bottom, 24)
+                .padding(.bottom, PBLayout.padXL)
             }
             .padding(.horizontal)
         }
@@ -78,7 +78,7 @@ struct ThemePickerView: View {
                 .disabled(themeManager.isUsingCustomTheme)
             }
         }
-        .padding(12)
+        .padding(PBLayout.padSM)
         .pbSurfaceCard(palette: currentTheme.resolvedPalette(for: colorScheme), cornerRadius: 14)
     }
 
@@ -184,7 +184,7 @@ struct ThemePickerView: View {
                         .foregroundStyle(palette.accent)
                         .monospacedDigit()
                 }
-                .padding(12)
+                .padding(PBLayout.padSM)
                 .pbSurfaceCard(palette: palette, cornerRadius: 14)
 
                 Button {} label: {
@@ -201,7 +201,7 @@ struct ThemePickerView: View {
             }
         }
         .padding()
-        .pbSurfaceCard(palette: palette, cornerRadius: 18)
+        .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
     }
 }
 
@@ -257,12 +257,12 @@ private struct ThemePreviewSheet: View {
                                     .foregroundStyle(palette.accent)
                                     .monospacedDigit()
                             }
-                            .padding(12)
+                            .padding(PBLayout.padSM)
                             .pbSurfaceCard(palette: palette, cornerRadius: 14)
                         }
                     }
                     .padding()
-                    .pbSurfaceCard(palette: palette, cornerRadius: 18)
+                    .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
 
                     Button {
                         onApply()

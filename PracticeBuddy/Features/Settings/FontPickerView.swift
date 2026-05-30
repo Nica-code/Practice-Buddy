@@ -79,7 +79,7 @@ struct FontPickerView: View {
             .pbSurfaceCard(palette: theme.resolvedPalette(for: colorScheme), cornerRadius: 14)
         }
         .padding()
-        .pbSurfaceCard(palette: theme.resolvedPalette(for: colorScheme), cornerRadius: 18)
+        .pbSurfaceCard(palette: theme.resolvedPalette(for: colorScheme), cornerRadius: PBLayout.radiusControl)
     }
 
     private func fontRow(_ choice: PBFontChoice) -> some View {

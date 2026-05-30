@@ -673,12 +673,8 @@ struct PublicUserProfileView: View {
         Section("Public Profile") {
             publicProfileSectionCard {
                 if isLoadingProfile && profile == nil {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("Loading profile…")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                    PBSkeletonCard(lines: 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else if let profile {
                     HStack(spacing: 10) {
                         PBAvatarView(
