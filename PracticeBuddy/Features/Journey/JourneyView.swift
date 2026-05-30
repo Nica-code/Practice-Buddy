@@ -691,9 +691,21 @@ struct JourneyView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Season Ladder")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Duel Leaderboard")
+                            .font(type.fontChoice.headlineFont(size: 16, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Compare ratings across PractiQuest duelists.")
+                            .font(type.footnote)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                    Spacer()
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                }
+
                 Picker("Ladder Scope", selection: $duelLeaderboardScope) {
                     ForEach(DuelLeaderboardScope.allCases) { scope in
                         Text(scope.rawValue).tag(scope)
@@ -712,9 +724,12 @@ struct JourneyView: View {
                     }
                     .padding(.vertical, 2)
                 } else if duelLeague.leaderboardRows.isEmpty {
-                    Text("No ladder data yet for this scope.")
+                    Text("No duelists yet for this scope.")
                         .font(type.footnote)
                         .foregroundStyle(palette.textSecondary)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .pbSurfaceCard(palette: palette)
                 } else {
                     ForEach(Array(duelLeague.leaderboardRows.enumerated()), id: \.element.id) { idx, row in
                         VStack(alignment: .leading, spacing: 8) {
@@ -746,15 +761,16 @@ struct JourneyView: View {
 
                                     Spacer()
 
-                                    VStack(alignment: .trailing, spacing: 2) {
-                                        Text("Rating")
-                                            .font(type.footnote)
-                                            .foregroundStyle(palette.textSecondary)
+                                    PBLevelBadgeView(level: row.publicLevel)
+
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "bolt.fill")
+                                            .font(.system(size: 10, weight: .bold))
                                         Text("\(row.rating)")
-                                            .font(type.body.weight(.semibold))
-                                            .foregroundStyle(palette.textPrimary)
                                             .monospacedDigit()
                                     }
+                                    .font(type.footnote.weight(.semibold))
+                                    .foregroundStyle(palette.textSecondary)
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 10)
@@ -787,6 +803,8 @@ struct JourneyView: View {
                     }
                 }
             }
+            .padding(12)
+            .pbModernCard(palette: palette)
             .id(JourneyScrollTarget.seasonLadder.rawValue)
 
             if let status = duelLeague.statusMessage, !status.isEmpty {

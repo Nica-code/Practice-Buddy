@@ -3,7 +3,6 @@ import SwiftUI
 struct StudioHubView: View {
     private enum SocialJumpTarget: String {
         case pendingRequests
-        case leaderboard
     }
 
     private enum StudioSection: String, CaseIterable, Identifiable {
@@ -104,12 +103,11 @@ struct StudioHubView: View {
                 }
             ),
             PBShortcutItem(
-                id: "social_leaderboard",
-                title: "Leaderboard",
-                systemImage: "list.number",
+                id: "social_chat",
+                title: "Chat",
+                systemImage: "bubble.left.and.bubble.right.fill",
                 action: {
-                    sectionRawValue = StudioSection.friends.rawValue
-                    socialJumpTargetRaw = "\(SocialJumpTarget.leaderboard.rawValue):\(Date().timeIntervalSince1970)"
+                    sectionRawValue = StudioSection.chat.rawValue
                 }
             ),
             PBShortcutItem(

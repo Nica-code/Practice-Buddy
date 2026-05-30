@@ -1719,6 +1719,7 @@ struct DuelLeaderboardRow: Identifiable, Equatable {
     let displayName: String
     let avatarID: String
     let profilePhotoURL: String
+    let publicLevel: Int
     let points: Int
     let rating: Int
     let wins: Int
@@ -2534,19 +2535,18 @@ final class DuelLeagueManager: ObservableObject {
             var rows: [DuelLeaderboardRow] = []
             switch scope {
             case .global:
-                // Keep this index-free for launch stability: fetch current season users and sort client-side.
+                // Keep this index-free for launch stability: fetch visible users and sort client-side.
                 let snap = try await db.collection("users")
-                    .whereField("duelSeasonKey", isEqualTo: key)
                     .limit(to: 200)
                     .getDocuments()
                 rows = snap.documents
-                    .compactMap(parseLeaderboardRow)
+                    .compactMap { parseLeaderboardRow($0, currentSeasonKey: key) }
                     .sorted(by: leaderboardSort)
                     .prefix(20)
                     .map { $0 }
             case .friends:
                 let ids = try await friendIDs(for: uid) + [uid]
-                rows = try await fetchLeaderboardRows(uids: ids, seasonKey: key)
+                rows = try await fetchLeaderboardRows(uids: ids, currentSeasonKey: key)
                     .sorted(by: leaderboardSort)
                     .prefix(20)
                     .map { $0 }
@@ -2571,7 +2571,7 @@ final class DuelLeagueManager: ObservableObject {
         return snap.documents.map(\.documentID)
     }
 
-    private func fetchLeaderboardRows(uids: [String], seasonKey: String) async throws -> [DuelLeaderboardRow] {
+    private func fetchLeaderboardRows(uids: [String], currentSeasonKey: String) async throws -> [DuelLeaderboardRow] {
         let unique = Array(Set(uids))
         guard !unique.isEmpty else { return [] }
         var rows: [DuelLeaderboardRow] = []
@@ -2581,38 +2581,32 @@ final class DuelLeagueManager: ObservableObject {
                 .whereField(FieldPath.documentID(), in: chunk)
                 .getDocuments()
             for doc in snap.documents {
-                guard let row = parseLeaderboardRow(doc), rowSeasonKey(doc.data()) == seasonKey else { continue }
+                guard let row = parseLeaderboardRow(doc, currentSeasonKey: currentSeasonKey) else { continue }
                 rows.append(row)
             }
         }
         return rows
     }
 
-    private func rowSeasonKey(_ data: [String: Any]) -> String {
-        (data["duelSeasonKey"] as? String) ?? ""
+    private func parseLeaderboardRow(_ doc: QueryDocumentSnapshot, currentSeasonKey: String) -> DuelLeaderboardRow? {
+        parseLeaderboardRow(documentID: doc.documentID, data: doc.data(), currentSeasonKey: currentSeasonKey)
     }
 
-    private func parseLeaderboardRow(_ doc: QueryDocumentSnapshot) -> DuelLeaderboardRow? {
-        parseLeaderboardRow(documentID: doc.documentID, data: doc.data())
-    }
-
-    private func parseLeaderboardRow(documentID: String, data: [String: Any]) -> DuelLeaderboardRow? {
+    private func parseLeaderboardRow(documentID: String, data: [String: Any], currentSeasonKey: String) -> DuelLeaderboardRow? {
         let displayName = ((data["displayName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !displayName.isEmpty else { return nil }
-        let seasonMatches = max(0, (data["duelSeasonMatches"] as? Int) ?? 0)
-        let lifetimeMatches = max(0, (data["duelWins"] as? Int) ?? 0)
-            + max(0, (data["duelLosses"] as? Int) ?? 0)
-            + max(0, (data["duelDraws"] as? Int) ?? 0)
-        let hasAnyMatches = seasonMatches > 0 || lifetimeMatches > 0
-        let rating = hasAnyMatches ? max(0, (data["duelRating"] as? Int) ?? 0) : 0
+        let isCurrentSeason = ((data["duelSeasonKey"] as? String) ?? "") == currentSeasonKey
+        let seasonMatches = isCurrentSeason ? max(0, (data["duelSeasonMatches"] as? Int) ?? 0) : 0
+        let rating = max(0, (data["duelRating"] as? Int) ?? 0)
         return DuelLeaderboardRow(
             id: documentID,
             displayName: displayName,
             avatarID: ((data["avatarID"] as? String) ?? "avatar_note").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "avatar_note" : ((data["avatarID"] as? String) ?? "avatar_note"),
             profilePhotoURL: ((data["profilePhotoURL"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-            points: max(0, (data["duelSeasonPoints"] as? Int) ?? 0),
+            publicLevel: max(1, (data["publicLevel"] as? Int) ?? (data["level"] as? Int) ?? 1),
+            points: isCurrentSeason ? max(0, (data["duelSeasonPoints"] as? Int) ?? 0) : 0,
             rating: rating,
-            wins: max(0, (data["duelSeasonWins"] as? Int) ?? 0),
+            wins: isCurrentSeason ? max(0, (data["duelSeasonWins"] as? Int) ?? 0) : 0,
             matches: seasonMatches
         )
     }
@@ -2620,6 +2614,7 @@ final class DuelLeagueManager: ObservableObject {
     private func leaderboardSort(_ lhs: DuelLeaderboardRow, _ rhs: DuelLeaderboardRow) -> Bool {
         if lhs.points != rhs.points { return lhs.points > rhs.points }
         if lhs.rating != rhs.rating { return lhs.rating > rhs.rating }
+        if lhs.matches != rhs.matches { return lhs.matches > rhs.matches }
         return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
     }
 
