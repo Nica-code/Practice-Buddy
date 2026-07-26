@@ -1,165 +1,158 @@
 # PractiQuest — Development State Snapshot
 
-**Last Updated**: 2026-05-30
-**Current App Version**: 1.0.5 (build 30) — pending App Store upload
-**Active Branch**: `codex/launch-hardening` (all commits pushed to GitHub)
-**Build Status**: `BUILD SUCCEEDED` via simulator build check
-
-**Before uploading 1.0.5:** (1) upload `.p8` APNs key to Firebase (Key ID `854Y5FY5F6`, Team `73J84HKXBC`); (2) `firebase deploy --only functions`; (3) create version 1.0.5 in App Store Connect.
-
----
-
-## 2026-05-30 — APNs Key + UX Polish Pass
-
-### Push notifications — root cause resolved
-- **APNs Authentication Key (.p8) was the missing piece.** Nica created key `854Y5FY5F6` (Team `73J84HKXBC`, Production/Team-scoped) and is uploading it to Firebase Console → Cloud Messaging → Apple app config. With this + the `aps-environment=production` fix, the production push pipeline is complete.
-- Key file lives only in `~/Downloads` (never in repo). Added `*.p8` / `AuthKey_*.p8` to `.gitignore` as a safety net.
-- Committed the previously-uncommitted FCM token-ordering fix (set `Messaging.apnsToken` before fetching FCM token — required because `FirebaseAppDelegateProxyEnabled=false`). Commit `cd8e90c`.
-- **Caveat:** the key is Production-scoped, so Debug-from-Xcode (sandbox APNs) test pushes may not deliver. Test via TestFlight/live build. The `#if DEBUG` "Send Test Push" button stays debug-only (Nica's choice).
-
-### UX polish pass (commit `b570ede`)
-- **Notification permission priming:** new `PBNotificationPrimerView` (soft pre-prompt) shown before the one-shot OS dialog when status is `.notDetermined`, wired through `ContentView.syncPushPipeline()` + `handleNotificationPrimerEnable/Skip`. Preserves the OS prompt and lifts opt-in.
-- **Skeletons:** replaced genuine content-loading spinners with `PBSkeletonCard` in `ProfileTabView` and `UserProfileView`. NOTE: the other ~8 `ProgressView()` instances are correct inline action spinners (Submitting/Updating/Uploading) and were intentionally left.
-- **Empty states:** new reusable `PBEmptyState` (icon + title + message + optional CTA), applied to the empty buddy list (`FriendsView`) and new-chat friend picker (`SocialView`). SocialView's main thread-list empty state was already polished.
-- **Ad banner seams:** `PBAdBannerSlot` now has a shared top hairline + matched background so all 6 banners read as chrome.
-- **Paywall copy:** History export + advanced-analytics messages now name the Pro gate clearly instead of "currently unavailable".
-- **Token alignment:** exact-match cornerRadius/padding literals (18→radiusControl, 12→padSM, 24→padXL) mapped to `PBLayout` in Settings theme/font pickers. Non-token micro-spacing left untouched to avoid visual drift.
-- Build: `BUILD SUCCEEDED`. New SharedUI files auto-compile via Xcode synchronized file groups (no pbxproj edit needed).
-
-### Still uncommitted in the tree (NOT mine — pre-existing work from another session)
-`PracticeBuddy.xcodeproj/project.pbxproj`, `Features/Journey/JourneyView.swift`, `Features/Studio/StudioHubView.swift`, `Services/JourneyProgressManager.swift`, `functions/index.js`. Review before archiving 1.0.3.
+**Last Updated**: 2026-07-26
+**Current App Version**: 2.0.0 (build 31) — not yet uploaded
+**Active Branch**: `codex/launch-hardening`
+**Build Status**: `BUILD SUCCEEDED` (simulator + signed `generic/platform=iOS`)
+**Tests**: 10/10 unit, 6/6 UI
 
 ---
 
-## 2026-05-22 — Notifications + Ads Hardening
+## 2026-07-26 — Studio Quest 2.0 design pass
 
-### Push Notification Fix (root cause of "no notifications on live App Store build")
-- **`aps-environment` flipped from `development` → `production`** in `PracticeBuddy/PracticeBuddy.entitlements`. The live App Store build was registering device tokens against the APNs sandbox while FCM was sending through the production gateway, causing every push to be silently dropped.
-- Verified all backend push triggers are deployed in Firebase project `practicebuddytracker` (us-central1, nodejs22):
-  - `onFriendInviteCreated` — friend request pushes
-  - `onFriendChatMessageCreated` — DM pushes
-  - `onStudioChatMessageCreated` — studio/group chat pushes
-  - `duelInvite`, `duelRespond`, `duelQueueJoin`, `duelQueueCancel`, `duelSubmitAttempt`, `duelSettleSweep`
-  - `pushTestNotification` — test endpoint
-- Existing on-device pipeline already correct: APNs registration + FCM token sync in `PracticeBuddyApp.swift`, permission prompt in `ContentView.syncPushPipeline()`, route handling in `PBNotificationCenter.swift`.
+Ten commits, starting from a checkpoint of the previous session's uncommitted
+work (`f008bab`) so the whole pass is revertible. Swift LOC 39,994 → 29,449.
 
-### Post-update behavior to expect
-- Users updating from the current live build will have stale sandbox APNs tokens in Firestore. The first push attempt per user will fail and the token will be auto-pruned by `pruneInvalidDeviceTokens` in `functions/index.js`. The app will register a fresh production token on first launch of the new build. From the second send onward, notifications flow normally.
-- Users who don't update will continue to receive nothing (unchanged from before).
+### Typography — the app was rendering fake bold everywhere
+`StudioQuestTokens.Typography` called `.weight(.bold)` on `SpaceGrotesk-Regular`,
+a 400-only face with no variable axis, so CoreText synthesized every page,
+section and card title by smearing the outline. Now ships Regular / Medium /
+SemiBold / Bold instanced from the official OFL variable font, with each display
+role naming the file genuinely cut at that weight.
 
-### Ad Placements Added
-Banner ads now appear on three additional surfaces (all reuse the existing `playBottomBanner` placement → production banner unit `ca-app-pub-6233840432120177/8238699892`):
-- **Practice tab** (Home) — `Features/Home/HomeView.swift`
-- **Profile tab** — `Features/Profile/ProfileTabView.swift`
-- **History screen** — `Features/History/HistoryView.swift`
+`PBFontChoice` had the same bug independently: once it resolved a custom family
+it returned `.custom(name:size:)` and dropped the requested weight, so every
+headline in the practice tools rendered at Regular.
 
-Pattern used: `.safeAreaInset(edge: .bottom, spacing: 0) { PBAdBannerSlot(placement: .playBottomBanner) }`. Existing banners on Play (Journey), Social, and Friends are unchanged.
+Body copy stays on the system font deliberately — **Space Grotesk has no Hangul
+and the app ships Korean.**
 
-### Submission plan
-Nica is uploading directly to the App Store as a `1.0.3` update (skipping isolated TestFlight verification) because the entitlement fix only takes effect once a production-signed build is live. Verification will happen post-release on real user devices.
+Bundled fonts: 1.6 MB → 352 KB (12 faces → 4).
 
-### Known gaps NOT addressed this session (defer until needed)
-- No `SKAdNetworkItems` in `Info.plist` — reduces ad fill rate / revenue but doesn't block display.
-- No `NSUserTrackingUsageDescription` + ATT prompt — limits personalized ads, doesn't block display.
-- No Google UMP consent flow — required for EEA/UK ad serving. Consider before international expansion.
+### The v1 UI layer is gone
+Studio Quest 2.0 was already the default shell, so the entire v1 view layer was
+dead weight compiled into every build. Removed ~11,300 lines: HomeView,
+JourneyView, StudioHubView, ProfileTabView, SettingsView, ShopView,
+InventoryView, StoreView, PracticeView, HistoryView, SocialView, FriendsView,
+the onboarding tutorial and their component files, plus the `practiquestV2UI`
+flag. Also removed `StudioQuestCommunityView` (624 lines) — a superseded
+first-pass Community screen inside the *v2* layer that nothing referenced.
 
----
+**Rescued before deletion** (v2 routes to them):
+`SocialChatThreadView` and `PublicUserProfileView` now live in their own files.
 
-## Current Product State
+**`HomeViewComponents.swift` is kept despite the name** — it holds
+`MetronomeEngine`, `PracticeAppShieldManager`, `SoundStyle`, `Subdivision` and
+`TunerNeedleGauge`, which `PracticeStudioView` and `PracticeSessionCoordinator`
+depend on. Do not delete it because it looks like v1.
 
-PractiQuest is live on the App Store and continuing through rapid post-launch updates. The public app name is `PractiQuest`; the internal Xcode project, bundle identifier, URL scheme, and repository still retain the original `PracticeBuddy` naming for continuity.
+### Shop
+`AppRoute.avatarStudio(section: .shop)` was **never constructed anywhere**, so
+nothing could route to the shop. Now `AppRoute.shop` with a real
+`StudioQuestShopView`, reached from a `StudioQuestTokenChip` in the Today and
+Quest headers. The Shop segment was removed from Avatar Studio so exactly one
+shop exists.
 
-Current top tabs:
-- Practice
-- Play
-- Social
-- Profile
-- Settings
+### You tab and Studio Edit
+You opens on an edge-to-edge hero at 52% of screen height with parallax; the
+avatar renders at 66% width instead of 46%. `StudioQuestAvatarScene` gained a
+`Presentation` (`.card` / `.hero`). Studio Edit became a full-screen editor
+presented as a `fullScreenCover` — a pushed view kept the practice dock on
+screen, because the dock is a `tabViewBottomAccessory` and survives
+`.toolbar(.hidden, for: .tabBar)`.
 
----
+### Practice tools ported via the theme layer
+The six tools reached from Quest nodes still rendered through the v1 `PBTheme`
+palette. Ported by making `PBTheme` resolve to `StudioQuestTokens` rather than
+by rewriting call sites — **no tool's layout or logic was touched**, so
+behaviour is provably unchanged. Verified by sampling the modal canvas colour of
+every tool against Today: exact match in light and dark.
 
-## Latest Completed Work
+This fixed a live upgrade bug: `ThemeManager` still read the saved
+`pb.settings.colorThemeID`, but the theme picker was deleted in 2.0 — anyone who
+had picked Cantabile or Concert Hall in v1 kept pink or gold practice tools
+inside a cobalt app, with no way to change it. `PBTheme.byID` now deliberately
+ignores the stored identifier.
 
-### Massive Update Part 1
-- Renamed the old Home tab to `Practice` and updated the tab identity.
-- Added a Live Activity extension for active practice/session progress.
-- Hardened notification routing and in-app notification badge behavior.
-- Added custom profile photo upload/removal with Firebase Storage-backed profile images.
-- Refined profile photo UX with a camera-button popover near the avatar and helper text.
-- Fixed friend display-name handling so friends no longer incorrectly show as the current user.
-- Added a redesigned Season Ladder with avatar-based player cards.
-- Expanded the Liquid Glass design refresh across shared cards, backgrounds, shortcut chips, and tab chrome.
+### Quest content
+`StudioQuestCatalog` is now the single source of truth. Previously the list was
+inline in `StudioQuestQuestView` with a second hand-written copy of "Dynamic
+control" in Today that had already drifted in both subtitle and launched task.
+Today's "Next quest" now surfaces the first *outstanding* quest instead of
+hard-coding one that may already be complete.
 
-### Latest Release-Prep Patch
-- Bumped app + Live Activity extension marketing version from `1.0.1` to `1.0.2` because App Store Connect closed the `1.0.1` pre-release train after approval.
-- Kept build number at `27` for the new `1.0.2` train.
-- Removed Season Ladder mini-stat text under player names (`Pts`, `W`, `M`) so rows now show avatar + aligned username + rating/action only.
-
-### Memory Safety Cleanup
-- Added defensive `deinit` cleanup for Firestore listeners and Combine subscriptions in:
-  - `FriendRequestBadgeManager`
-  - `JourneyProgressManager`
-  - `DuelLeagueManager`
-- This was intentionally narrow and additive. Existing explicit `stop()` / `pauseRealtime()` lifecycle paths remain the primary cleanup mechanism during normal app use.
-
----
-
-## Current Build / App Store Notes
-
-- Archive the main `PracticeBuddy` scheme; the Live Activity extension is embedded automatically.
-- App Store Connect should use/create version `1.0.2` for the next upload.
-- If App Store Connect rejects build number `27` under `1.0.2`, increment build to `28` and archive again.
-- Third-party framework dSYM upload warnings for Firebase/Google frameworks are not the current blocker; they affect crash symbolication quality for those frameworks, not app binary validity.
-
----
-
-## Important Systems
-
-### Practice
-- Practice Timer
-- Verified Mode / Family Controls shielding
-- Practice Session Builder with task progress
-- Practice Tools: Metronome and Tuner
-- Live Activity support for active practice/session state
-
-### Play / Duels
-- Level, XP, quests, rewards, duel league, queue, invites, active duel entry, match history, season ladder.
-- Season Ladder now uses cleaner player rows without extra mini-stat clutter.
-
-### Social / Chat
-- Friends, requests, direct chat, unread state, notification routing, badge contribution.
-
-### Profile
-- Token-gated avatar/icon unlocks remain as fallback.
-- Uploaded profile photo overrides avatar globally where supported.
-
-### Monetization
-- Ad-supported free app.
-- Ad-Free monthly subscription product id: `com.alexmalaimare.practicebuddy.adfree.monthly`.
-- Google Mobile Ads configured for banner/rewarded placements.
+### Other
+- Elevation scale (`StudioQuestTokens.Elevation` + `studioQuestSurface`): cast
+  shadow in light, strengthening border in dark.
+- Today/Community density restored toward the approved board; Swift Charts
+  replaced the hand-stacked capsule week bars.
+- You's weekly ring was filling by minutes while printing session count — two
+  metrics in one control. Fixed.
+- Motion pass, all gated on Reduce Motion.
 
 ---
 
-## Key Files
+## Xcode / build notes
 
-- `PracticeBuddy/App/ContentView.swift`
-- `PracticeBuddy/Features/Home/HomeView.swift`
-- `PracticeBuddy/Features/Journey/JourneyView.swift`
-- `PracticeBuddy/Features/Profile/UserProfileView.swift`
-- `PracticeBuddy/Features/Studio/StudioHubView.swift`
-- `PracticeBuddy/Features/Social/StudioChatViewModel.swift`
-- `PracticeBuddy/Services/PracticeLiveActivityManager.swift`
-- `PracticeBuddyLiveActivity/PracticeTimerLiveActivityWidget.swift`
-- `PracticeBuddy/Services/PBAdsManager.swift`
-- `PracticeBuddy/Services/PurchaseManager.swift`
-- `functions/index.js`
-- `firestore.rules`
+**Always build and run the `PracticeBuddy` scheme.** The Live Activity
+extension is embedded automatically (`PracticeBuddy.app/PlugIns/`); its own
+scheme cannot launch the app.
+
+The `PracticeBuddy` scheme's Launch action had been switched into widget
+debugging mode (`askForAppToLaunch="Yes"`, `launchAutomaticallySubstyle="2"`,
+`<RemoteRunnable com.apple.springboard>`), which is what produced the "Choose an
+app to run" prompt. Restored to a normal `BuildableProductRunnable`. **Xcode
+rewrites this file while open** — if the prompt returns, fix it via Product →
+Scheme → Edit Scheme → Run → Info.
+
+The shared scheme previously had no `<Testables>`, so `xcodebuild test` failed
+with "not configured for the test action". Both test targets are now wired in.
+
+Signing is healthy: team `73J84HKXBC`, automatic, bundle IDs correctly nested.
+Debug device builds resolve `aps-environment` to `development` even though the
+entitlements file says `production` — Xcode substitutes it to match the
+development profile.
 
 ---
 
-## Known Follow-Up Items
+## Known gaps
 
-- Continue real-device verification for push banners, badges, sounds, and tap routing across foreground/background/terminated states.
-- Consider cleanup of legacy Firestore rules paths only after confirming no deployed clients/functions still rely on them.
-- If dSYM warnings become operationally important, investigate Firebase/Google SDK symbol upload workflow separately.
-- Do not blindly apply the remaining optimization-audit ideas; Firestore query-level sorting should be verified against existing documents before replacing in-memory sorts.
+- **Quest content is bundled, not fetched.** `StudioQuestCatalog` is the seam a
+  remote or bundled feed would plug into; shipping a new quest still needs a
+  build.
+- **QA launch-argument race.** `practiquest.v2.destination` persists across
+  launches, and `StudioQuestShell.onAppear` can read a stale value before
+  `ContentView` applies `--qa-destination`. Uninstall the app between scripted
+  runs, or the destination may be wrong.
+- Community IA is still wide: three header actions plus four Connections
+  sections. Worth revisiting.
+- Segmented controls remain on Quest and Connections.
+- `PBTheme` / `PBTypography` / `PBLayout` still exist as a thin compatibility
+  layer for the practice tools. They now emit Studio Quest values, but the tools
+  are still Form/List-based rather than built from Studio Quest components.
+- No `SKAdNetworkItems`, no ATT prompt, no UMP consent flow (needed for EEA/UK
+  ad serving).
+
+---
+
+## Before uploading 2.0.0
+
+- Create the Pro product `com.alexmalaimare.practiquest.pro.monthly` in App
+  Store Connect; keep the legacy Ad-Free SKU for entitlement recognition.
+- Deploy the updated Firebase `syncEntitlements` allowlist first.
+- Validate anonymous → Apple/Google/email upgrade on a physical device.
+- Validate APNs, Live Activity, Family Controls shielding, StoreKit sandbox
+  purchase/restore, and grandfathered entitlements in TestFlight.
+- Recapture App Store screenshots — every primary screen changed.
+
+---
+
+## Key files
+
+- `PracticeBuddy/App/ContentView.swift`, `App/AppNavigation.swift`
+- `PracticeBuddy/Features/StudioQuest/` — the v2 shell and destinations
+- `PracticeBuddy/Models/StudioQuestCatalog.swift` — quest content
+- `PracticeBuddy/SharedUI/StudioQuestDesign.swift` — tokens, surfaces, chrome
+- `PracticeBuddy/SharedUI/PBTheme.swift` — compatibility layer for the tools
+- `PracticeBuddy/Services/JourneyProgressManager.swift`
+- `functions/index.js`, `firestore.rules`
