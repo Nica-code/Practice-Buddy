@@ -171,60 +171,7 @@ struct StudioQuestQuestView: View {
     }
 
     private var featuredQuests: [QuestPresentation] {
-        [
-            QuestPresentation(
-                id: "warm-up-warrior",
-                title: "Warm-up warrior",
-                subtitle: "Complete a focused warm-up routine.",
-                progress: progressStore.count(for: "warm-up-warrior"),
-                target: 1,
-                rewardTokens: 15,
-                systemImage: "figure.cooldown",
-                period: .featured,
-                action: .route(.warmUp)
-            ),
-            QuestPresentation(
-                id: "rhythm-clarity",
-                title: "Rhythm clarity",
-                subtitle: "Capture one accurate rhythm take.",
-                progress: progressStore.count(for: "rhythm-clarity"),
-                target: 1,
-                rewardTokens: 20,
-                systemImage: "metronome",
-                period: .featured,
-                action: .route(.rhythm)
-            ),
-            QuestPresentation(
-                id: "dynamic-control",
-                title: "Dynamic control",
-                subtitle: "Practice a deliberate dynamic arc for 20 minutes.",
-                progress: progressStore.count(for: "dynamic-control"),
-                target: 1,
-                rewardTokens: 25,
-                systemImage: "waveform",
-                period: .featured,
-                action: .practice(
-                    PracticePreset(
-                        piece: "",
-                        task: "Shape a clear dynamic arc",
-                        durationMinutes: 20,
-                        verified: true,
-                        launchContext: PracticeLaunchContext(source: "quest", questID: "dynamic-control")
-                    )
-                )
-            ),
-            QuestPresentation(
-                id: "expression-mastery",
-                title: "Expression mastery",
-                subtitle: "Complete a distraction-free run-through.",
-                progress: progressStore.count(for: "expression-mastery"),
-                target: 1,
-                rewardTokens: 30,
-                systemImage: "sparkles",
-                period: .featured,
-                action: .route(.runThrough)
-            )
-        ]
+        StudioQuestCatalog.presentations { progressStore.count(for: $0) }
     }
 
     private var firstClaimableFeaturedQuest: QuestPresentation? {
@@ -234,21 +181,11 @@ struct StudioQuestQuestView: View {
     }
 
     private func nodePosition(for id: String) -> CGPoint {
-        switch id {
-        case "warm-up-warrior": CGPoint(x: 0.30, y: 0.80)
-        case "rhythm-clarity": CGPoint(x: 0.70, y: 0.58)
-        case "dynamic-control": CGPoint(x: 0.35, y: 0.36)
-        default: CGPoint(x: 0.72, y: 0.15)
-        }
+        StudioQuestCatalog.definition(id: id)?.nodePosition ?? CGPoint(x: 0.72, y: 0.15)
     }
 
     private func nodeColor(for id: String) -> Color {
-        switch id {
-        case "warm-up-warrior": StudioQuestTokens.ColorRole.cobalt
-        case "rhythm-clarity": StudioQuestTokens.ColorRole.violet
-        case "dynamic-control": StudioQuestTokens.ColorRole.gold
-        default: StudioQuestTokens.ColorRole.violet
-        }
+        StudioQuestCatalog.definition(id: id)?.nodeColor ?? StudioQuestTokens.ColorRole.violet
     }
 
     private var duelArenaLink: some View {

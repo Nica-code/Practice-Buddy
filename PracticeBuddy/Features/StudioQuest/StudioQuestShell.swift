@@ -648,59 +648,46 @@ struct StudioQuestTodayView: View {
         )
     }
 
+    @ViewBuilder
     private var nextQuest: some View {
-        Button {
-            router.navigate(to: .questDetail(dynamicControlQuest))
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                sectionLabel("Next quest")
-                HStack(spacing: 14) {
-                    Image(systemName: "music.note.list")
-                        .font(.title2)
-                        .foregroundStyle(StudioQuestTokens.ColorRole.gold)
-                        .frame(width: 48, height: 48)
-                        .background(StudioQuestTokens.ColorRole.gold.opacity(0.12), in: Circle())
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(dynamicControlQuest.title)
-                            .font(.headline)
-                        Text(dynamicControlQuest.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
+        if let quest = nextQuestPresentation {
+            Button {
+                router.navigate(to: .questDetail(quest))
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("Next quest")
+                    HStack(spacing: 14) {
+                        Image(systemName: quest.systemImage)
+                            .font(.title2)
+                            .foregroundStyle(StudioQuestTokens.ColorRole.gold)
+                            .frame(width: 48, height: 48)
+                            .background(StudioQuestTokens.ColorRole.gold.opacity(0.12), in: Circle())
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(quest.title)
+                                .font(.headline)
+                            Text(quest.subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 8)
+                        Label("\(quest.rewardTokens)", systemImage: "diamond.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                     }
-                    Spacer(minLength: 8)
-                    Label("\(dynamicControlQuest.rewardTokens)", systemImage: "diamond.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(StudioQuestTokens.ColorRole.violet)
+                    .padding(StudioQuestTokens.Spacing.md)
+                    .studioQuestSurface()
                 }
-                .padding(StudioQuestTokens.Spacing.md)
-                .studioQuestSurface()
+                .foregroundStyle(.primary)
             }
-            .foregroundStyle(.primary)
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
-    private var dynamicControlQuest: QuestPresentation {
-        QuestPresentation(
-            id: "dynamic-control",
-            title: "Dynamic control",
-            subtitle: "Shape one phrase across three dynamics",
-            progress: questProgress.count(for: "dynamic-control"),
-            target: 1,
-            rewardTokens: 25,
-            systemImage: "waveform",
-            period: .featured,
-            action: .practice(
-                PracticePreset(
-                    piece: "",
-                    task: "Dynamic control: shape one phrase across three dynamics",
-                    durationMinutes: 20,
-                    verified: true,
-                    launchContext: PracticeLaunchContext(source: "quest", questID: "dynamic-control")
-                )
-            )
-        )
+    /// The first outstanding quest, rather than a hand-copied duplicate of
+    /// one specific quest that had already drifted from the Quest tab.
+    private var nextQuestPresentation: QuestPresentation? {
+        StudioQuestCatalog.next { questProgress.count(for: $0) }
     }
 
     private var recentSession: some View {
