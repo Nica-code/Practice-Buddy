@@ -153,7 +153,7 @@ struct PulseRhythmAccuracyView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .modifier(StudioQuestToolChrome(fallback: chrome))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
@@ -188,6 +188,7 @@ struct PulseRhythmAccuracyView: View {
         )
         modelContext.insert(log)
         try? modelContext.save()
+        PracticeQuestProgressStore.shared.record("rhythm-clarity")
 
         statusMessage = "Rhythm take saved in History."
     }

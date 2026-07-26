@@ -35,11 +35,11 @@ struct PBAvatarStyle: Equatable, Identifiable {
 
     static let all: [PBAvatarStyle] = [
         PBAvatarStyle(id: "avatar_note", title: "Ari", subtitle: "Violinist", symbolName: "music.note", color: .blue, availability: .included),
-        PBAvatarStyle(id: "avatar_violin", title: "Noah", subtitle: "Strings", symbolName: "music.quarternote.3", color: .orange, availability: .included),
+        PBAvatarStyle(id: "avatar_violin", title: "Noah", subtitle: "Cellist", symbolName: "music.quarternote.3", color: .orange, availability: .included),
         PBAvatarStyle(id: "avatar_mic", title: "Luna", subtitle: "Vocalist", symbolName: "mic.fill", color: .pink, availability: .included),
         PBAvatarStyle(id: "avatar_headphones", title: "Milo", subtitle: "Producer", symbolName: "headphones", color: .mint, availability: .included),
-        PBAvatarStyle(id: "avatar_star", title: "Skye", subtitle: "Performer", symbolName: "star.fill", color: .yellow, availability: .included),
-        PBAvatarStyle(id: "avatar_wave", title: "Kai", subtitle: "Engineer", symbolName: "waveform", color: .purple, availability: .included),
+        PBAvatarStyle(id: "avatar_star", title: "Skye", subtitle: "Flutist", symbolName: "star.fill", color: .yellow, availability: .included),
+        PBAvatarStyle(id: "avatar_wave", title: "Kai", subtitle: "Guitarist", symbolName: "waveform", color: .purple, availability: .included),
         PBAvatarStyle(id: "avatar_bolt", title: "Nova", subtitle: "Virtuoso", symbolName: "bolt.fill", color: .red, availability: .included),
         PBAvatarStyle(id: "avatar_leaf", title: "Leo", subtitle: "Studio", symbolName: "leaf.fill", color: .green, availability: .included),
         PBAvatarStyle(id: "avatar_f_piano", title: "Celeste", subtitle: "Concert Pianist", symbolName: "pianokeys.inverse", color: .indigo, availability: .token(costTokens: 120)),
@@ -65,6 +65,61 @@ struct PBAvatarStyle: Equatable, Identifiable {
 
     var fullBodyAssetName: String {
         id.replacingOccurrences(of: "avatar_", with: "avatar_full_")
+    }
+}
+
+struct StudioQuestAvatarRenderer: View {
+    let loadout: AvatarLoadout
+    let displayName: String
+    var size: CGFloat = 140
+
+    var body: some View {
+        ZStack {
+            if let base = UIImage(named: PBAvatarStyle.byID(loadout.baseID).fullBodyAssetName) {
+                Image(uiImage: base)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                PBAvatarView(
+                    avatarID: loadout.baseID,
+                    displayName: displayName,
+                    size: size
+                )
+            }
+
+            optionalLayer(named: "avatar_layer_\(loadout.skinToneID)")
+            optionalLayer(named: "avatar_layer_\(loadout.hairID)")
+            optionalLayer(named: "avatar_layer_\(loadout.outfitID)")
+            optionalLayer(named: "avatar_layer_\(loadout.instrumentID)")
+            if let accessoryID = loadout.accessoryID {
+                optionalLayer(named: "avatar_layer_\(accessoryID)")
+            }
+            optionalLayer(named: "avatar_layer_\(loadout.poseID)")
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(displayName) musician avatar")
+        .accessibilityValue(avatarDescription)
+    }
+
+    @ViewBuilder
+    private func optionalLayer(named name: String) -> some View {
+        if let layer = UIImage(named: name) {
+            Image(uiImage: layer)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        }
+    }
+
+    private var avatarDescription: String {
+        [
+            PBAvatarStyle.byID(loadout.baseID).title,
+            loadout.instrumentID.replacingOccurrences(of: "instrument_", with: ""),
+            loadout.poseID.replacingOccurrences(of: "pose_", with: "")
+        ]
+        .joined(separator: ", ")
     }
 }
 

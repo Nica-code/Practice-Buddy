@@ -11,7 +11,8 @@ struct StoreView: View {
     private var chrome: Color { theme.chromeBackground(for: colorScheme) }
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private var adFreeProduct: Product? {
-        purchaseManager.availableProducts.first(where: { PurchaseManager.adFreeSubscriptionProductIDs.contains($0.id) })
+        purchaseManager.availableProducts.first(where: { $0.id == PurchaseManager.proMonthlyProductID })
+            ?? purchaseManager.availableProducts.first(where: { PurchaseManager.adFreeSubscriptionProductIDs.contains($0.id) })
     }
     private var introOffer: Product.SubscriptionOffer? {
         adFreeProduct?.subscription?.introductoryOffer
@@ -21,16 +22,16 @@ struct StoreView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("PractiQuest Ad-Free")
+                    Text("PractiQuest Pro")
                         .font(type.sectionTitle)
                         .foregroundStyle(palette.textPrimary)
 
-                    Text("All features are available to everyone. Subscribe to remove ads.")
+                    Text("Go deeper with advanced insights, unlimited saved plans, premium avatar collections, exports, and a monthly cosmetic allowance.")
                         .font(type.body)
                         .foregroundStyle(palette.textSecondary)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Subscription: PractiQuest Ad-Free")
+                        Text("Subscription: PractiQuest Pro")
                         Text("Duration: \(subscriptionDurationLabel)")
                         Text("Price: \(subscriptionPriceLabel)")
                     }
@@ -54,18 +55,19 @@ struct StoreView: View {
                 .listRowBackground(palette.surface)
             }
 
-            Section("Included For Everyone") {
-                featureRow("Advanced analytics and trends")
-                featureRow("Practice templates and session builder")
-                featureRow("PDF/CSV export")
-                featureRow("Enhanced metronome and tuner modes")
+            Section("PractiQuest Pro") {
+                featureRow("Advanced insights and trends")
+                featureRow("CSV and JSON export")
+                featureRow("Unlimited saved plans and tool presets")
+                featureRow("Premium avatar and studio collections")
+                featureRow("No rewarded-ad prompts")
             }
             .listRowBackground(palette.surface)
 
             Section {
                 Button {
                     Task {
-                        await purchaseManager.buy(productID: PurchaseManager.adFreeMonthlyProductID)
+                        await purchaseManager.buy(productID: PurchaseManager.proMonthlyProductID)
                     }
                 } label: {
                     Text(primaryCTA)
@@ -142,7 +144,7 @@ struct StoreView: View {
 
     private var primaryCTA: String {
         if purchaseManager.hasAdFree {
-            return String(localized: "Ad-Free Active")
+            return String(localized: "Pro Active")
         }
         if let adFreeProduct {
             if let intro = introOffer, intro.paymentMode == .freeTrial {
@@ -162,9 +164,9 @@ struct StoreView: View {
             return "Status: Trial Active (\(trialDaysRemainingText) left)"
         }
         if purchaseManager.hasAdFree {
-            return String(localized: "Status: Ad-Free Active")
+            return String(localized: "Status: Pro Active")
         }
-        return String(localized: "Status: Ads Enabled")
+        return String(localized: "Status: Free")
     }
 
     private var statusColor: Color {

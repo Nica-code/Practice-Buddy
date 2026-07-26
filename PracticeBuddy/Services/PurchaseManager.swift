@@ -38,9 +38,10 @@ enum PBEntitlementTier: String, CaseIterable {
 @MainActor
 final class PurchaseManager: ObservableObject {
     static let adFreeMonthlyProductID = "com.alexmalaimare.practicebuddy.adfree.monthly"
-    static let adFreeSubscriptionProductIDs = [adFreeMonthlyProductID]
-    // Backward-compatible aliases kept during migration.
-    static let proMonthlyProductID = adFreeMonthlyProductID
+    static let proMonthlyProductID = "com.alexmalaimare.practiquest.pro.monthly"
+    // The legacy Ad-Free SKU remains an equivalent Pro entitlement so existing
+    // subscribers are grandfathered without an account or receipt migration.
+    static let adFreeSubscriptionProductIDs = [proMonthlyProductID, adFreeMonthlyProductID]
     static let proSubscriptionProductIDs = adFreeSubscriptionProductIDs
     static let entitlementSyncEndpointName = "syncEntitlements"
     static let subscriptionActiveKey = "pb.pro.subscriptionActive"
@@ -62,8 +63,9 @@ final class PurchaseManager: ObservableObject {
 
     /// Subscription state used for ad removal.
     var hasAdFree: Bool { isPro }
-    /// Phase 1 rollout: all app features are currently unlocked for everyone.
-    var featuresUnlocked: Bool { true }
+    /// Advanced insights, exports, and unlimited presets are Pro benefits.
+    /// Core practice, verification, messaging, duels, and progression remain free.
+    var featuresUnlocked: Bool { isPro }
 
     private var db: Firestore { Firestore.firestore() }
     private let urlSession = URLSession.shared
@@ -126,7 +128,7 @@ final class PurchaseManager: ObservableObject {
                 await loadProducts()
             }
             guard let product = availableProducts.first(where: { $0.id == productID }) else {
-                syncStatus = "Ad-Free subscription is not available right now."
+                syncStatus = "PractiQuest Pro is not available right now."
                 return
             }
 

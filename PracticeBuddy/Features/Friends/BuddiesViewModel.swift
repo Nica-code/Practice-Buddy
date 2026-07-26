@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 import FirebaseFirestore
 
 enum BuddyRelationshipState: Equatable {
@@ -69,6 +70,10 @@ final class BuddiesViewModel: ObservableObject {
 
         do {
             myProfile = try await repository.ensureCurrentUserProfile()
+            if let data = UserDefaults.standard.data(forKey: "practiquest.avatar.loadout"),
+               let loadout = try? JSONDecoder().decode(AvatarLoadout.self, from: data) {
+                try? await repository.updateAvatarLoadout(uid: uid, loadout: loadout)
+            }
             attachListeners(uid: uid)
             try? await repository.repairLocalBuddyDirectory(uid: uid)
         } catch {
@@ -179,6 +184,17 @@ final class BuddiesViewModel: ObservableObject {
             statusMessage = "Profile updated."
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    func updateAvatarLoadout(_ loadout: AvatarLoadout) async {
+        guard let uid = configuredUID else { return }
+        do {
+            try await repository.updateAvatarLoadout(uid: uid, loadout: loadout)
+            statusMessage = "Avatar studio updated."
+        } catch {
+            statusMessage = "Your avatar was saved on this device and will sync when you reconnect."
+            PBLog.firebase.error("Avatar loadout sync failed: \(error.localizedDescription)")
         }
     }
 
@@ -294,8 +310,16 @@ final class BuddiesViewModel: ObservableObject {
 
     func isBuddyOnline(_ uid: String) -> Bool {
         guard let presence = presenceByUID[uid] else { return false }
+        return Self.isPresenceOnline(presence)
+    }
+
+    nonisolated static func isPresenceOnline(
+        _ presence: BuddyPresenceState,
+        now: Date = Date()
+    ) -> Bool {
         guard presence.state == .online else { return false }
-        return Date().timeIntervalSince(presence.lastChanged) <= 120
+        let age = now.timeIntervalSince(presence.lastChanged)
+        return age >= 0 && age <= 120
     }
 
     func buddyDisplayLevel(_ uid: String) -> Int {
@@ -310,6 +334,48 @@ final class BuddiesViewModel: ObservableObject {
         let resolved = (buddyStatsByUID[uid]?.profilePhotoURL ?? fallback).trimmingCharacters(in: .whitespacesAndNewlines)
         return resolved
     }
+
+    #if DEBUG
+    func applyStudioQuestDebugFixtures() {
+        let now = Date()
+        buddies = [
+            BuddySummary(
+                id: "fixture-aya",
+                displayName: "Aya Chen",
+                friendCode: "AYAC-2345",
+                sinceAt: now.addingTimeInterval(-86_400 * 90),
+                avatarID: "avatar_note",
+                profilePhotoURL: "",
+                publicLevel: 18,
+                lastPracticedAt: now.addingTimeInterval(-1_800)
+            ),
+            BuddySummary(
+                id: "fixture-mateo",
+                displayName: "Mateo Silva",
+                friendCode: "MATE-6789",
+                sinceAt: now.addingTimeInterval(-86_400 * 45),
+                avatarID: "avatar_note",
+                profilePhotoURL: "",
+                publicLevel: 12,
+                lastPracticedAt: now.addingTimeInterval(-86_400 * 3)
+            )
+        ]
+        presenceByUID["fixture-aya"] = BuddyPresenceState(state: .online, lastChanged: now)
+        incomingInvites = [
+            BuddyInvite(
+                id: "fixture-invite",
+                fromUid: "fixture-lina",
+                toUid: configuredUID ?? "fixture-me",
+                fromDisplayName: "Lina Park",
+                fromFriendCode: "LINA-2468",
+                toDisplayName: "You",
+                toFriendCode: "YOUX-1357",
+                status: .pending,
+                createdAt: now
+            )
+        ]
+    }
+    #endif
 
     private func attachListeners(uid: String) {
         let profileListener = repository.listenToMyProfile(uid: uid) { [weak self] profile in

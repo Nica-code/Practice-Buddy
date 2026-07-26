@@ -22,6 +22,7 @@ struct BuddySummary: Identifiable, Equatable {
     let avatarID: String
     let profilePhotoURL: String
     let publicLevel: Int
+    let lastPracticedAt: Date?
 }
 
 struct FriendChatThread {
@@ -89,6 +90,7 @@ enum FirebaseBuddiesError: LocalizedError {
     case missingInviteTarget
     case invalidDisplayName
     case displayNameLocked
+    case server(String)
 
     var errorDescription: String? {
         switch self {
@@ -101,18 +103,21 @@ enum FirebaseBuddiesError: LocalizedError {
         case .inviteAlreadySent: return "Invite already sent."
         case .inviteAlreadyReceived: return "That user already sent you an invite."
         case .missingInviteTarget: return "Invite target not found."
-        case .invalidDisplayName: return "Use 2-16 characters: letters, numbers, spaces, dot, underscore, or hyphen."
+        case .invalidDisplayName: return "Use 2-30 characters: letters, numbers, spaces, apostrophes, dots, underscores, or hyphens."
         case .displayNameLocked: return "Name can only be changed once."
+        case .server(let message): return message
         }
     }
 }
 
 final class FirebaseBuddiesRepository {
     static let minDisplayNameLength = 2
-    static let maxDisplayNameLength = 16
+    static let maxDisplayNameLength = 30
 
     private lazy var db = Firestore.firestore()
     private let usersCollection = "users"
+    private let publicProfilesCollection = "publicProfiles"
+    private let presenceCollection = "presence"
     private let invitesCollection = "invites"
     private let friendshipsCollection = "friendships"
     private let chatThreadsCollection = "friendChats"
@@ -256,7 +261,7 @@ final class FirebaseBuddiesRepository {
         uid: String,
         onChange: @escaping @MainActor (BuddyPresenceState) -> Void
     ) -> ListenerRegistration {
-        db.collection(usersCollection).document(uid).addSnapshotListener { snap, _ in
+        db.collection(presenceCollection).document(uid).addSnapshotListener { snap, _ in
             Task { @MainActor in
                 let data = snap?.data()
                 let stateRaw = (data?["presenceState"] as? String) ?? BuddyPresenceValue.offline.rawValue
@@ -267,11 +272,38 @@ final class FirebaseBuddiesRepository {
         }
     }
 
+    func publishFriendActivity(
+        from uid: String,
+        to buddyUIDs: [String],
+        lastPracticedAt: Date?
+    ) async throws {
+        let targets = Set(buddyUIDs.filter { !$0.isEmpty && $0 != uid })
+        guard !targets.isEmpty else { return }
+
+        let batch = db.batch()
+        for buddyUID in targets {
+            let projection = db.collection(friendshipsCollection)
+                .document(buddyUID)
+                .collection("buddies")
+                .document(uid)
+            if let lastPracticedAt {
+                batch.setData([
+                    "lastPracticedAt": Timestamp(date: lastPracticedAt)
+                ], forDocument: projection, merge: true)
+            } else {
+                batch.setData([
+                    "lastPracticedAt": FieldValue.delete()
+                ], forDocument: projection, merge: true)
+            }
+        }
+        try await batch.commit()
+    }
+
     func listenToPublicStats(
         uid: String,
         onChange: @escaping @MainActor (BuddyPublicStats) -> Void
     ) -> ListenerRegistration {
-        db.collection(usersCollection).document(uid).addSnapshotListener { snap, _ in
+        db.collection(publicProfilesCollection).document(uid).addSnapshotListener { snap, _ in
             Task { @MainActor in
                 let data = snap?.data()
                 let level = max(1, (data?["publicLevel"] as? Int) ?? 1)
@@ -296,7 +328,7 @@ final class FirebaseBuddiesRepository {
 
         var output: [String: BuddyPublicStats] = [:]
         for chunk in unique.chunked(into: 10) {
-            let snapshot = try await db.collection(usersCollection)
+            let snapshot = try await db.collection(publicProfilesCollection)
                 .whereField(FieldPath.documentID(), in: chunk)
                 .getDocuments()
             for doc in snapshot.documents {
@@ -319,27 +351,29 @@ final class FirebaseBuddiesRepository {
     func sendInvite(from myProfile: FirebaseUserProfile, friendCode rawCode: String) async throws -> String {
         let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !code.isEmpty else { throw FirebaseBuddiesError.invalidFriendCode }
-
-        let targetQuery = try await db.collection(usersCollection)
-            .whereField("friendCode", isEqualTo: code)
-            .limit(to: 1)
-            .getDocuments()
-
-        guard let targetDoc = targetQuery.documents.first else {
-            throw FirebaseBuddiesError.userNotFound
+        guard let baseURL = AppInfo.duelFunctionsBaseURL,
+              let user = Auth.auth().currentUser else {
+            throw FirebaseBuddiesError.server("Friend requests are unavailable in this build.")
         }
-
-        let targetUid = targetDoc.documentID
-        guard targetUid != myProfile.uid else {
-            throw FirebaseBuddiesError.cannotInviteSelf
+        let token = try await user.getIDToken()
+        var request = URLRequest(url: baseURL.appendingPathComponent("friendInviteByCode"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["friendCode": code])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FirebaseBuddiesError.server(payload["error"] as? String ?? "Couldn’t send the friend request.")
         }
-
-        guard let targetProfile = parseUserProfile(uid: targetUid, data: targetDoc.data()) else {
-            throw FirebaseBuddiesError.missingInviteTarget
+        guard payload["ok"] as? Bool == true,
+              let targetUID = payload["targetUID"] as? String,
+              !targetUID.isEmpty else {
+            throw FirebaseBuddiesError.server(payload["error"] as? String ?? "Couldn’t send the friend request.")
         }
-
-        try await createPendingInvite(from: myProfile, to: targetProfile)
-        return targetUid
+        _ = myProfile // The server reads the current profile, never the client snapshot.
+        return targetUID
     }
 
     func sendInvite(from myProfile: FirebaseUserProfile, to targetUID: String) async throws {
@@ -359,8 +393,8 @@ final class FirebaseBuddiesRepository {
     func fetchUserProfile(uid: String) async throws -> FirebaseUserProfile {
         let cleanedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedUID.isEmpty else { throw FirebaseBuddiesError.userNotFound }
-        let doc = try await db.collection(usersCollection).document(cleanedUID).getDocument()
-        guard let profile = parseUserProfile(uid: cleanedUID, data: doc.data()) else {
+        let doc = try await db.collection(publicProfilesCollection).document(cleanedUID).getDocument()
+        guard let profile = parsePublicUserProfile(uid: cleanedUID, data: doc.data()) else {
             throw FirebaseBuddiesError.profileNotFound
         }
         return profile
@@ -439,6 +473,56 @@ final class FirebaseBuddiesRepository {
         if !buddiesSnapshot.documents.isEmpty {
             try await batch.commit()
         }
+    }
+
+    func updateAvatarLoadout(uid: String, loadout: AvatarLoadout) async throws {
+        let normalizedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUID.isEmpty else { throw FirebaseBuddiesError.missingCurrentUser }
+
+        var payload: [String: Any] = [
+            "version": loadout.version,
+            "baseID": loadout.baseID,
+            "skinToneID": loadout.skinToneID,
+            "hairID": loadout.hairID,
+            "outfitID": loadout.outfitID,
+            "instrumentID": loadout.instrumentID,
+            "poseID": loadout.poseID,
+            "roomID": loadout.roomID,
+            "roomLayouts": roomLayoutsPayload(loadout.roomLayouts)
+        ]
+        if let accessoryID = loadout.accessoryID {
+            payload["accessoryID"] = accessoryID
+        }
+
+        try await db.collection(usersCollection).document(normalizedUID).setData(
+            [
+                "avatarLoadout": payload,
+                // Retain the legacy identifier during the compatibility window.
+                "avatarID": loadout.baseID,
+                "updatedAt": FieldValue.serverTimestamp()
+            ],
+            merge: true
+        )
+    }
+
+    private func roomLayoutsPayload(_ layouts: [String: StudioQuestRoomLayout]) -> [String: Any] {
+        Dictionary(uniqueKeysWithValues: layouts.map { roomID, layout in
+            let placements: [[String: Any]] = layout.placements.map { placement in
+                [
+                    "id": placement.id,
+                    "decorationID": placement.decorationID,
+                    "position": ["x": placement.position.x, "y": placement.position.y],
+                    "scale": placement.scale,
+                    "rotationDegrees": placement.rotationDegrees,
+                    "depth": placement.depth
+                ]
+            }
+            return (roomID, [
+                "roomID": layout.roomID,
+                "placements": placements,
+                "updatedAt": Timestamp(date: layout.updatedAt)
+            ])
+        })
     }
 
     func repairLocalBuddyDirectory(uid: String) async throws {
@@ -787,6 +871,24 @@ final class FirebaseBuddiesRepository {
         )
     }
 
+    /// A public profile intentionally cannot reveal a friend code, birth date,
+    /// entitlement, settings, or private practice data. Existing invite flows
+    /// receive an empty code until their server-authoritative migration runs.
+    private func parsePublicUserProfile(uid: String, data: [String: Any]?) -> FirebaseUserProfile? {
+        guard let data, let displayName = data["displayName"] as? String else { return nil }
+        return FirebaseUserProfile(
+            uid: uid,
+            displayName: displayName,
+            friendCode: "",
+            nameEditUsed: true,
+            avatarID: (data["avatarID"] as? String) ?? "avatar_note",
+            profilePhotoURL: (data["profilePhotoURL"] as? String) ?? "",
+            bio: (data["bio"] as? String) ?? "",
+            instrument: (data["instrument"] as? String) ?? "",
+            publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
+        )
+    }
+
     private func parseInvites(from documents: [QueryDocumentSnapshot]) -> [BuddyInvite] {
         documents.compactMap { doc in
             let data = doc.data()
@@ -837,7 +939,8 @@ final class FirebaseBuddiesRepository {
                 sinceAt: sinceAt,
                 avatarID: (data["avatarID"] as? String) ?? "avatar_note",
                 profilePhotoURL: (data["profilePhotoURL"] as? String) ?? "",
-                publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1)
+                publicLevel: max(1, (data["publicLevel"] as? Int) ?? 1),
+                lastPracticedAt: (data["lastPracticedAt"] as? Timestamp)?.dateValue()
             )
         }
     }
@@ -857,7 +960,7 @@ final class FirebaseBuddiesRepository {
 
     static func normalizedDisplayName(from raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let allowedSpecial = CharacterSet(charactersIn: " ._-")
+        let allowedSpecial = CharacterSet(charactersIn: " ._'-")
         let scalars = trimmed.unicodeScalars.filter {
             CharacterSet.alphanumerics.contains($0) || allowedSpecial.contains($0)
         }
@@ -867,7 +970,7 @@ final class FirebaseBuddiesRepository {
             with: " ",
             options: .regularExpression
         )
-        let cleaned = collapsedSpaces.trimmingCharacters(in: CharacterSet(charactersIn: " ._-"))
+        let cleaned = collapsedSpaces.trimmingCharacters(in: CharacterSet(charactersIn: " ._'-"))
         return String(cleaned.prefix(Self.maxDisplayNameLength))
     }
 
@@ -875,7 +978,7 @@ final class FirebaseBuddiesRepository {
         let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleaned == raw else { return false }
         guard (Self.minDisplayNameLength...Self.maxDisplayNameLength).contains(cleaned.count) else { return false }
-        guard cleaned.matches(pattern: "^[\\p{L}\\p{N}._\\- ]+$") else { return false }
+        guard cleaned.matches(pattern: "^[\\p{L}\\p{N}._'\\- ]+$") else { return false }
         guard cleaned.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else { return false }
         return true
     }

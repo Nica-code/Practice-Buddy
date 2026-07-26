@@ -35,6 +35,7 @@ final class PBAdsManager: ObservableObject {
         static let enableRealSDK = "pb.ads.enableRealSDK"
         static let killSwitchOverride = "pb.ads.killSwitchOverride"
         static let claimedDuelRewardIDs = "pb.ads.claimedDuelRewardIDs"
+        static let rewardedDailyCounts = "pb.ads.rewardedDailyCounts"
     }
 
     static let testBannerAdUnitID = "ca-app-pub-3940256099942544/2435281174"
@@ -50,6 +51,7 @@ final class PBAdsManager: ObservableObject {
     @Published private(set) var claimedDuelRewardIDs: Set<String>
 
     let duelRewardTokenBonus: Int = 5
+    let rewardedDailyCap: Int = 3
 
     #if DEBUG
     private let isDebugBuild = true
@@ -106,8 +108,12 @@ final class PBAdsManager: ObservableObject {
         let defaults = UserDefaults.standard
         consentAllowsAds = defaults.object(forKey: Keys.consentAllowsAds) as? Bool ?? true
         showPlaceholders = defaults.object(forKey: Keys.showPlaceholders) as? Bool ?? isDebugBuild
-        enableBannerAds = defaults.object(forKey: Keys.enableBanners) as? Bool ?? true
-        enableRewardedDuels = defaults.object(forKey: Keys.enableRewardedDuels) as? Bool ?? true
+        enableBannerAds = false
+        defaults.set(false, forKey: Keys.enableBanners)
+        // Competitive practice must never be influenced by an advertisement.
+        // The legacy value stays readable for rollback, but V2 ignores it.
+        enableRewardedDuels = false
+        defaults.set(false, forKey: Keys.enableRewardedDuels)
         enableRealAdSDK = defaults.object(forKey: Keys.enableRealSDK) as? Bool ?? !isDebugBuild
         let localKillSwitch = defaults.object(forKey: Keys.killSwitchOverride) as? Bool ?? false
         killSwitchEnabled = AppInfo.adsKillSwitchEnabled || localKillSwitch
@@ -133,8 +139,8 @@ final class PBAdsManager: ObservableObject {
     }
 
     func setEnableBannerAds(_ value: Bool) {
-        enableBannerAds = value
-        UserDefaults.standard.set(value, forKey: Keys.enableBanners)
+        enableBannerAds = false
+        UserDefaults.standard.set(false, forKey: Keys.enableBanners)
     }
 
     func setEnableRewardedDuels(_ value: Bool) {
@@ -159,18 +165,15 @@ final class PBAdsManager: ObservableObject {
     }
 
     func shouldShowBanner(_ placement: PBAdPlacement) -> Bool {
-        guard adsEnabled && enableBannerAds else { return false }
-        if shouldRenderPlaceholder(for: placement) {
-            return true
-        }
-        return bannerAdUnitID(for: placement) != nil
+        false
     }
 
     func shouldShowRewardedDuelButton(challengeID: String) -> Bool {
-        adsEnabled
-            && enableRewardedDuels
-            && !claimedDuelRewardIDs.contains(challengeID)
-            && rewardedAdUnitID() != nil
+        false
+    }
+
+    var rewardedClaimsRemainingToday: Int {
+        max(0, rewardedDailyCap - rewardedClaimsToday)
     }
 
     func bannerAdUnitID(for placement: PBAdPlacement) -> String? {
@@ -193,50 +196,33 @@ final class PBAdsManager: ObservableObject {
         guard !challengeID.isEmpty else { return }
         claimedDuelRewardIDs.insert(challengeID)
         persistClaimedDuelRewards()
+        var counts = rewardedDailyCountMap
+        counts[todayKey, default: 0] += 1
+        UserDefaults.standard.set(counts, forKey: Keys.rewardedDailyCounts)
     }
 
     @discardableResult
     func presentRewardedDuelAd(challengeID: String) async -> Bool {
-        guard shouldShowRewardedDuelButton(challengeID: challengeID) else { return false }
-
-        #if canImport(GoogleMobileAds)
-        guard let adUnitID = rewardedAdUnitID() else {
-            logAdDebugInfo("Rewarded ad unit unavailable for challenge \(challengeID)")
-            return false
-        }
-        do {
-            logAdDebugInfo("Loading rewarded ad for challenge \(challengeID)")
-            let ad = try await RewardedAd.load(with: adUnitID, request: Request())
-            guard let root = PBAdRootResolver.rootViewController() else {
-                logAdDebugError("Rewarded ad presentation skipped: no root view controller")
-                return false
-            }
-            return await withCheckedContinuation { continuation in
-                let bridge = PBRewardedBridge(
-                    ad: ad,
-                    continuation: continuation,
-                    onFinish: { [weak self] in
-                        self?.rewardedBridge = nil
-                    },
-                    shouldLogDebug: shouldLogAdDebug
-                )
-                self.rewardedBridge = bridge
-                bridge.present(from: root)
-            }
-        } catch {
-            logAdDebugError("Rewarded ad load failed: \(error.localizedDescription)")
-            return false
-        }
-        #else
-        // SDK unavailable: keep explicit opt-in placeholder path for debug-only testing.
-        guard isDebugBuild, showPlaceholders else { return false }
-        try? await Task.sleep(for: .milliseconds(850))
-        return true
-        #endif
+        // Retained only for source compatibility with the rollback shell.
+        // V2 cosmetic boosts are intentionally owned by Avatar Studio, never duels.
+        return false
     }
 
     private func persistClaimedDuelRewards() {
         UserDefaults.standard.set(Array(claimedDuelRewardIDs).sorted(), forKey: Keys.claimedDuelRewardIDs)
+    }
+
+    private var rewardedDailyCountMap: [String: Int] {
+        UserDefaults.standard.dictionary(forKey: Keys.rewardedDailyCounts) as? [String: Int] ?? [:]
+    }
+
+    private var rewardedClaimsToday: Int {
+        max(0, rewardedDailyCountMap[todayKey] ?? 0)
+    }
+
+    private var todayKey: String {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        return "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)"
     }
 
     private var useTestAdUnits: Bool {

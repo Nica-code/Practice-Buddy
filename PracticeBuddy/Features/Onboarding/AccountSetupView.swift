@@ -4,14 +4,12 @@ import AuthenticationServices
 struct AccountSetupView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
-    @State private var animateIn: Bool = false
     @State private var showEmailAuthSheet: Bool = false
+    @State private var presentedAsAnonymous = true
 
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
     private let onboardingLanguageOptions: [AppLanguage] = [.english, .korean, .romanian]
 
     private var onboardingLanguageBinding: Binding<AppLanguage> {
@@ -26,150 +24,98 @@ struct AccountSetupView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                PBBackdropView(palette: palette)
+            StudioQuestScrollPage {
+                VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                    StudioQuestPageTitle(
+                        title: "Protect your progress",
+                        subtitle: "Sign in when you want community, duels, and cloud backup."
+                    )
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Spacer(minLength: 8)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("PractiQuest")
-                            .font(type.appTitle)
-                            .foregroundStyle(palette.textPrimary)
-                            .tracking(type.heroTracking)
-
-                        Text("Your practice studio, now with duels and progress tracking.")
-                            .font(type.body)
-                            .foregroundStyle(palette.textSecondary)
+                    StudioQuestSection {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Label("Your practice stays yours", systemImage: "checkmark.shield.fill")
+                                .font(StudioQuestTokens.Typography.sectionTitle)
+                                .foregroundStyle(StudioQuestTokens.ColorRole.mint)
+                            Text("Link the anonymous account already on this device. Your sessions, XP, tokens, and settings stay in place.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .offset(y: animateIn ? 0 : 10)
-                    .opacity(animateIn ? 1 : 0)
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Sign in to continue")
-                            .font(type.sectionTitle)
-                            .foregroundStyle(palette.textPrimary)
+                    StudioQuestSection {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Label("Language", systemImage: "globe")
+                                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                Spacer()
+                                Picker("Language", selection: onboardingLanguageBinding) {
+                                    ForEach(onboardingLanguageOptions) { lang in
+                                        Text(LocalizedStringKey(lang.titleKey)).tag(lang)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
 
-                        HStack(spacing: 10) {
-                            Image(systemName: "globe")
-                                .foregroundStyle(palette.accent)
-                            Picker("Language", selection: onboardingLanguageBinding) {
-                                ForEach(onboardingLanguageOptions) { lang in
-                                    Text(LocalizedStringKey(lang.titleKey)).tag(lang)
+                            Button {
+                                firebase.signInWithGoogle()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    googleMark
+                                    Text("Continue with Google")
                                 }
                             }
-                            .pickerStyle(.menu)
-                        }
-                        .font(type.footnote)
+                            .buttonStyle(StudioQuestSecondaryButtonStyle())
 
-                        Button {
-                            firebase.signInWithGoogle()
-                        } label: {
-                            HStack(spacing: 10) {
-                                googleMark
-                                Text("Continue with Google")
-                                    .font(type.body)
+                            SignInWithAppleButton(.continue) { request in
+                                firebase.prepareAppleSignInRequest(request)
+                            } onCompletion: { result in
+                                firebase.handleAppleSignInCompletion(result)
                             }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(
-                            RoundedRectangle(
-                                cornerRadius: PBLayout.radiusControl,
-                                style: .continuous
-                            )
-                            .fill(palette.surfaceAlt)
-                            .overlay(
+                            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                            .frame(height: 50)
+                            .clipShape(
                                 RoundedRectangle(
-                                    cornerRadius: PBLayout.radiusControl,
+                                    cornerRadius: StudioQuestTokens.Radius.control,
                                     style: .continuous
                                 )
-                                .stroke(
-                                    palette.accent.opacity(0.20),
-                                    lineWidth: 1
-                                )
                             )
-                        )
-                        .foregroundStyle(palette.textPrimary)
-                        .contentShape(
-                            RoundedRectangle(
-                                cornerRadius: PBLayout.radiusControl,
-                                style: .continuous
-                            )
-                        )
 
-                        SignInWithAppleButton(.continue) { request in
-                            firebase.prepareAppleSignInRequest(request)
-                        } onCompletion: { result in
-                            firebase.handleAppleSignInCompletion(result)
-                        }
-                        .signInWithAppleButtonStyle(.black)
-                        .frame(height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
-
-                        Button {
-                            showEmailAuthSheet = true
-                        } label: {
-                            Text("Sign up with Email")
-                                .font(type.body)
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(
-                                    RoundedRectangle(
-                                        cornerRadius: PBLayout.radiusControl,
-                                        style: .continuous
-                                    )
-                                    .fill(palette.surfaceAlt)
-                                    .overlay(
-                                        RoundedRectangle(
-                                            cornerRadius: PBLayout.radiusControl,
-                                            style: .continuous
-                                        )
-                                        .stroke(
-                                            palette.accent.opacity(0.20),
-                                            lineWidth: 1
-                                        )
-                                    )
-                                )
-                                .foregroundStyle(palette.textPrimary)
-                        }
-                        .buttonStyle(.plain)
-
-                        Text("PractiQuest is actively improving with frequent updates and new features.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        if let status = firebase.statusMessage, !status.isEmpty {
-                            Text(LocalizedStringKey(status))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                        if let syncStatus = purchaseManager.syncStatus, !syncStatus.isEmpty {
-                            Text(LocalizedStringKey(syncStatus))
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
+                            Button {
+                                showEmailAuthSheet = true
+                            } label: {
+                                Label("Continue with email", systemImage: "envelope.fill")
+                            }
+                            .buttonStyle(StudioQuestSecondaryButtonStyle())
                         }
                     }
-                    .padding(PBLayout.padLG)
-                    .pbModernCard(palette: palette)
-                    .offset(y: animateIn ? 0 : 14)
-                    .opacity(animateIn ? 1 : 0)
 
-                    Spacer()
+                    if let status = firebase.statusMessage, !status.isEmpty {
+                        StudioQuestInlineStatus(text: status, kind: .information)
+                    }
+                    if let syncStatus = purchaseManager.syncStatus, !syncStatus.isEmpty {
+                        StudioQuestInlineStatus(text: syncStatus, kind: .information)
+                    }
                 }
-                .padding(PBLayout.padLG)
+                .padding(.top, StudioQuestTokens.Spacing.lg)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                withAnimation(.spring(response: 0.48, dampingFraction: 0.84)) {
-                    animateIn = true
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") { dismiss() }
                 }
             }
             .sheet(isPresented: $showEmailAuthSheet) {
                 EmailAuthSheet()
                     .environmentObject(firebase)
+            }
+            .onAppear {
+                presentedAsAnonymous = firebase.isAnonymousUser
+            }
+            .onChange(of: firebase.isAnonymousUser) { _, isAnonymous in
+                guard presentedAsAnonymous, !isAnonymous else { return }
+                PracticeAnalytics.record(.signInConversion(source: "account_setup"))
+                dismiss()
             }
         }
     }
@@ -288,7 +234,7 @@ private struct EmailAuthSheet: View {
                     }
                     if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Section("Display name") {
-                            Text("2-16 chars. Letters, numbers, spaces, dot, underscore, or hyphen.")
+                            Text("2-30 chars. Letters, numbers, spaces, apostrophes, dots, underscores, or hyphens.")
                                 .font(type.footnote)
                                 .foregroundStyle(palette.textSecondary)
                         }
@@ -318,6 +264,9 @@ private struct EmailAuthSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(StudioQuestBackground())
+            .tint(StudioQuestTokens.ColorRole.cobalt)
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -351,7 +300,7 @@ private struct EmailAuthSheet: View {
             }
             let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedDisplayName.isEmpty && !FirebaseBuddiesRepository.isValidDisplayName(trimmedDisplayName) {
-                localErrorMessage = "Display name must be 2-16 chars and use only letters, numbers, spaces, dot, underscore, or hyphen."
+                localErrorMessage = "Display name must be 2-30 chars and use only letters, numbers, spaces, apostrophes, dots, underscores, or hyphens."
                 return
             }
         } else if password.isEmpty {

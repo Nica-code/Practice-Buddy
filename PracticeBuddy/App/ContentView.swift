@@ -15,6 +15,7 @@ struct ContentView: View {
 
     private enum IncomingLinkAction {
         case addBuddy(friendCode: String)
+        case openPracticeStudio
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -24,7 +25,13 @@ struct ContentView: View {
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @EnvironmentObject private var adsManager: PBAdsManager
 
-    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
+    @AppStorage("practiquest.v2.destination") private var selectedTab: Int = AppDestination.today.rawValue
+    @AppStorage("practiquestV2UI") private var practiquestV2UI: Bool = true
+    @AppStorage("practiquest.v2.onboarding.completed") private var v2OnboardingCompleted: Bool = false
+    #if DEBUG
+    @AppStorage("practiquest.qa.openStudio") private var qaOpenStudio: Bool = false
+    @State private var qaState: String?
+    #endif
     @AppStorage("pb.studio.hub.section") private var socialSectionRawValue: String = "friends"
     @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
     @AppStorage("pb.social.chat.openFriendUID") private var socialOpenFriendUID: String = ""
@@ -33,6 +40,8 @@ struct ContentView: View {
     @AppStorage("pb.onboarding.tutorial.forceReplayToken") private var tutorialReplayToken: Int = 0
     @AppStorage("pb.onboarding.tutorial.handledReplayToken") private var handledTutorialReplayToken: Int = 0
     @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
+    @AppStorage("practiquest.community.shareActivity") private var shareFriendActivity = true
+    @AppStorage("practiquest.appearance") private var studioQuestAppearance = "system"
 
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var store = SessionStore()
@@ -43,6 +52,11 @@ struct ContentView: View {
     @StateObject private var socialChatManager = StudioChatViewModel()
     @StateObject private var notificationStore = PBNotificationStore.shared
     @StateObject private var versionGate = AppVersionGateManager()
+    @StateObject private var practiceCoordinator = PracticeSessionCoordinator()
+    @StateObject private var appRouter = AppRouter()
+    @StateObject private var buddiesManager = BuddiesViewModel()
+    @StateObject private var friendActivityPublisher = FriendActivityPublisher()
+    @StateObject private var identityUpgrade = IdentityUpgradeCoordinator()
 
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
@@ -51,34 +65,98 @@ struct ContentView: View {
     @State private var lastPipelineSyncAt: Date = .distantPast
     @State private var showFirstRunTutorial: Bool = false
     @State private var showNotificationPrimer: Bool = false
+    @State private var didHandleQALaunch = false
     private let buddiesRepository = FirebaseBuddiesRepository()
 
     var body: some View {
-        let fontChoice = PBFontChoice.byID(selectedFontID)
+        let fontChoice = practiquestV2UI ? PBFontChoice.systemDefault : PBFontChoice.byID(selectedFontID)
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
         ZStack {
             rootContent
+            #if DEBUG
+            if let qaState {
+                StudioQuestQAStateOverlay(state: qaState)
+                    .zIndex(1500)
+            }
+            #endif
             if versionGate.shouldBlockLaunch {
                 versionGateView
                     .zIndex(2000)
             }
         }
         .onAppear {
-            migrateTabSelectionIfNeeded()
+            PractiQuestV2Migration.run()
+            selectedTab = UserDefaults.standard.integer(forKey: "practiquest.v2.destination")
+            if !firebase.isAnonymousUser, firebase.currentUserID != nil {
+                v2OnboardingCompleted = true
+            }
+            Task {
+                await identityUpgrade.configure(
+                    uid: firebase.currentUserID,
+                    isAnonymous: firebase.isAnonymousUser
+                )
+            }
+            #if DEBUG
+            let launchArguments = ProcessInfo.processInfo.arguments
+            if launchArguments.contains("--qa-skip-onboarding") {
+                v2OnboardingCompleted = true
+            }
+            if let destinationFlag = launchArguments.firstIndex(of: "--qa-destination"),
+               launchArguments.indices.contains(destinationFlag + 1),
+               let qaDestination = Int(launchArguments[destinationFlag + 1]),
+               AppDestination(rawValue: qaDestination) != nil {
+                selectedTab = qaDestination
+            }
+            if let stateFlag = launchArguments.firstIndex(of: "--qa-state"),
+               launchArguments.indices.contains(stateFlag + 1) {
+                qaState = launchArguments[stateFlag + 1]
+            }
+            if qaOpenStudio, !didHandleQALaunch {
+                didHandleQALaunch = true
+                DispatchQueue.main.async {
+                    practiceCoordinator.quickStart()
+                }
+            }
+            #endif
 
             guard !didInit else { return }
             didInit = true
 
             store.configure(context: modelContext)
+            #if DEBUG
+            if launchArguments.contains("--qa-populated") {
+                store.applyStudioQuestFixtureIfNeeded()
+                PracticeQuestProgressStore.shared.applyStudioQuestFixture()
+            }
+            applyQARouteIfNeeded(arguments: launchArguments)
+            if launchArguments.contains("--qa-open-studio"), !didHandleQALaunch {
+                didHandleQALaunch = true
+                DispatchQueue.main.async {
+                    practiceCoordinator.quickStart()
+                }
+            }
+            #endif
             sessionsCancellable = store.$sessions
                 .sink { sessions in
                     journeyManager.handleSessionSnapshot(sessions)
+                    friendActivityPublisher.update(
+                        currentUserID: firebase.currentUserID,
+                        isAnonymous: firebase.isAnonymousUser,
+                        buddyIDs: buddiesManager.buddies.map(\.id),
+                        latestSessionDate: sessions.first?.date,
+                        sharingEnabled: UserDefaults.standard.object(forKey: "practiquest.community.shareActivity") as? Bool ?? true
+                    )
                 }
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
-            versionGate.checkIfNeeded()
+            if purchaseManager.isPro {
+                Task { _ = await journeyManager.claimProDailyCosmeticAllowance() }
+            }
+            if shouldCheckVersionGate {
+                versionGate.checkIfNeeded()
+            }
             refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: true)
         }
         .onChange(of: colorScheme) {
@@ -98,22 +176,46 @@ struct ContentView: View {
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID
             refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
+            Task {
+                await identityUpgrade.configure(
+                    uid: firebase.currentUserID,
+                    isAnonymous: firebase.isAnonymousUser
+                )
+            }
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
+            Task {
+                await identityUpgrade.configure(
+                    uid: firebase.currentUserID,
+                    isAnonymous: firebase.isAnonymousUser
+                )
+            }
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
             adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
+            if purchaseManager.isPro {
+                Task { _ = await journeyManager.claimProDailyCosmeticAllowance() }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                versionGate.checkIfNeeded()
+                if shouldCheckVersionGate {
+                    versionGate.checkIfNeeded()
+                }
                 refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: false)
+                Task {
+                    await identityUpgrade.configure(
+                        uid: firebase.currentUserID,
+                        isAnonymous: firebase.isAnonymousUser
+                    )
+                }
             } else {
                 duelLeagueManager.pauseRealtime()
                 friendRequestBadgeManager.stop()
                 presenceManager.stop()
                 socialChatManager.stop()
+                buddiesManager.stop()
             }
         }
         .onChange(of: friendRequestBadgeManager.incomingCount) { _, _ in
@@ -134,6 +236,15 @@ struct ContentView: View {
         .onReceive(notificationStore.$items) { _ in
             updateAppIconBadge()
         }
+        .modifier(
+            FriendActivitySyncModifier(
+                buddies: buddiesManager,
+                store: store,
+                firebase: firebase,
+                publisher: friendActivityPublisher,
+                presence: presenceManager
+            )
+        )
         .onChange(of: tutorialReplayToken) { _, _ in
             syncTutorialPresentation(force: true)
         }
@@ -177,6 +288,10 @@ struct ContentView: View {
         .environmentObject(themeManager)
         .environmentObject(duelLeagueManager)
         .environmentObject(socialChatManager)
+        .environmentObject(practiceCoordinator)
+        .environmentObject(appRouter)
+        .environmentObject(buddiesManager)
+        .environmentObject(identityUpgrade)
         .pbTheme(themeManager.theme)
         .pbTypography(typography)
         .pbGlobalFontDesign(fontChoice)
@@ -201,6 +316,57 @@ struct ContentView: View {
                 onSkip: handleNotificationPrimerSkip
             )
         }
+        .preferredColorScheme(preferredStudioQuestColorScheme)
+    }
+
+    #if DEBUG
+    private func applyQARouteIfNeeded(arguments: [String]) {
+        guard let routeFlag = arguments.firstIndex(of: "--qa-route"),
+              arguments.indices.contains(routeFlag + 1) else { return }
+        switch arguments[routeFlag + 1] {
+        case "goals":
+            appRouter.replacePath(with: .goals, in: .today)
+        case "history":
+            appRouter.replacePath(with: .history, in: .you)
+        case "profile":
+            appRouter.replacePath(with: .profile(userID: nil), in: .you)
+        case "settings":
+            appRouter.replacePath(with: .settings(section: nil), in: .you)
+        case "duel":
+            appRouter.replacePath(with: .duelArena(challengeID: nil), in: .quest)
+        case "avatar":
+            appRouter.replacePath(with: .avatarStudio(section: .room), in: .you)
+        case "library":
+            appRouter.replacePath(with: .practiceLibrary, in: .today)
+        case "notifications":
+            appRouter.replacePath(with: .notifications, in: .today)
+        case "chat":
+            appRouter.replacePath(
+                with: .communityMessages(friendUID: "fixture-aya", threadID: "fixture-thread-aya"),
+                in: .community
+            )
+        default:
+            break
+        }
+        selectedTab = appRouter.selectedDestination.rawValue
+    }
+    #endif
+
+    private var shouldCheckVersionGate: Bool {
+        #if DEBUG
+        !ProcessInfo.processInfo.arguments.contains("--qa-skip-version-gate")
+        #else
+        true
+        #endif
+    }
+
+    private var preferredStudioQuestColorScheme: ColorScheme? {
+        guard practiquestV2UI else { return nil }
+        switch studioQuestAppearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
     }
 
     @ViewBuilder
@@ -219,9 +385,25 @@ struct ContentView: View {
             .padding(PBLayout.padLG)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PBBackdropView(palette: theme.resolvedPalette(for: colorScheme)))
-        } else if needsAccountSetup {
-            AccountSetupView()
+        } else if practiquestV2UI, !v2OnboardingCompleted {
+            PracticeFirstOnboardingView {
+                v2OnboardingCompleted = true
+            }
+        } else if practiquestV2UI, identityUpgrade.state == .required {
+            StudioQuestProfileUpgradeView()
+        } else if practiquestV2UI, identityUpgrade.state == .offlineRestricted {
+            StudioQuestOfflineProfileUpgradeView()
+        } else if practiquestV2UI {
+            StudioQuestShell(
+                selectedTab: $selectedTab,
+                socialBadgeCount: socialTabBadgeCount
+            )
         } else {
+            legacyTabShell
+        }
+    }
+
+    private var legacyTabShell: some View {
             TabView(selection: $selectedTab) {
                 NavigationStack {
                     PBLazyView(HomeView())
@@ -274,7 +456,6 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(4)
             }
-        }
     }
 
     @ViewBuilder
@@ -332,7 +513,7 @@ struct ContentView: View {
 
     private var needsAccountSetup: Bool {
         guard let uid = firebase.currentUserID, !uid.isEmpty else { return true }
-        return firebase.isAnonymousUser
+        return false
     }
 
     private var canRunRealtimePipelines: Bool {
@@ -384,6 +565,7 @@ struct ContentView: View {
         syncFriendRequestBadge()
         syncPresence()
         syncSocialChatBadge()
+        syncBuddies()
         syncPushPipeline()
         syncInAppNotificationStore()
         updateAppIconBadge()
@@ -445,6 +627,10 @@ struct ContentView: View {
             presenceManager.stop()
             return
         }
+        guard shareFriendActivity else {
+            presenceManager.stop()
+            return
+        }
         guard let uid = firebase.currentUserID, !uid.isEmpty else {
             presenceManager.stop()
             return
@@ -454,6 +640,29 @@ struct ContentView: View {
             return
         }
         presenceManager.start(uid: uid)
+    }
+
+    private func syncBuddies() {
+        guard scenePhase == .active,
+              let uid = firebase.currentUserID,
+              !uid.isEmpty,
+              !firebase.isAnonymousUser else {
+            buddiesManager.stop()
+            return
+        }
+        Task {
+            await buddiesManager.start(for: uid)
+        }
+    }
+
+    private func publishFriendActivity(buddyIDs: [String]) {
+        friendActivityPublisher.update(
+            currentUserID: firebase.currentUserID,
+            isAnonymous: firebase.isAnonymousUser,
+            buddyIDs: buddyIDs,
+            latestSessionDate: store.sessions.first?.date,
+            sharingEnabled: shareFriendActivity
+        )
     }
 
     private func syncSocialChatBadge() {
@@ -574,6 +783,8 @@ struct ContentView: View {
         }
 
         switch action {
+        case .openPracticeStudio:
+            practiceCoordinator.quickStart()
         case .addBuddy(let friendCode):
             Task {
                 do {
@@ -581,9 +792,14 @@ struct ContentView: View {
                     _ = try await buddiesRepository.sendInvite(from: profile, friendCode: friendCode)
                     await MainActor.run {
                         PBGrowthMetrics.record(.buddyInviteAutoSent)
-                        selectedTab = 2
-                        socialSectionRawValue = "friends"
-                        socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+                        if practiquestV2UI {
+                            appRouter.replacePath(with: .communityFriends, in: .community)
+                            selectedTab = appRouter.selectedDestination.rawValue
+                        } else {
+                            selectedTab = 2
+                            socialSectionRawValue = "friends"
+                            socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+                        }
                         inviteJoinAlert = InviteJoinAlert(
                             title: "Friend Request Sent",
                             message: "Your buddy request is now pending."
@@ -603,6 +819,10 @@ struct ContentView: View {
     }
 
     private func incomingLinkAction(from url: URL) -> IncomingLinkAction? {
+        if url.scheme?.lowercased() == "practicebuddy",
+           url.host?.lowercased() == "practice" {
+            return .openPracticeStudio
+        }
         if let friendCode = buddyInviteCode(from: url) {
             return .addBuddy(friendCode: friendCode)
         }
@@ -623,6 +843,27 @@ struct ContentView: View {
 
     private func applyNotificationRoute(_ route: PBNotificationRoute) {
         PBLog.firebase.info("Applying notification route: \(String(describing: route), privacy: .public)")
+        if practiquestV2UI {
+            switch route {
+            case .homeGoals:
+                appRouter.replacePath(with: .goals, in: .today)
+            case .playDuel(let challengeID):
+                appRouter.replacePath(with: .duelArena(challengeID: challengeID), in: .quest)
+            case .socialFriendRequests:
+                appRouter.replacePath(with: .communityRequests, in: .community)
+            case .socialChat(let friendUID, let threadID):
+                appRouter.replacePath(
+                    with: .communityMessages(friendUID: friendUID, threadID: threadID),
+                    in: .community
+                )
+            case .practiceMoment(let momentID):
+                appRouter.replacePath(with: .practiceMoment(momentID: momentID), in: .community)
+            case .publicProfile(let userID):
+                appRouter.replacePath(with: .publicProfile(userID: userID), in: .community)
+            }
+            selectedTab = appRouter.selectedDestination.rawValue
+            return
+        }
         switch route {
         case .homeGoals:
             selectedTab = 0
@@ -644,31 +885,18 @@ struct ContentView: View {
             if let friendUID, !friendUID.isEmpty {
                 socialOpenFriendUID = friendUID
             }
+        case .practiceMoment:
+            selectedTab = 2
+        case .publicProfile:
+            selectedTab = 2
         }
-    }
-
-    private func migrateTabSelectionIfNeeded() {
-        let key = "pb.tab.selection.v2.migrated"
-        let migrated = UserDefaults.standard.bool(forKey: key)
-        guard !migrated else {
-            if !(0...4).contains(selectedTab) { selectedTab = 0 }
-            return
-        }
-
-        let legacyValue = selectedTab
-        switch legacyValue {
-        case 0: selectedTab = 0
-        case 1: selectedTab = 0
-        case 2: selectedTab = 2
-        case 3: selectedTab = 4
-        case 4, 5: selectedTab = 1
-        default: selectedTab = 0
-        }
-
-        UserDefaults.standard.set(true, forKey: key)
     }
 
     private func syncTutorialPresentation(force: Bool = false) {
+        guard !practiquestV2UI else {
+            showFirstRunTutorial = false
+            return
+        }
         guard let uid = firebase.currentUserID, !uid.isEmpty else {
             showFirstRunTutorial = false
             return
@@ -700,5 +928,41 @@ struct ContentView: View {
             OnboardingTutorialState.markCompleted(uid: uid)
         }
         showFirstRunTutorial = false
+    }
+}
+
+private struct FriendActivitySyncModifier: ViewModifier {
+    @ObservedObject var buddies: BuddiesViewModel
+    @ObservedObject var store: SessionStore
+    @ObservedObject var firebase: FirebaseBootstrap
+    @ObservedObject var publisher: FriendActivityPublisher
+    @ObservedObject var presence: FirebasePresenceManager
+    @AppStorage("practiquest.community.shareActivity") private var sharingEnabled = true
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(buddies.$buddies) { rows in
+                publish(buddyIDs: rows.map(\.id))
+            }
+            .onChange(of: sharingEnabled) { _, enabled in
+                publish(buddyIDs: buddies.buddies.map(\.id))
+                if !enabled {
+                    presence.stop()
+                } else if let uid = firebase.currentUserID,
+                          !uid.isEmpty,
+                          !firebase.isAnonymousUser {
+                    presence.start(uid: uid)
+                }
+            }
+    }
+
+    private func publish(buddyIDs: [String]) {
+        publisher.update(
+            currentUserID: firebase.currentUserID,
+            isAnonymous: firebase.isAnonymousUser,
+            buddyIDs: buddyIDs,
+            latestSessionDate: store.sessions.first?.date,
+            sharingEnabled: sharingEnabled
+        )
     }
 }

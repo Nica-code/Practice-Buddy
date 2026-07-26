@@ -49,6 +49,7 @@ enum JourneyRewardSlot: String, CaseIterable {
     case duelFinisherFX = "duel_finisher_fx"
     case sessionCardSkin = "session_card_skin"
     case metronomePack = "metronome_pack"
+    case studioDecoration = "studio_decoration"
 }
 
 enum JourneyQuestPeriod: String {
@@ -168,6 +169,10 @@ private final class DuelQuestTelemetryStore {
 
 @MainActor
 final class JourneyProgressManager: ObservableObject {
+    private static let starterRoomDecorationIDs: Set<String> = [
+        "room_decoration_plant"
+    ]
+
     private enum Keys {
         static let seeded = "pb.journey.seeded"
         static let totalXP = "pb.journey.totalXP"
@@ -311,6 +316,33 @@ final class JourneyProgressManager: ObservableObject {
         return .claimable
     }
 
+    func featuredQuestRewardStatus(
+        questID: String,
+        isComplete: Bool
+    ) -> JourneyQuestRewardStatus {
+        guard isComplete else { return .locked }
+        return claimedQuestRewardKeys.contains("featured:\(questID)") ? .claimed : .claimable
+    }
+
+    @discardableResult
+    func claimFeaturedQuestReward(questID: String, rewardTokens: Int) async -> Bool {
+        let normalizedID = questID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedID.isEmpty, rewardTokens > 0 else { return false }
+        let claimKey = "featured:\(normalizedID)"
+        guard !claimedQuestRewardKeys.contains(claimKey) else { return false }
+        guard beginEconomyOperation("featuredQuest:\(normalizedID)") else { return false }
+        defer { endEconomyOperation("featuredQuest:\(normalizedID)") }
+
+        if let uid = inventoryLinkedUID {
+            return await claimQuestRewardCloud(
+                uid: uid,
+                claimKey: claimKey,
+                rewardTokens: rewardTokens
+            )
+        }
+        return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: rewardTokens)
+    }
+
     @discardableResult
     func claimQuestReward(for quest: JourneyQuestRow, period: JourneyQuestPeriod) async -> Bool {
         guard questRewardStatus(for: quest, period: period) == .claimable else { return false }
@@ -354,6 +386,24 @@ final class JourneyProgressManager: ObservableObject {
     }
 
     @discardableResult
+    func claimProDailyCosmeticAllowance(rewardTokens: Int = 5) async -> Bool {
+        guard rewardTokens > 0 else { return false }
+        let claimKey = "proAllowance:\(dayKey(for: Date()))"
+        guard !claimedQuestRewardKeys.contains(claimKey) else { return false }
+        guard beginEconomyOperation(claimKey) else { return false }
+        defer { endEconomyOperation(claimKey) }
+
+        if let uid = inventoryLinkedUID {
+            return await claimQuestRewardCloud(
+                uid: uid,
+                claimKey: claimKey,
+                rewardTokens: rewardTokens
+            )
+        }
+        return claimQuestRewardLocal(claimKey: claimKey, rewardTokens: rewardTokens)
+    }
+
+    @discardableResult
     func claimRewardItem(id: String) async -> Bool {
         guard let item = baseRewards.first(where: { $0.id == id }) else { return false }
         guard beginEconomyOperation("claimReward:\(id)") else { return false }
@@ -392,6 +442,28 @@ final class JourneyProgressManager: ObservableObject {
 
     func ownedRewards(in category: JourneyRewardCategory) -> [JourneyRewardItem] {
         rewards.filter { $0.category == category && $0.isOwned }
+    }
+
+    func isRoomDecorationOwned(id: String) -> Bool {
+        Self.starterRoomDecorationIDs.contains(id) || ownedRewardIDs.contains(id)
+    }
+
+    /// Kept intentionally small for V2; the schema supports future furniture
+    /// packs without coupling ownership to a room placement.
+    var ownedRoomDecorationIDs: Set<String> {
+        Set(
+            StudioQuestRoomDecoration.catalog
+                .map(\.id)
+                .filter { isRoomDecorationOwned(id: $0) }
+        )
+    }
+
+    func purchaseRoomDecoration(id: String) async -> Bool {
+        guard baseRewards.contains(where: { $0.id == id && $0.slot == .studioDecoration }) else {
+            return false
+        }
+        if isRoomDecorationOwned(id: id) { return true }
+        return await claimRewardItem(id: id)
     }
 
     func equippedRewardID(for slot: JourneyRewardSlot) -> String? {
@@ -933,6 +1005,56 @@ final class JourneyProgressManager: ObservableObject {
     private var baseRewards: [JourneyRewardItem] {
         [
             JourneyRewardItem(
+                id: "room_decoration_plant",
+                title: "Cobalt Plant",
+                subtitle: "A starter floor decoration for your studio.",
+                costTokens: 0,
+                category: .cosmetics,
+                slot: .studioDecoration,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "room_decoration_rug",
+                title: "Practice Rug",
+                subtitle: "A woven floor layer for your focused space.",
+                costTokens: 35,
+                category: .cosmetics,
+                slot: .studioDecoration,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "room_decoration_lamp",
+                title: "Violet Floor Lamp",
+                subtitle: "A warm after-hours studio light.",
+                costTokens: 65,
+                category: .cosmetics,
+                slot: .studioDecoration,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "room_decoration_art",
+                title: "Motion Study",
+                subtitle: "A framed cobalt path for your studio wall.",
+                costTokens: 55,
+                category: .cosmetics,
+                slot: .studioDecoration,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
+                id: "room_decoration_shelf",
+                title: "Open Shelf",
+                subtitle: "A quiet wall piece for future collections.",
+                costTokens: 80,
+                category: .cosmetics,
+                slot: .studioDecoration,
+                isOwned: false,
+                isEquipped: false
+            ),
+            JourneyRewardItem(
                 id: "reward_profile_frame_studio",
                 title: "Studio Frame",
                 subtitle: "A clean rounded profile frame for your card.",
@@ -1034,8 +1156,8 @@ final class JourneyProgressManager: ObservableObject {
                 costTokens: item.costTokens,
                 category: item.category,
                 slot: item.slot,
-                isOwned: ownedRewardIDs.contains(item.id),
-                isEquipped: equippedRewardBySlot[item.slot.rawValue] == item.id
+                isOwned: isRoomDecorationOwned(id: item.id) || ownedRewardIDs.contains(item.id),
+                isEquipped: item.slot != .studioDecoration && equippedRewardBySlot[item.slot.rawValue] == item.id
             )
         }
     }
@@ -1138,7 +1260,7 @@ final class JourneyProgressManager: ObservableObject {
 
         tokenBalance -= item.costTokens
         ownedRewardIDs.insert(id)
-        if equippedRewardBySlot[item.slot.rawValue] == nil {
+        if item.slot != .studioDecoration && equippedRewardBySlot[item.slot.rawValue] == nil {
             equippedRewardBySlot[item.slot.rawValue] = item.id
         }
         applyEquippedSideEffects()
@@ -1271,7 +1393,7 @@ final class JourneyProgressManager: ObservableObject {
 
                 cloudTokens -= item.costTokens
                 cloudOwned.insert(item.id)
-                if cloudEquipped[item.slot.rawValue] == nil {
+                if item.slot != .studioDecoration && cloudEquipped[item.slot.rawValue] == nil {
                     cloudEquipped[item.slot.rawValue] = item.id
                 }
 

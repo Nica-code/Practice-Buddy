@@ -136,6 +136,8 @@ struct InventoryView: View {
             return "Applies to: Play reward/result cards"
         case .metronomePack:
             return "Applies to: Metronome sound style"
+        case .studioDecoration:
+            return "Applies to: Your Avatar Studio room collection"
         }
     }
 }

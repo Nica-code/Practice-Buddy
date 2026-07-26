@@ -203,7 +203,7 @@ struct WarmUpGeneratorView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .modifier(StudioQuestToolChrome(fallback: chrome))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
@@ -315,7 +315,7 @@ struct WarmUpGeneratorView: View {
         Steps: \(generatedSteps.map(\.title).joined(separator: " | "))
         """
 
-        store.addSession(
+        let didSave = store.addSession(
             date: Date(),
             durationSeconds: max(1, elapsedSeconds),
             notes: summary,
@@ -323,6 +323,11 @@ struct WarmUpGeneratorView: View {
             noteFocus: selectedFocus.sorted().joined(separator: ", ")
         )
 
-        statusMessage = "Warm-up saved."
+        if didSave {
+            PracticeQuestProgressStore.shared.record("warm-up-warrior")
+            statusMessage = "Warm-up saved."
+        } else {
+            statusMessage = "The warm-up could not be saved. Please try again."
+        }
     }
 }

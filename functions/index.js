@@ -2,7 +2,7 @@ const functions = require("firebase-functions");
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentWritten} = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -21,6 +21,7 @@ const SUBMISSION_SETTLE_GRACE_SECONDS = 30;
 const MAX_PENDING_INVITES_PER_USER = 5;
 const SERVER_TRIAL_DAYS = 7;
 const PRO_SUBSCRIPTION_PRODUCT_IDS = new Set([
+  "com.alexmalaimare.practiquest.pro.monthly",
   "com.alexmalaimare.practicebuddy.adfree.monthly",
 ]);
 
@@ -30,6 +31,16 @@ const ROUTE_SOCIAL_CHAT = "social_chat";
 const TYPE_DUEL = "duel";
 const TYPE_FRIEND_REQUEST = "friend_request";
 const TYPE_CHAT_MESSAGE = "chat_message";
+const PROFILE_SCHEMA_VERSION = 2;
+const HANDLE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+const HANDLE_REDIRECT_MS = 90 * 24 * 60 * 60 * 1000;
+const MOMENT_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const MAX_MOMENT_FANOUT = 500;
+const VALID_MOMENT_TAGS = new Set([
+  "breakthrough", "focusedWork", "firstRun", "toughDay", "consistency", "performancePrep",
+]);
+const VALID_MOMENT_AUDIENCES = new Set(["friends", "followers"]);
+const VALID_MOMENT_REACTIONS = new Set(["bravo", "inspired", "strongWork", "practiceTogether"]);
 
 exports.syncEntitlements = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -185,6 +196,197 @@ exports.deleteAccount = onRequest(async (req, res) => {
     logger.error("deleteAccount failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
+});
+
+// Identity writes are server-authoritative: private account data lives in
+// users/{uid}; the intentionally small public projection is the only profile
+// document the social surfaces are allowed to query.
+exports.identityCompleteProfile = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent account before completing a public profile.");
+    }
+    const input = parseIdentityInput(req.body || {});
+    const output = await completeIdentityProfile(auth.uid, input, {allowExisting: true});
+    res.status(200).json({ok: true, ...output});
+  } catch (error) {
+    logger.warn("identityCompleteProfile failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+exports.identityChangeHandle = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent account before changing a handle.");
+    }
+    const handle = validateHandle(req.body?.handle);
+    const output = await changeHandle(auth.uid, handle);
+    res.status(200).json({ok: true, ...output});
+  } catch (error) {
+    logger.warn("identityChangeHandle failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+exports.identityUpdatePrivacy = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before changing social privacy.");
+    }
+    await updateIdentityPrivacy(auth.uid, parseProfilePrivacy(req.body?.privacy));
+    res.status(200).json({ok: true});
+  } catch (error) {
+    logger.warn("identityUpdatePrivacy failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+exports.friendInviteByCode = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before sending a friend request.");
+    }
+    const code = String(req.body?.friendCode || "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) throw new Error("Enter a valid friend code.");
+    const output = await createFriendInviteByCode(auth.uid, code);
+    res.status(200).json({ok: true, ...output});
+  } catch (error) {
+    logger.warn("friendInviteByCode failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+// Moments contain only a whitelisted generated-card schema. No text supplied
+// by the client is persisted other than the fixed category enum below.
+exports.practiceMomentCreate = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before sharing a Moment.");
+    }
+    const input = parseMomentInput(req.body || {});
+    const result = await createPracticeMoment(auth.uid, input);
+    res.status(200).json({ok: true, ...result});
+  } catch (error) {
+    logger.warn("practiceMomentCreate failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+exports.practiceMomentReact = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    const momentID = validateDocumentID(req.body?.momentID, "Moment");
+    const reaction = String(req.body?.reaction || "");
+    if (!VALID_MOMENT_REACTIONS.has(reaction)) {
+      throw new Error("Choose a valid reaction.");
+    }
+    await reactToPracticeMoment(auth.uid, momentID, reaction);
+    res.status(200).json({ok: true});
+  } catch (error) {
+    logger.warn("practiceMomentReact failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+// Social relationships are server-authoritative. Clients never write follows,
+// blocks, reports, or request state directly, which keeps private account data
+// out of public social collections and lets age/relationship rules stay
+// consistent across every UI entry point.
+exports.socialAction = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before using community actions.");
+    }
+    const action = String(req.body?.action || "");
+    const targetUID = validateDocumentID(req.body?.targetUID, "Musician");
+    const result = await applySocialAction(auth.uid, targetUID, action, req.body?.reason);
+    res.status(200).json({ok: true, ...result});
+  } catch (error) {
+    logger.warn("socialAction failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+exports.socialConnections = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before viewing connections.");
+    }
+    const section = String(req.body?.section || "following");
+    const output = await socialConnectionRows(auth.uid, section);
+    res.status(200).json({ok: true, section, rows: output});
+  } catch (error) {
+    logger.warn("socialConnections failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
+// A bounded cleanup is used in addition to read-time expiresAt checks. It
+// removes subcollections and inbox references, which Firestore TTL cannot do.
+exports.cleanupExpiredPracticeMoments = onSchedule({schedule: "every 60 minutes", timeZone: "UTC", maxInstances: 1}, async () => {
+  const now = admin.firestore.Timestamp.now();
+  const expired = await db.collection("practiceMoments")
+      .where("expiresAt", "<=", now)
+      .limit(250)
+      .get();
+  await Promise.allSettled(expired.docs.map((doc) => deletePracticeMomentEverywhere(doc.id)));
+  logger.info("practice Moment cleanup complete", {count: expired.size});
+});
+
+// Keep public projections in sync when existing profile/avatar flows update a
+// v2 user. The projection function only copies explicit, non-sensitive fields.
+exports.syncPublicProfileProjection = onDocumentWritten("users/{uid}", async (event) => {
+  const uid = event.params.uid;
+  const after = event.data?.after;
+  if (!after?.exists) {
+    await db.collection("publicProfiles").doc(uid).delete().catch(() => undefined);
+    return;
+  }
+  const user = after.data() || {};
+  if (Number(user.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION || !String(user.handle || "")) {
+    return;
+  }
+  await db.collection("publicProfiles").doc(uid).set(publicProjectionForUser(user), {merge: true});
 });
 
 exports.duelQueueJoin = onRequest(async (req, res) => {
@@ -1238,12 +1440,16 @@ async function deleteAccountAndData(uid) {
   if (!normalizedUID) {
     throw new Error("Invalid auth user");
   }
+  const privateSnapshot = await db.collection("users").doc(normalizedUID).get();
+  const handle = String(privateSnapshot.data()?.handle || "").toLowerCase();
 
   // Best-effort cleanup for user-owned and user-linked data.
   await Promise.allSettled([
     recursiveDeleteDoc(db.collection("users").doc(normalizedUID)),
     recursiveDeleteDoc(db.collection("friendships").doc(normalizedUID)),
     deleteSingleDoc(db.collection("duelQueue").doc(normalizedUID)),
+    deleteSingleDoc(db.collection("publicProfiles").doc(normalizedUID)),
+    recursiveDeleteDoc(db.collection("feedInboxes").doc(normalizedUID)),
   ]);
 
   await Promise.allSettled([
@@ -1252,6 +1458,7 @@ async function deleteAccountAndData(uid) {
     deleteFriendChatsForUID(normalizedUID),
     deleteStudioMembershipsForUID(normalizedUID),
     cancelOpenDuelChallengesForUID(normalizedUID),
+    deleteSocialDataForUID(normalizedUID, handle),
   ]);
 
   try {
@@ -1262,6 +1469,623 @@ async function deleteAccountAndData(uid) {
       throw error;
     }
   }
+}
+
+function parseIdentityInput(body) {
+  const displayName = validateDisplayName(body.displayName);
+  const handle = validateHandle(body.handle);
+  const dateOfBirth = validateDateOfBirth(body.dateOfBirth);
+  const instrument = String(body.instrument || "").trim().slice(0, 40);
+  if (!instrument) throw new Error("Choose your main instrument.");
+  return {
+    displayName,
+    handle,
+    dateOfBirth,
+    instrument,
+    privacy: parseProfilePrivacy(body.privacy),
+  };
+}
+
+function validateDisplayName(raw) {
+  const value = String(raw || "").normalize("NFC").trim().replace(/\s+/gu, " ");
+  if (Array.from(value).length < 2 || Array.from(value).length > 30) {
+    throw new Error("Use 2–30 characters for your display name.");
+  }
+  if (/[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u.test(value)) {
+    throw new Error("That display name contains unsupported characters.");
+  }
+  if (!/^[\p{L}\p{N} ._'\-]+$/u.test(value) || !/[\p{L}\p{N}]/u.test(value)) {
+    throw new Error("Use letters, numbers, spaces, apostrophes, periods, underscores, or hyphens.");
+  }
+  if (isBlockedIdentityWord(value)) throw new Error("Choose a different display name.");
+  return value;
+}
+
+function validateHandle(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9._]*[a-z0-9])?$/.test(value) || value.length < 3 || value.length > 20) {
+    throw new Error("Handles use 3–20 lowercase letters, numbers, periods, and underscores.");
+  }
+  if (/[._]{2}|\._|_\./.test(value) || isBlockedIdentityWord(value)) {
+    throw new Error("That handle is unavailable.");
+  }
+  return value;
+}
+
+function validateDateOfBirth(raw) {
+  const date = new Date(String(raw || ""));
+  if (Number.isNaN(date.getTime()) || date.getTime() > Date.now()) {
+    throw new Error("Enter a valid date of birth.");
+  }
+  const years = ageInYears(date, new Date());
+  if (years > 120) throw new Error("Enter a valid date of birth.");
+  return date;
+}
+
+function parseProfilePrivacy(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  return {
+    isPrivate: value.isPrivate !== false,
+    showBio: value.showBio !== false,
+    showInstrument: value.showInstrument !== false,
+    showPracticeTotals: value.showPracticeTotals === true,
+    showMomentsToFollowers: value.showMomentsToFollowers !== false,
+  };
+}
+
+function isBlockedIdentityWord(value) {
+  const canonical = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const reserved = ["admin", "support", "practiquest", "official", "moderator", "system", "staff", "explore", "settings", "you"];
+  const blocked = ["fuck", "shit", "bitch", "cunt", "nazi"];
+  return reserved.includes(canonical) || blocked.some((word) => canonical.includes(word));
+}
+
+function ageInYears(dateOfBirth, now) {
+  let age = now.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - dateOfBirth.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < dateOfBirth.getUTCDate())) age -= 1;
+  return Math.max(0, age);
+}
+
+function ageBandForDate(dateOfBirth) {
+  const years = ageInYears(dateOfBirth, new Date());
+  if (years < 13) return "under13";
+  if (years < 18) return "teen";
+  return "adult";
+}
+
+async function completeIdentityProfile(uid, input, {allowExisting}) {
+  const now = new Date();
+  const result = await db.runTransaction(async (txn) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await txn.get(userRef);
+    const current = userSnap.data() || {};
+    const existingHandle = String(current.handle || "").toLowerCase();
+    if (!allowExisting && Number(current.profileSchemaVersion || 0) >= PROFILE_SCHEMA_VERSION) {
+      throw new Error("This profile has already been upgraded.");
+    }
+    if (existingHandle && existingHandle !== input.handle) {
+      const changedAt = current.handleChangedAt?.toDate?.();
+      if (changedAt && now.getTime() - changedAt.getTime() < HANDLE_COOLDOWN_MS) {
+        throw new Error("Handles can be changed once every 30 days.");
+      }
+    }
+    const handleRef = db.collection("handles").doc(input.handle);
+    const handleSnap = await txn.get(handleRef);
+    if (handleSnap.exists && String(handleSnap.data()?.uid || "") !== uid) {
+      throw new Error("That handle is unavailable.");
+    }
+    if (existingHandle && existingHandle !== input.handle) {
+      txn.delete(db.collection("handles").doc(existingHandle));
+      txn.set(db.collection("handleRedirects").doc(existingHandle), {
+        uid,
+        expiresAt: admin.firestore.Timestamp.fromMillis(now.getTime() + HANDLE_REDIRECT_MS),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    const nextUser = {
+      ...current,
+      displayName: input.displayName,
+      handle: input.handle,
+      dateOfBirth: admin.firestore.Timestamp.fromDate(input.dateOfBirth),
+      ageBand: ageBandForDate(input.dateOfBirth),
+      instrument: input.instrument,
+      profilePrivacy: input.privacy,
+      profileSchemaVersion: PROFILE_SCHEMA_VERSION,
+      handleChangedAt: admin.firestore.Timestamp.fromDate(now),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    txn.set(userRef, nextUser, {merge: true});
+    txn.set(handleRef, {uid, createdAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: false});
+    txn.set(db.collection("publicProfiles").doc(uid), publicProjectionForUser(nextUser), {merge: true});
+    return {handle: input.handle};
+  });
+  return result;
+}
+
+async function changeHandle(uid, handle) {
+  const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  const current = userSnap.data() || {};
+  if (Number(current.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) {
+    throw new Error("Finish setting up your profile first.");
+  }
+  const existingBirthDate = current.dateOfBirth?.toDate?.();
+  if (!existingBirthDate) throw new Error("Finish your profile setup before changing a handle.");
+  const input = {
+    displayName: validateDisplayName(current.displayName),
+    handle,
+    dateOfBirth: existingBirthDate,
+    instrument: String(current.instrument || "").trim(),
+    privacy: parseProfilePrivacy(current.profilePrivacy),
+  };
+  return completeIdentityProfile(uid, input, {allowExisting: true});
+}
+
+async function updateIdentityPrivacy(uid, privacy) {
+  await db.runTransaction(async (txn) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await txn.get(userRef);
+    const current = userSnap.data() || {};
+    if (Number(current.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) {
+      throw new Error("Finish setting up your profile first.");
+    }
+    const next = {...current, profilePrivacy: privacy};
+    txn.set(userRef, {
+      profilePrivacy: privacy,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+    txn.set(db.collection("publicProfiles").doc(uid), publicProjectionForUser(next), {merge: true});
+  });
+}
+
+async function createFriendInviteByCode(fromUID, code) {
+  const target = await db.collection("users").where("friendCode", "==", code).limit(1).get();
+  if (target.empty) throw new Error("No musician found for that code.");
+  const targetUID = target.docs[0].id;
+  if (targetUID === fromUID) throw new Error("You cannot invite yourself.");
+  const inviteRef = db.collection("invites").doc();
+  await db.runTransaction(async (txn) => {
+    const fromRef = db.collection("users").doc(fromUID);
+    const toRef = db.collection("users").doc(targetUID);
+    const [fromSnap, toSnap, existingBuddy, outbound, inbound] = await Promise.all([
+      txn.get(fromRef),
+      txn.get(toRef),
+      txn.get(db.collection("friendships").doc(fromUID).collection("buddies").doc(targetUID)),
+      txn.get(db.collection("invites").where("fromUid", "==", fromUID).where("toUid", "==", targetUID).where("status", "==", "pending").limit(1)),
+      txn.get(db.collection("invites").where("fromUid", "==", targetUID).where("toUid", "==", fromUID).where("status", "==", "pending").limit(1)),
+    ]);
+    const from = fromSnap.data() || {};
+    const to = toSnap.data() || {};
+    if (Number(from.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) throw new Error("Finish setting up your profile first.");
+    if (Number(to.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) throw new Error("That musician is not ready for friend requests.");
+    if (existingBuddy.exists) throw new Error("You are already friends.");
+    if (!outbound.empty) throw new Error("A request is already pending.");
+    if (!inbound.empty) throw new Error("This musician has already sent you a request.");
+    txn.set(inviteRef, {
+      fromUid: fromUID,
+      toUid: targetUID,
+      fromDisplayName: String(from.displayName || "Musician").slice(0, 30),
+      fromFriendCode: String(from.friendCode || ""),
+      toDisplayName: String(to.displayName || "Musician").slice(0, 30),
+      toFriendCode: String(to.friendCode || ""),
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+  return {inviteID: inviteRef.id, targetUID};
+}
+
+function publicProjectionForUser(user) {
+  const privacy = parseProfilePrivacy(user.profilePrivacy);
+  return {
+    displayName: String(user.displayName || "Musician").slice(0, 30),
+    handle: String(user.handle || "").toLowerCase(),
+    profilePhotoURL: String(user.profilePhotoURL || "").slice(0, 2048),
+    instrument: privacy.showInstrument ? String(user.instrument || "Musician").slice(0, 40) : "Musician",
+    bio: privacy.showBio ? String(user.bio || "").slice(0, 160) : "",
+    publicLevel: clampInt(user.publicLevel, 1, 1000000, 1),
+    duelLeague: String(user.duelLeague || "bronze").slice(0, 24),
+    duelRating: clampInt(user.duelRating, 0, 1000000, 0),
+    avatarID: String(user.avatarID || "avatar_note").slice(0, 64),
+    isPrivate: privacy.isPrivate,
+    allowsMoments: user.ageBand !== "under13" && privacy.showMomentsToFollowers,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+}
+
+function socialDocID(uidA, uidB) {
+  return `${uidA}_${uidB}`;
+}
+
+function socialReason(raw) {
+  const value = String(raw || "other");
+  const allowed = new Set(["spam", "harassment", "impersonation", "unsafe", "other"]);
+  return allowed.has(value) ? value : "other";
+}
+
+async function socialActor(uid) {
+  const snap = await db.collection("users").doc(uid).get();
+  const user = snap.data() || {};
+  if (Number(user.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) {
+    throw new Error("Finish setting up your profile first.");
+  }
+  if (user.ageBand === "under13") {
+    throw new Error("Community actions are not available for this account.");
+  }
+  return user;
+}
+
+async function applySocialAction(uid, targetUID, action, reason) {
+  if (uid === targetUID) throw new Error("Choose another musician.");
+  const allowed = new Set([
+    "follow", "unfollow", "acceptFollow", "declineFollow", "removeFollower",
+    "block", "unblock", "reportProfile", "reportMoment", "mute",
+  ]);
+  if (!allowed.has(action)) throw new Error("That community action is unavailable.");
+
+  const [actor, targetSnap] = await Promise.all([
+    socialActor(uid),
+    db.collection("users").doc(targetUID).get(),
+  ]);
+  const target = targetSnap.data() || {};
+  if (!targetSnap.exists || Number(target.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) {
+    throw new Error("That musician is unavailable.");
+  }
+  if (target.ageBand === "under13") throw new Error("That musician is unavailable.");
+
+  const followRef = db.collection("socialFollows").doc(socialDocID(uid, targetUID));
+  const inverseFollowRef = db.collection("socialFollows").doc(socialDocID(targetUID, uid));
+  const requestRef = db.collection("followRequests").doc(socialDocID(uid, targetUID));
+  const inverseRequestRef = db.collection("followRequests").doc(socialDocID(targetUID, uid));
+  const blockRef = db.collection("socialBlocks").doc(socialDocID(uid, targetUID));
+  const inverseBlockRef = db.collection("socialBlocks").doc(socialDocID(targetUID, uid));
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  if (action === "reportProfile" || action === "reportMoment") {
+    await db.collection("contentReports").doc().set({
+      reporterUID: uid,
+      targetUID,
+      targetType: action === "reportMoment" ? "moment" : "profile",
+      targetID: String(reason?.targetID || targetUID).slice(0, 128),
+      reason: socialReason(reason?.kind || reason),
+      createdAt: now,
+    });
+    return {status: "reported"};
+  }
+
+  if (action === "mute") {
+    await db.collection("socialMutes").doc(socialDocID(uid, targetUID)).set({
+      ownerUID: uid, targetUID, createdAt: now,
+    }, {merge: true});
+    return {status: "muted"};
+  }
+
+  if (action === "block") {
+    const batch = db.batch();
+    batch.set(blockRef, {blockerUID: uid, blockedUID: targetUID, createdAt: now});
+    batch.delete(followRef);
+    batch.delete(inverseFollowRef);
+    batch.delete(requestRef);
+    batch.delete(inverseRequestRef);
+    await batch.commit();
+    return {status: "blocked"};
+  }
+  if (action === "unblock") {
+    await blockRef.delete();
+    return {status: "unblocked"};
+  }
+
+  const [blockedByMe, blockedByTarget] = await Promise.all([blockRef.get(), inverseBlockRef.get()]);
+  if (blockedByMe.exists || blockedByTarget.exists) throw new Error("This community action is unavailable.");
+
+  if (action === "follow") {
+    const needsApproval = target.ageBand === "teen" || parseProfilePrivacy(target.profilePrivacy).isPrivate;
+    if (needsApproval) {
+      await requestRef.set({
+        fromUID: uid, toUID: targetUID, createdAt: now, updatedAt: now,
+      }, {merge: true});
+      return {status: "requested"};
+    }
+    await followRef.set({
+      fromUID: uid, toUID: targetUID, status: "following", createdAt: now, acceptedAt: now,
+    }, {merge: true});
+    return {status: "following"};
+  }
+  if (action === "unfollow" || action === "removeFollower") {
+    const ref = action === "unfollow" ? followRef : inverseFollowRef;
+    const pending = action === "unfollow" ? requestRef : inverseRequestRef;
+    await Promise.allSettled([ref.delete(), pending.delete()]);
+    return {status: action === "unfollow" ? "unfollowed" : "removed"};
+  }
+  if (action === "acceptFollow") {
+    const incoming = await inverseRequestRef.get();
+    if (!incoming.exists) throw new Error("That follow request is no longer available.");
+    const batch = db.batch();
+    batch.delete(inverseRequestRef);
+    batch.set(inverseFollowRef, {
+      fromUID: targetUID, toUID: uid, status: "following", createdAt: incoming.data()?.createdAt || now, acceptedAt: now,
+    });
+    await batch.commit();
+    return {status: "following"};
+  }
+  if (action === "declineFollow") {
+    await inverseRequestRef.delete();
+    return {status: "declined"};
+  }
+  throw new Error("That community action is unavailable.");
+}
+
+async function socialConnectionRows(uid, section) {
+  const valid = new Set(["following", "followers", "requests"]);
+  if (!valid.has(section)) throw new Error("That connection section is unavailable.");
+  await socialActor(uid);
+  let snapshot;
+  let profileIDs = [];
+  if (section === "following") {
+    snapshot = await db.collection("socialFollows").where("fromUID", "==", uid).where("status", "==", "following").limit(100).get();
+    profileIDs = snapshot.docs.map((doc) => String(doc.data()?.toUID || ""));
+  } else if (section === "followers") {
+    snapshot = await db.collection("socialFollows").where("toUID", "==", uid).where("status", "==", "following").limit(100).get();
+    profileIDs = snapshot.docs.map((doc) => String(doc.data()?.fromUID || ""));
+  } else {
+    const [incoming, outgoing] = await Promise.all([
+      db.collection("followRequests").where("toUID", "==", uid).limit(100).get(),
+      db.collection("followRequests").where("fromUID", "==", uid).limit(100).get(),
+    ]);
+    snapshot = {docs: [...incoming.docs, ...outgoing.docs]};
+    profileIDs = snapshot.docs.map((doc) => {
+      const data = doc.data() || {};
+      return String(data.fromUID === uid ? data.toUID : data.fromUID || "");
+    });
+  }
+  const profiles = await Promise.all(profileIDs.filter(Boolean).map(async (id) => {
+    const doc = await db.collection("publicProfiles").doc(id).get();
+    const data = doc.data() || {};
+    return {
+      id,
+      displayName: String(data.displayName || "Musician"),
+      handle: String(data.handle || ""),
+      profilePhotoURL: String(data.profilePhotoURL || ""),
+      instrument: String(data.instrument || "Musician"),
+      avatarID: String(data.avatarID || "avatar_note"),
+      isIncoming: section === "requests" && snapshot.docs.find((item) => item.data()?.fromUID === id) != null,
+    };
+  }));
+  return profiles;
+}
+
+function parseMomentInput(body) {
+  const sessionID = validateDocumentID(body.sessionID, "Session");
+  const durationSeconds = clampInt(body.durationSeconds, 300, 8 * 60 * 60, 0);
+  if (durationSeconds < 300) throw new Error("Practice for at least five minutes before sharing a Moment.");
+  const tag = String(body.tag || "");
+  if (!VALID_MOMENT_TAGS.has(tag)) throw new Error("Choose a valid Moment tag.");
+  const audience = String(body.audience || "");
+  if (!VALID_MOMENT_AUDIENCES.has(audience)) {
+    throw new Error("Moments can be shared with Friends or Following.");
+  }
+  const categories = new Set(["Focused practice", "Warm-up", "Technique", "Rhythm", "Intonation", "Run-through", "Performance prep"]);
+  const practiceCategory = String(body.practiceCategory || "Focused practice");
+  if (!categories.has(practiceCategory)) throw new Error("Choose a valid practice category.");
+  return {
+    sessionID,
+    durationSeconds,
+    tag,
+    audience,
+    practiceCategory,
+    isVerified: body.isVerified === true,
+    localDayKey: validateMomentDayKey(body.localDayKey),
+    avatarLoadout: sanitizeAvatarLoadout(body.avatarLoadout),
+  };
+}
+
+function validateMomentDayKey(raw) {
+  const value = String(raw || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Moment day is invalid.");
+  const provided = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(provided.getTime())) throw new Error("Moment day is invalid.");
+  // A device can be near a date boundary; accept the user’s local today plus
+  // one adjacent UTC day, but do not allow a client to mint arbitrary daily IDs.
+  const now = new Date();
+  if (Math.abs(provided.getTime() - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12)) > 36 * 60 * 60 * 1000) {
+    throw new Error("Moment day is invalid.");
+  }
+  return value;
+}
+
+function validateDocumentID(value, label) {
+  const id = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(id)) throw new Error(`${label} is invalid.`);
+  return id;
+}
+
+function sanitizeAvatarLoadout(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const allowedRooms = new Set(["room_daylight_studio", "room_midnight_stage", "room_creative_loft"]);
+  const allowedDecorations = new Set([
+    "room_decoration_plant", "room_decoration_rug", "room_decoration_lamp", "room_decoration_art", "room_decoration_shelf",
+  ]);
+  const roomID = allowedRooms.has(String(raw.roomID || "")) ? String(raw.roomID) : "room_daylight_studio";
+  const stringField = (key, fallback) => {
+    const candidate = String(raw[key] || "").trim();
+    return /^[A-Za-z0-9_.-]{1,64}$/.test(candidate) ? candidate : fallback;
+  };
+  const roomLayouts = {};
+  const layouts = raw.roomLayouts && typeof raw.roomLayouts === "object" ? raw.roomLayouts : {};
+  for (const [key, layout] of Object.entries(layouts)) {
+    if (!allowedRooms.has(key) || !layout || typeof layout !== "object") continue;
+    const placements = Array.isArray(layout.placements) ? layout.placements.slice(0, 30) : [];
+    roomLayouts[key] = {
+      roomID: key,
+      placements: placements.map((placement) => {
+        const position = placement?.position && typeof placement.position === "object" ? placement.position : {};
+        const decorationID = allowedDecorations.has(String(placement?.decorationID || "")) ? String(placement.decorationID) : "room_decoration_plant";
+        return {
+          id: /^[A-Za-z0-9_-]{8,128}$/.test(String(placement?.id || "")) ? String(placement.id) : admin.firestore().collection("_ids").doc().id,
+          decorationID,
+          position: {
+            x: clampNumber(position.x, 0.06, 0.94, 0.5),
+            y: clampNumber(position.y, 0.14, 0.92, 0.72),
+          },
+          scale: clampNumber(placement?.scale, 0.7, 1.4, 1),
+          rotationDegrees: clampNumber(placement?.rotationDegrees, -8, 8, 0),
+          depth: clampInt(placement?.depth, -10, 10, 0),
+        };
+      }),
+    };
+  }
+  return {
+    version: 2,
+    baseID: stringField("baseID", "avatar_note"),
+    skinToneID: stringField("skinToneID", "tone_3"),
+    hairID: stringField("hairID", "hair_short"),
+    outfitID: stringField("outfitID", "outfit_studio"),
+    instrumentID: stringField("instrumentID", "instrument_music"),
+    accessoryID: raw.accessoryID == null ? null : stringField("accessoryID", ""),
+    poseID: stringField("poseID", "idle"),
+    roomID,
+    roomLayouts,
+  };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function momentDurationBucket(seconds) {
+  if (seconds < 15 * 60) return "5–14 min";
+  if (seconds < 30 * 60) return "15–29 min";
+  if (seconds < 60 * 60) return "30–59 min";
+  return "60+ min";
+}
+
+async function createPracticeMoment(uid, input) {
+  const now = new Date();
+  const uniqueID = `${uid}_${input.localDayKey}`;
+  const momentRef = db.collection("practiceMoments").doc(uniqueID);
+  const userRef = db.collection("users").doc(uid);
+  const profileRef = db.collection("publicProfiles").doc(uid);
+  const expiresAt = admin.firestore.Timestamp.fromMillis(now.getTime() + MOMENT_LIFETIME_MS);
+  const profile = await db.runTransaction(async (txn) => {
+    const [userSnap, publicSnap, existing] = await Promise.all([txn.get(userRef), txn.get(profileRef), txn.get(momentRef)]);
+    const user = userSnap.data() || {};
+    if (Number(user.profileSchemaVersion || 0) < PROFILE_SCHEMA_VERSION) {
+      throw new Error("Finish your profile upgrade before sharing a Moment.");
+    }
+    if (user.ageBand === "under13") throw new Error("Moments are not available for this account.");
+    if (existing.exists && existing.data()?.expiresAt?.toDate?.() > now) {
+      throw new Error("You can share one Practice Moment per day.");
+    }
+    const projection = publicSnap.data() || publicProjectionForUser(user);
+    const moment = {
+      authorUID: uid,
+      displayName: String(projection.displayName || "Musician"),
+      handle: String(projection.handle || ""),
+      profilePhotoURL: String(projection.profilePhotoURL || ""),
+      instrument: String(projection.instrument || "Musician"),
+      durationBucket: momentDurationBucket(input.durationSeconds),
+      practiceCategory: input.practiceCategory,
+      isVerified: input.isVerified,
+      tag: input.tag,
+      audience: input.audience,
+      avatarLoadout: input.avatarLoadout,
+      moderationState: "active",
+      reactionCounts: {},
+      sessionID: input.sessionID,
+      localDayKey: input.localDayKey,
+      createdAt: admin.firestore.Timestamp.fromDate(now),
+      expiresAt,
+    };
+    txn.set(momentRef, moment);
+    return projection;
+  });
+
+  const recipients = await momentRecipients(uid, input.audience);
+  const uniqueRecipients = Array.from(new Set([uid, ...recipients])).slice(0, MAX_MOMENT_FANOUT);
+  const batch = db.batch();
+  for (const recipientUID of uniqueRecipients) {
+    batch.set(db.collection("feedInboxes").doc(recipientUID).collection("items").doc(uniqueID), {
+      momentID: uniqueID,
+      authorUID: uid,
+      createdAt: admin.firestore.Timestamp.fromDate(now),
+      expiresAt,
+    });
+  }
+  await batch.commit();
+  logger.info("practice Moment created", {uid, audience: input.audience, recipients: uniqueRecipients.length});
+  return {momentID: uniqueID, recipientCount: uniqueRecipients.length, handle: profile.handle};
+}
+
+async function momentRecipients(uid, audience) {
+  if (audience === "friends") {
+    const buddies = await db.collection("friendships").doc(uid).collection("buddies").limit(MAX_MOMENT_FANOUT).get();
+    return buddies.docs.map((doc) => doc.id).filter(Boolean);
+  }
+  const follows = await db.collection("socialFollows")
+      .where("toUID", "==", uid)
+      .where("status", "==", "following")
+      .limit(MAX_MOMENT_FANOUT)
+      .get();
+  return follows.docs.map((doc) => String(doc.data()?.fromUID || "")).filter(Boolean);
+}
+
+async function reactToPracticeMoment(uid, momentID, reaction) {
+  const momentRef = db.collection("practiceMoments").doc(momentID);
+  const reactionRef = momentRef.collection("reactions").doc(uid);
+  await db.runTransaction(async (txn) => {
+    const momentSnap = await txn.get(momentRef);
+    if (!momentSnap.exists) throw new Error("This Moment is unavailable.");
+    const moment = momentSnap.data() || {};
+    if (moment.moderationState !== "active" || moment.expiresAt?.toDate?.() <= new Date()) {
+      throw new Error("This Moment is no longer available.");
+    }
+    const ownerUID = String(moment.authorUID || "");
+    const inInbox = uid === ownerUID || (await txn.get(db.collection("feedInboxes").doc(uid).collection("items").doc(momentID))).exists;
+    if (!inInbox) throw new Error("You do not have access to this Moment.");
+    const prior = await txn.get(reactionRef);
+    const previousKind = String(prior.data()?.kind || "");
+    const counts = {...(moment.reactionCounts || {})};
+    if (previousKind && VALID_MOMENT_REACTIONS.has(previousKind)) {
+      counts[previousKind] = Math.max(0, Number(counts[previousKind] || 0) - 1);
+    }
+    counts[reaction] = Math.max(0, Number(counts[reaction] || 0)) + 1;
+    txn.set(reactionRef, {kind: reaction, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+    txn.update(momentRef, {reactionCounts: counts, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+  });
+}
+
+async function deletePracticeMomentEverywhere(momentID) {
+  const itemDocs = await db.collectionGroup("items").where("momentID", "==", momentID).limit(600).get();
+  await deleteDocSnapshots(itemDocs.docs);
+  await recursiveDeleteDoc(db.collection("practiceMoments").doc(momentID));
+}
+
+async function deleteSocialDataForUID(uid, knownHandle = "") {
+  const handle = String(knownHandle || "").toLowerCase();
+  const moments = await db.collection("practiceMoments").where("authorUID", "==", uid).limit(500).get();
+  const outgoingFollows = await db.collection("socialFollows").where("fromUID", "==", uid).limit(500).get();
+  const incomingFollows = await db.collection("socialFollows").where("toUID", "==", uid).limit(500).get();
+  const outgoingRequests = await db.collection("followRequests").where("fromUID", "==", uid).limit(500).get();
+  const incomingRequests = await db.collection("followRequests").where("toUID", "==", uid).limit(500).get();
+  const outgoingBlocks = await db.collection("socialBlocks").where("blockerUID", "==", uid).limit(500).get();
+  const incomingBlocks = await db.collection("socialBlocks").where("blockedUID", "==", uid).limit(500).get();
+  const ownedMutes = await db.collection("socialMutes").where("ownerUID", "==", uid).limit(500).get();
+  const targetMutes = await db.collection("socialMutes").where("targetUID", "==", uid).limit(500).get();
+  await Promise.allSettled([
+    ...moments.docs.map((doc) => deletePracticeMomentEverywhere(doc.id)),
+    deleteDocSnapshots([
+      ...outgoingFollows.docs, ...incomingFollows.docs,
+      ...outgoingRequests.docs, ...incomingRequests.docs,
+      ...outgoingBlocks.docs, ...incomingBlocks.docs,
+      ...ownedMutes.docs, ...targetMutes.docs,
+    ]),
+    handle ? deleteSingleDoc(db.collection("handles").doc(handle)) : Promise.resolve(),
+  ]);
+  if (handle) await deleteSingleDoc(db.collection("handleRedirects").doc(handle));
 }
 
 async function recursiveDeleteDoc(docRef) {
@@ -1349,13 +2173,17 @@ async function deleteDocSnapshots(docs) {
 }
 
 async function requireUID(req) {
+  return (await requireAuth(req)).uid;
+}
+
+async function requireAuth(req) {
   const authHeader = req.get("Authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : "";
   if (!token) throw new Error("Missing auth token");
   const decoded = await admin.auth().verifyIdToken(token);
   const uid = String(decoded.uid || "").trim();
   if (!uid) throw new Error("Invalid auth user");
-  return uid;
+  return {uid, token: decoded};
 }
 
 function parseInviteSource(value) {

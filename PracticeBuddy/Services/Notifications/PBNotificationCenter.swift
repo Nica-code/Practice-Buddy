@@ -23,6 +23,8 @@ enum PBNotificationPayloadKey {
     static let challengeID = "challengeId"
     static let threadID = "threadId"
     static let friendUID = "friendUid"
+    static let momentID = "momentId"
+    static let profileUID = "profileUid"
 }
 
 enum PBNotificationRoute: Equatable {
@@ -30,6 +32,8 @@ enum PBNotificationRoute: Equatable {
     case socialFriendRequests
     case socialChat(friendUID: String?, threadID: String?)
     case homeGoals
+    case practiceMoment(momentID: String)
+    case publicProfile(userID: String)
 }
 
 extension Notification.Name {
@@ -214,12 +218,18 @@ enum PBNotificationCenter {
         let challengeID = stringValue(in: userInfo, keys: ["challengeId", "challengeID", "duelId", "duelID"])
         let threadID = stringValue(in: userInfo, keys: ["threadId", "threadID", "chatThreadId", "chatThreadID"])
         let friendUID = stringValue(in: userInfo, keys: ["friendUid", "friendUID", "fromUid", "senderUid", "userUid"])
+        let momentID = stringValue(in: userInfo, keys: ["momentId", "momentID"])
+        let profileUID = stringValue(in: userInfo, keys: ["profileUid", "profileUID", "userUid"])
         switch explicit {
         case "play_duel": return .playDuel(challengeID: challengeID)
         case "social_friend_requests": return .socialFriendRequests
         case "home_goal": return .homeGoals
         case "social_chat":
             return .socialChat(friendUID: friendUID, threadID: threadID)
+        case "practice_moment":
+            return momentID.map(PBNotificationRoute.practiceMoment)
+        case "public_profile":
+            return profileUID.map(PBNotificationRoute.publicProfile)
         default:
             break
         }
@@ -242,6 +252,12 @@ enum PBNotificationCenter {
         }
         if rawType.contains("message") || rawType.contains("chat") {
             return .socialChat(friendUID: friendUID, threadID: threadID)
+        }
+        if rawType.contains("moment"), let momentID {
+            return .practiceMoment(momentID: momentID)
+        }
+        if rawType.contains("profile"), let profileUID {
+            return .publicProfile(userID: profileUID)
         }
         return nil
     }

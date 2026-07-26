@@ -155,7 +155,7 @@ struct ScaleIntonationView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .modifier(StudioQuestToolChrome(fallback: chrome))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

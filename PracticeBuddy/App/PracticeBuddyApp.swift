@@ -29,7 +29,6 @@ struct PracticeBuddyApp: App {
         let appLanguage = AppLanguage(rawValue: appLanguageRaw) ?? .english
         WindowGroup {
             ContentView()
-                .preferredColorScheme(.light)
                 .environment(\.locale, Locale(identifier: appLanguage.localeIdentifier))
                 .task {
                     await firebase.start()

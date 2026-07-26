@@ -72,6 +72,7 @@ struct SmartPracticePlanGeneratorView: View {
     }
 
     private struct GeneratedPlan {
+        let id = UUID()
         let summary: String
         let blocks: [PlanBlock]
         let suggestedTempoStart: Int
@@ -82,8 +83,8 @@ struct SmartPracticePlanGeneratorView: View {
 
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
+    @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var firebase: FirebaseBootstrap
     @Environment(\.colorScheme) private var colorScheme
     @Query(sort: [SortDescriptor(\LoopPracticeLogModel.date, order: .reverse)]) private var loopLogs: [LoopPracticeLogModel]
     @Query(sort: [SortDescriptor(\RhythmAccuracyTakeModel.date, order: .reverse)]) private var rhythmTakes: [RhythmAccuracyTakeModel]
@@ -101,42 +102,65 @@ struct SmartPracticePlanGeneratorView: View {
     @State private var statusMessage: String?
     @State private var difficultyFeedback: DifficultyFeedback = .justRight
     @State private var mainIssueFeedback: MainIssueFeedback = .none
+    @State private var previewUsed = false
+    @State private var showPro = false
 
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
+    private var previewDefaultsKey: String {
+        "practiquest.smartCoach.previewUsed.\(firebase.currentUserID ?? "anonymous")"
+    }
+
+    private var canGenerate: Bool {
+        purchaseManager.isPro || !previewUsed
+    }
 
     var body: some View {
-        List {
-            if purchaseManager.accountType != .student || !purchaseManager.featuresUnlocked {
-                Section("Practice Lab") {
-                    Text("Smart Practice Plan Generator is available in Student mode.")
-                        .font(type.body)
-                        .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
-            } else {
+        StudioQuestScrollPage {
+            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                StudioQuestPageTitle(
+                    title: "Smart Coach",
+                    subtitle: "A plan shaped by your private practice history."
+                )
+                if firebase.isAnonymousUser {
+                    StudioQuestSection {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Save this for your musician profile", systemImage: "lock.shield")
+                                .font(.headline)
+                            Text("Create a permanent account to unlock your one complete Smart Coach preview and keep the plan with you.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Button("Set up your profile") {
+                                router.navigate(to: .profileUpgrade)
+                            }
+                            .buttonStyle(StudioQuestPrimaryButtonStyle())
+                        }
+                    }
+                } else {
                 setupSection
                 planSection
                 feedbackSection
+                }
             }
+            .padding(.top, StudioQuestTokens.Spacing.lg)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .sheet(isPresented: $showPro) { NavigationStack { StudioQuestProView() } }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             dataWindowDays = lastWindowDays == 7 ? 7 : 14
             difficultyFeedback = DifficultyFeedback(rawValue: lastDifficultyRaw) ?? .justRight
             mainIssueFeedback = MainIssueFeedback(rawValue: lastIssueRaw) ?? .none
-            if generatedPlan == nil {
+            previewUsed = UserDefaults.standard.bool(forKey: previewDefaultsKey)
+            if generatedPlan == nil, purchaseManager.isPro {
                 generatePlan()
             }
         }
     }
 
     private var setupSection: some View {
-        Section("Smart Practice Plan Generator") {
+        StudioQuestSection {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Shape your next session")
+                    .font(StudioQuestTokens.Typography.sectionTitle)
             Picker("Available time", selection: $selectedTime) {
                 ForEach(TimePreset.allCases) { item in
                     Text(LocalizedStringKey(item.title)).tag(item)
@@ -157,56 +181,71 @@ struct SmartPracticePlanGeneratorView: View {
             }
             .pickerStyle(.segmented)
 
-            Button("Generate Adaptive Plan") {
+            Button(canGenerate ? "Generate plan" : "Continue with Pro") {
+                if !canGenerate {
+                    showPro = true
+                    return
+                }
                 generatePlan()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
 
             if let statusMessage, !statusMessage.isEmpty {
                 Text(LocalizedStringKey(statusMessage))
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if !purchaseManager.isPro {
+                Text(previewUsed
+                    ? "Your included Smart Coach preview is complete. Pro unlocks ongoing adaptation, saved plans, and presets."
+                    : "Your permanent account includes one complete Smart Coach preview.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             }
         }
-        .listRowBackground(palette.surface)
     }
 
     private var planSection: some View {
-        Section("Plan") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Your plan")
+                .font(StudioQuestTokens.Typography.sectionTitle)
             if let generatedPlan {
-                Text(generatedPlan.summary)
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
+                StudioQuestSection {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(generatedPlan.summary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
 
                 HStack {
                     Text("Weaknesses detected")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text(generatedPlan.weaknesses.map { String(localized: String.LocalizationValue($0.title)) }.joined(separator: ", "))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 HStack {
                     Text("Tempo ramp")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text(L10n.f("%@ → %@ BPM", "\(generatedPlan.suggestedTempoStart)", "\(generatedPlan.suggestedTempoEnd)"))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
 
                 HStack {
                     Text("Loop target")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text(L10n.f("%@ loops", "\(generatedPlan.loopCount)"))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
 
@@ -215,21 +254,32 @@ struct SmartPracticePlanGeneratorView: View {
                         title: block.title,
                         minutes: block.minutes,
                         details: block.details,
-                        palette: palette,
-                        type: type
+                        colorScheme: colorScheme
                     )
                 }
+                    Button("Start this plan") {
+                        startGeneratedPlan(generatedPlan)
+                    }
+                    .buttonStyle(StudioQuestPrimaryButtonStyle())
+                    }
+                }
             } else {
-                Text("Generate a plan to see adaptive coaching suggestions.")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                StudioQuestEmptyState(
+                    title: "Your next plan is ready to shape",
+                    message: "Choose your time and focus, then let Smart Coach use your local history.",
+                    systemImage: "sparkles",
+                    action: { generatePlan() }
+                )
             }
         }
-        .listRowBackground(palette.surface)
     }
 
     private var feedbackSection: some View {
-        Section("After Session Feedback") {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("For your next plan")
+                .font(StudioQuestTokens.Typography.sectionTitle)
+            StudioQuestSection {
+                VStack(alignment: .leading, spacing: 16) {
             Picker("How did this feel?", selection: $difficultyFeedback) {
                 ForEach(DifficultyFeedback.allCases) { item in
                     Text(LocalizedStringKey(item.title)).tag(item)
@@ -247,13 +297,14 @@ struct SmartPracticePlanGeneratorView: View {
             Button("Save Feedback for Next Plan") {
                 saveFeedback()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(StudioQuestSecondaryButtonStyle())
 
             Text("The next generated plan adjusts tempo, loop count, and focus blocks based on this feedback.")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                }
+            }
         }
-        .listRowBackground(palette.surface)
     }
 
     private func saveFeedback() {
@@ -360,7 +411,30 @@ struct SmartPracticePlanGeneratorView: View {
             loopCount: loopCount,
             weaknesses: topWeaknesses
         )
+        if !purchaseManager.isPro, !previewUsed {
+            previewUsed = true
+            UserDefaults.standard.set(true, forKey: previewDefaultsKey)
+            PracticeAnalytics.record(.smartCoachPreview)
+        }
         statusMessage = "Plan generated."
+    }
+
+    private func startGeneratedPlan(_ plan: GeneratedPlan) {
+        let tasks = plan.blocks.map {
+            PracticePlanTask(title: $0.title, minutes: $0.minutes)
+        }
+        let preset = PracticePreset(
+            piece: "",
+            task: plan.blocks.first?.title ?? "Smart Coach practice",
+            durationMinutes: selectedTime.rawValue,
+            verified: true,
+            launchContext: PracticeLaunchContext(
+                source: "smart_coach",
+                smartCoachPlanID: plan.id.uuidString
+            ),
+            tasks: tasks
+        )
+        router.navigate(to: .practiceSetup(preset: preset), in: .today)
     }
 
     private func buildBlocks(

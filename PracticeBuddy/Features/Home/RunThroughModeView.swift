@@ -109,7 +109,7 @@ struct RunThroughModeView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(chrome.ignoresSafeArea())
+        .modifier(StudioQuestToolChrome(fallback: chrome))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showFinishSheet) {
@@ -250,6 +250,7 @@ struct RunThroughModeView: View {
         )
         modelContext.insert(model)
         try? modelContext.save()
+        PracticeQuestProgressStore.shared.record("expression-mastery")
 
         statusMessage = "Run-through saved in History."
     }

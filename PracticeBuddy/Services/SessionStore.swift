@@ -20,6 +20,7 @@ final class SessionStore: ObservableObject {
         didSet { rebuildCaches() }
     }
     @Published private(set) var totalAllMinutes: Int = 0
+    @Published private(set) var lastSavedSessionID: UUID?
 
     // User-presentable errors (used by ContentView alert)
     @Published var lastAppError: PBAppError? = nil
@@ -165,6 +166,7 @@ final class SessionStore: ObservableObject {
 
         do {
             try modelContext.save()
+            lastSavedSessionID = s.id
             reload()
             if !sessions.contains(where: { $0.id == s.id }) {
                 sessions.insert(s, at: 0)
@@ -181,6 +183,33 @@ final class SessionStore: ObservableObject {
             return false
         }
     }
+
+    #if DEBUG
+    func applyStudioQuestFixtureIfNeeded() {
+        guard sessions.isEmpty else { return }
+        let calendar = Calendar.current
+        let fixtures: [(daysAgo: Int, duration: Int, verified: Int, title: String, focus: String, mood: String)] = [
+            (0, 2_520, 2_340, "Bach: Partita No. 2", "Rhythm clarity", "focused"),
+            (1, 1_860, 1_860, "Technique and scales", "Even tone", "energized"),
+            (3, 3_300, 2_700, "Brahms: Sonata in F minor", "Dynamic control", "reflective"),
+            (5, 1_440, 1_260, "Sight-reading", "Keep moving", "calm")
+        ]
+
+        for fixture in fixtures.reversed() {
+            guard let date = calendar.date(byAdding: .day, value: -fixture.daysAgo, to: Date()) else { continue }
+            _ = addSession(
+                date: date,
+                durationSeconds: fixture.duration,
+                verifiedSeconds: fixture.verified,
+                unverifiedSeconds: max(0, fixture.duration - fixture.verified),
+                notes: "A focused session with a clear next step.",
+                noteTitle: fixture.title,
+                noteFocus: fixture.focus,
+                noteMoodRaw: fixture.mood
+            )
+        }
+    }
+    #endif
 
     func updateNotes(for sessionID: UUID, notes: String) {
         guard let modelContext else { return }

@@ -3,35 +3,40 @@ import SwiftUI
 struct SocialMessageBubbleView: View {
     let message: SocialChatMessage
     let isCurrentUser: Bool
-    let palette: PBTheme.Palette
-    let type: PBTypography
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack {
             if isCurrentUser { Spacer(minLength: 40) }
             HStack(alignment: .top, spacing: 8) {
-                PBAvatarView(avatarID: message.senderAvatarID, displayName: message.senderName, size: 30)
+                if !isCurrentUser {
+                    PBAvatarView(avatarID: message.senderAvatarID, displayName: message.senderName, size: 30)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(message.senderName)
-                            .font(type.footnote)
-                            .foregroundStyle(isCurrentUser ? palette.textPrimary : palette.textSecondary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(isCurrentUser ? Color.white.opacity(0.86) : .secondary)
                         PBLevelBadgeView(level: message.senderLevel)
                     }
 
                     Text(message.text)
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
+                        .font(.body)
+                        .foregroundStyle(isCurrentUser ? .white : .primary)
 
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.caption2)
+                        .foregroundStyle(isCurrentUser ? Color.white.opacity(0.72) : .secondary)
                 }
             }
             .padding(10)
             .background(
-                RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous)
-                    .fill(isCurrentUser ? palette.accent.opacity(0.22) : palette.surface)
+                RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.control, style: .continuous)
+                    .fill(
+                        isCurrentUser
+                            ? StudioQuestTokens.ColorRole.cobalt
+                            : StudioQuestTokens.ColorRole.surface(colorScheme)
+                    )
             )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("\(message.senderName) message"))

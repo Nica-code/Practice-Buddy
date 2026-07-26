@@ -4,28 +4,27 @@ struct SmartPracticePlanBlockRow: View {
     let title: String
     let minutes: Int
     let details: String
-    let palette: PBTheme.Palette
-    let type: PBTypography
+    let colorScheme: ColorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(LocalizedStringKey(title))
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Text(L10n.f("%@ min", "\(minutes)"))
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
             Text(LocalizedStringKey(details))
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(palette.surfaceAlt)
-        .clipShape(RoundedRectangle(cornerRadius: PBLayout.radiusControl, style: .continuous))
+        .background(StudioQuestTokens.ColorRole.surface(colorScheme).opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.control, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(LocalizedStringKey(title)))
         .accessibilityValue(Text(L10n.f("%@ minutes. %@", "\(minutes)", details)))

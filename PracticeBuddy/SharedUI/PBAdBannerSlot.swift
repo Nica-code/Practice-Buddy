@@ -17,38 +17,9 @@ struct PBAdBannerSlot: View {
     private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     var body: some View {
-        if adsManager.shouldShowBanner(placement) {
-            VStack(spacing: 6) {
-                if adsManager.shouldRenderPlaceholder(for: placement) {
-                    placeholder
-                } else if let adUnitID = adsManager.bannerAdUnitID(for: placement) {
-                    #if canImport(GoogleMobileAds)
-                    PBAdMobBannerRepresentable(
-                        adUnitID: adUnitID,
-                        shouldLogDebug: adsManager.shouldLogAdDebug
-                    )
-                        .frame(height: 50)
-                    #else
-                    placeholder
-                    #endif
-                } else {
-                    EmptyView()
-                }
-            }
-            .padding(.horizontal, PBLayout.padSM)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(alignment: .top) {
-                ZStack(alignment: .top) {
-                    palette.background.opacity(0.92)
-                    Rectangle()
-                        .fill(palette.textSecondary.opacity(0.12))
-                        .frame(height: 0.5)
-                }
-                .ignoresSafeArea(edges: .bottom)
-            }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
+        // PractiQuest 2.0 intentionally has no persistent banners. This compatibility
+        // view stays in place while legacy screens are decomposed, but occupies no space.
+        EmptyView()
     }
 
     private var placeholder: some View {

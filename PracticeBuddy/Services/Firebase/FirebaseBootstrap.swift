@@ -67,9 +67,9 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             statusMessage = "Authenticated."
             PBLog.firebase.info("Anonymous Firebase auth sign-in succeeded.")
         } catch {
-            let readable = readableAuthError(error)
+            let readable = userFacingAuthError(error)
             statusMessage = readable
-            PBLog.firebase.error("Anonymous Firebase auth sign-in failed: \(readable)")
+            PBLog.firebase.error("Anonymous Firebase auth sign-in failed: \(error.localizedDescription)")
         }
     }
 
@@ -110,7 +110,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         }
         switch result {
         case .failure(let error):
-            statusMessage = L10n.f("Apple sign-in failed: %@", error.localizedDescription)
+            statusMessage = userFacingAuthError(error, provider: "Apple")
             PBLog.firebase.error("Apple sign-in failed: \(error.localizedDescription)")
 
         case .success(let authorization):
@@ -223,13 +223,13 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
                     PBLog.firebase.info("Credential already in use; signed in with existing email account.")
                     return true
                 } catch {
-                    statusMessage = L10n.f("Email sign-up failed: %@", error.localizedDescription)
+                    statusMessage = userFacingAuthError(error, provider: "Email")
                     PBLog.firebase.error("Email sign-up fallback sign-in failed: \(error.localizedDescription)")
                     return false
                 }
             }
 
-            statusMessage = L10n.f("Email sign-up failed: %@", error.localizedDescription)
+            statusMessage = userFacingAuthError(error, provider: "Email")
             PBLog.firebase.error("Email sign-up failed: \(error.localizedDescription)")
             return false
         }
@@ -250,7 +250,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             PBLog.firebase.info("Signed in with email/password.")
             return true
         } catch {
-            statusMessage = L10n.f("Email sign-in failed: %@", error.localizedDescription)
+            statusMessage = userFacingAuthError(error, provider: "Email")
             PBLog.firebase.error("Email sign-in failed: \(error.localizedDescription)")
             return false
         }
@@ -267,8 +267,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             PBLog.firebase.info("Signed out current Firebase user.")
             return true
         } catch {
-            let message = L10n.f("Sign out failed: %@", error.localizedDescription)
-            statusMessage = message
+            statusMessage = "We couldn't sign you out. Check your connection and try again."
             PBLog.firebase.error("Sign out failed: \(error.localizedDescription)")
             return false
         }
@@ -324,7 +323,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
     private func handleGoogleProviderResult(result: AuthDataResult?, error: Error?) {
         if let error {
-            let msg = L10n.f("Google sign-in failed: %@", error.localizedDescription)
+            let msg = userFacingAuthError(error, provider: "Google")
             statusMessage = msg
             PBLog.firebase.error("\(msg)")
             return
@@ -391,12 +390,12 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
                     statusMessage = L10n.f("Signed in with %@.", providerName)
                     return
                 } catch {
-                    statusMessage = L10n.f("%@ sign-in failed: %@", providerName, error.localizedDescription)
+                    statusMessage = userFacingAuthError(error, provider: providerName)
                     return
                 }
             }
 
-            statusMessage = L10n.f("%@ sign-in failed: %@", providerName, error.localizedDescription)
+            statusMessage = userFacingAuthError(error, provider: providerName)
             PBLog.firebase.error("\(providerName) sign-in failed: \(error.localizedDescription)")
         }
     }
@@ -562,21 +561,32 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         return result
     }
 
-    private func readableAuthError(_ error: Error) -> String {
+    private func userFacingAuthError(_ error: Error, provider: String? = nil) -> String {
         let nsError = error as NSError
         let code = AuthErrorCode(rawValue: nsError.code)
+        let prefix = provider.map { "\($0) sign-in" } ?? "Account setup"
 
         switch code {
+        case .wrongPassword, .invalidCredential, .userNotFound:
+            return "\(prefix) couldn't be completed. Check your email and password, then try again."
+        case .emailAlreadyInUse, .credentialAlreadyInUse, .accountExistsWithDifferentCredential:
+            return "That account already exists. Sign in using the method you originally chose."
+        case .weakPassword:
+            return "Choose a stronger password with at least six characters."
+        case .invalidEmail:
+            return "Enter a valid email address."
+        case .userDisabled:
+            return "This account is unavailable. Contact support if you think this is a mistake."
         case .operationNotAllowed:
-            return "Firebase auth failed: Anonymous sign-in is disabled in Firebase Console."
+            return "\(prefix) is temporarily unavailable. Try another sign-in method."
         case .networkError:
-            return "Firebase auth failed: Network error. Check simulator/device connection."
-        case .invalidAPIKey:
-            return "Firebase auth failed: Invalid Firebase API key configuration."
-        case .appNotAuthorized:
-            return "Firebase auth failed: App is not authorized for this Firebase project."
+            return "You're offline. Reconnect and try again."
+        case .tooManyRequests:
+            return "Too many attempts were made. Wait a moment, then try again."
+        case .invalidAPIKey, .appNotAuthorized:
+            return "\(prefix) is temporarily unavailable. Please try again later."
         default:
-            return "Firebase auth failed (\(nsError.domain):\(nsError.code)): \(nsError.localizedDescription)"
+            return "\(prefix) couldn't be completed. Please try again."
         }
     }
 }

@@ -1,380 +1,289 @@
-PractiQuest — Project Snapshot (Current)
+# PractiQuest — Project Snapshot
 
-Last updated: 2026-05-30
-Current version: 1.0.5 (build 30) — pending App Store upload
-Active branch: `codex/launch-hardening` (all work below pushed to GitHub)
+Last updated: 2026-07-26
+Release train: PractiQuest 2.0.0 (build 31)
+Internal project name: PracticeBuddy
+Bundle identifier: `com.alexmalaimare.practicebuddy`
+Branch at snapshot: `codex/launch-hardening`
 
-## Latest Change — 2026-05-30
+## Product
 
-**Push notifications — full pipeline now complete:**
-- Root cause was twofold: (1) `aps-environment` was `development` (fixed → `production` in `PracticeBuddy.entitlements`), and (2) the **APNs Authentication Key (.p8) was missing from Firebase**. Nica created key `854Y5FY5F6` (Team `73J84HKXBC`, Production/Team-scoped) and is uploading it to Firebase Console → Cloud Messaging.
-- Committed the FCM token-ordering fix: set `Messaging.apnsToken` before fetching the FCM token (required because `FirebaseAppDelegateProxyEnabled=false`).
-- `functions/index.js` `pushToUser` now returns `{sent, reason, failureCodes, badge}`, adds the APNs alert payload + server-side badge increment. **NOT deployed yet — run `firebase deploy --only functions` before/after shipping.**
-- Added `*.p8` / `AuthKey_*.p8` to `.gitignore`. The key lives only in `~/Downloads`, never in the repo.
-- Caveat: key is Production-scoped, so Debug-from-Xcode (sandbox) test pushes may not deliver — test via TestFlight/live build.
+PractiQuest is an iOS practice companion for musicians. It combines focused and verifiable practice, session planning and reflection, musical tools, progression, friendly competition, and a private social layer.
 
-**Notification permission priming (new):** `PBNotificationPrimerView` soft pre-prompt shown before the one-shot OS dialog when status is `.notDetermined`, wired via `ContentView.syncPushPipeline()` + `handleNotificationPrimerEnable/Skip`.
+PractiQuest 2.0 is the Studio Quest overhaul. Its primary experience is no longer a collection of generic dashboards, Forms, Lists, glass cards, and bordered buttons. The app uses one focused four-destination shell and a persistent Practice Dock.
 
-**UX polish pass:**
-- `PBSkeletonCard` now used for genuine content-loading states in `ProfileTabView` + `UserProfileView` (inline action spinners left as-is).
-- New reusable `PBEmptyState` (icon + title + message + optional CTA) on empty buddy list + new-chat picker.
-- `PBAdBannerSlot` given shared chrome treatment (top hairline + matched background) across all 6 banners.
-- Clearer Pro-gate copy in History (export + advanced analytics).
-- Exact-token cornerRadius/padding literals aligned to `PBLayout` in Settings theme/font pickers (no visual change).
+## Technology
 
-**Duel Leaderboard revamp:** Season Ladder renamed to "Duel Leaderboard" with trophy header + level badges (`publicLevel` added to `DuelLeaderboardRow`); global query made index-free; redundant Studio "Leaderboard" shortcut replaced with Chat.
+- Swift and SwiftUI
+- SwiftData for practice sessions and journal/history data
+- Firebase Auth and Cloud Firestore
+- Firebase Cloud Functions on Node.js 22
+- StoreKit 2
+- ActivityKit and Live Activities
+- Family Controls shielding
+- Existing audio, metronome, tuner, rhythm, and intonation integrations
+- String Catalog localization for English, Korean, and Romanian
 
-**New reusable SharedUI components:** `PBNotificationPrimerView`, `PBEmptyState` (auto-compiled via Xcode synchronized file groups).
+No cross-platform rewrite, third-party UI framework, live 3D engine, Rive runtime, or Unity integration is used.
 
-**Outstanding before/around App Store upload:**
-1. Upload the `.p8` APNs key to Firebase (Key ID `854Y5FY5F6`, Team `73J84HKXBC`).
-2. `firebase deploy --only functions` to ship the push-diagnostics + badge changes.
-3. Create version `1.0.5` in App Store Connect.
-4. Still deferred (non-blocking): `SKAdNetworkItems`, ATT prompt + `NSUserTrackingUsageDescription`, Google UMP consent flow.
+## Studio Quest shell
 
----
+Top-level destinations:
 
-## Earlier Change — 2026-05-22
+1. Today
+2. Quest
+3. Community
+4. You
 
-**Push notifications fix (for `1.0.3` App Store update):**
-- `aps-environment` in `PracticeBuddy/PracticeBuddy.entitlements` changed from `development` → `production`. Previous live build registered APNs sandbox tokens while FCM sent via production gateway, silently dropping every push. This was the root cause of "notifications never arrive" on the live App Store build.
-- Verified Cloud Functions push triggers all deployed in `practicebuddytracker` (us-central1, nodejs22): `onFriendInviteCreated`, `onFriendChatMessageCreated`, `onStudioChatMessageCreated`, full duel suite, `pushTestNotification`.
-- Expect one-time silent miss per updating user as stale sandbox tokens get pruned by `pruneInvalidDeviceTokens` in `functions/index.js`; flow normalizes from second push onward.
+`AppRouter` owns a typed path for each destination. `AppRoute` retains route payloads for quests, session IDs, practice presets, settings sections, friend IDs, thread IDs, profile IDs, and duel challenge IDs. Changing tabs preserves the other tabs' paths.
 
-**Banner ads expanded to three more surfaces:**
-- `Features/Home/HomeView.swift` (Practice tab)
-- `Features/Profile/ProfileTabView.swift` (Profile tab)
-- `Features/History/HistoryView.swift` (History screen)
-- All reuse `PBAdBannerSlot(placement: .playBottomBanner)` → production unit `ca-app-pub-6233840432120177/8238699892`. Pre-existing banners on Play/Social/Friends unchanged.
+Legacy tab values remain readable through `PractiQuestV2Migration`. The `practiquestV2UI` flag remains the internal rollback boundary; production v2 uses the new shell.
 
-**Deferred ad work (not blocking this update):** `SKAdNetworkItems` in Info.plist, ATT prompt + `NSUserTrackingUsageDescription`, Google UMP consent flow.
+## Practice Dock and Practice Studio
 
----
+The measured dock is a persistent accessory above the tab bar:
 
-Repository root: `/Users/nica/Downloads/Apps/PracticeBuddy/PracticeBuddy`
-Branch during snapshot update: `codex/launch-hardening`
+- idle: one-tap Quick Start with the last setup;
+- planned: next plan and duration;
+- running: timer, task, and verification state;
+- paused: resume or finish.
 
-## 1) Product Overview
-PractiQuest is an iOS practice companion app for musicians focused on:
-- practice timer and verified practice tracking
-- duet/duel progression and quests
-- social layer (friends + direct chat)
-- profile progression and token-based cosmetic inventory
-- ad-supported free experience with optional Ad-Free monthly subscription
+`PracticeSessionCoordinator` is the shared source of truth for Today, the dock, Practice Studio, Live Activity state, background timing, verification, check-ins, shielding, tasks, session progress, reflection, and persistence.
 
-Public app name is `PractiQuest`. Internal project/repo naming remains `PracticeBuddy`.
+Practice Studio includes:
 
-## 2) Platform + Tech Stack
-- UI: SwiftUI
-- Local persistence: SwiftData (practice sessions, journaling/history models)
-- Backend: Firebase Auth + Cloud Firestore
-- Server: Firebase Cloud Functions (Node.js 22, 2nd gen)
-- Push: APNs + Firebase Cloud Messaging
-- Monetization: StoreKit 2 (Ad-Free monthly)
-- Ads: Google Mobile Ads SDK integration via `PBAdsManager`
-- Localization: English, Korean, Romanian
+- immediate Quick Start;
+- full setup for tasks, duration, verification, and check-ins;
+- timer, current task, progress, pause, finish, and verified state;
+- metronome and tuner without leaving the session;
+- contextual tools drawer;
+- reflection for mood, notes, accomplishments, and next step;
+- save/discard behavior and history integration.
 
-## 3) App Structure (Current)
-Top tabs:
-1. Practice
-2. Play (Journey / Duels)
-3. Social
-4. Profile
-5. Settings
+The Practice Library exposes recents/favorites and routes to Smart Loop, Warm-up Generator, Plan–Execute–Reflect, Rhythm, Intonation, Run-through, metronome, and tuner. Quest-launched sessions use a typed `PracticeLaunchContext` so completion never depends on user-entered text.
 
-### Notes
-- The old teacher/student Studio Manager/Planner flow was removed from active UI.
-- `StudioHubView` now serves as the Social host surface (Friends + Chat segmentation).
+## Today
 
-## 4) Authentication + Onboarding
-Current sign-in surface (`AccountSetupView`):
-- Continue with Google
-- Continue with Apple
-- Sign up/sign in with Email + Password (sheet flow)
-- language picker available on onboarding (EN/KO/RO)
-- message indicating app is actively improving
+Today focuses on one dominant practice action plus:
 
-Firebase auth handling is in `FirebaseBootstrap` and includes:
-- Google OAuth sign-in
-- Apple sign-in with nonce
-- email/password sign-up and sign-in
-- sign-out support
+- current daily goal;
+- recommended/last setup;
+- Next Quest;
+- recent-session recap;
+- small community pulse.
 
-Latest production hotfix (2026-04-23):
-- fixed Apple sign-in duplicate credential handling path
-- fixed Google sign-in fallback when link-on-anonymous returns `credentialAlreadyInUse`
-- validated on physical iPhone with clean install + sign in/out + re-sign-in cycles
-- build approved by App Review after this auth fix upload
+All content uses the responsive page container and can move fully above the Practice Dock.
 
-Display name constraints are normalized and Firestore rules enforce valid format/length.
+## Quest and duels
 
-## 5) Home (Practice)
-Home currently centers around a consolidated practice flow:
-- Practice Timer
-- Verified Mode toggle and verification detail panel
-- check-in system + check-in status UI
-- Practice Session Builder (task list with minutes, add/remove tasks, progress tracking)
-- Practice Tools (Metronome, Tuner)
-- Goal section
-- Practice Time summary cards
-- save/discard session flow + journal capture
+The Quest tab contains a width-bounded 2:3 visual path with normalized node coordinates.
 
-### Verified practice / shielding
-- Family Controls entitlement is present in app entitlements.
-- App shielding and check-ins are wired into the timer flow.
-- Verified vs unverified seconds are tracked and displayed.
+Featured practice quests:
 
-## 6) Play (Journey / Duels)
-`JourneyView` includes:
-- progression level card and XP
-- daily and weekly quests (duel-focused)
-- rewards inventory integration
-- duels and league section:
-  - Queue Duel / Cancel Queue
-  - invite friends to duel
-  - incoming/outgoing invite handling
-  - active duel entry and recording capture flow
-  - match history screen
-  - season ladder scopes
-  - unified duel action card styling (Queue Duel / Invite Friend / Match History)
-  - outgoing invites surfaced as a dedicated card block for better clarity
+- Warm-up Warrior → Warm-up Generator
+- Rhythm Clarity → Rhythm tool
+- Dynamic Control → preconfigured verified practice
+- Expression Mastery → Run-through mode
 
-Play top shortcuts now include a bell icon with unread badge, opening a full-screen notifications inbox.
+Every node opens a typed detail containing objective, progress, reward, status, and CTA. `PracticeQuestProgressStore` persists content-free counters for warm-up, rhythm, dynamic control, expression/run-through, loops, and intonation.
 
-Duel + rating state management is in `DuelLeagueManager` and synced to Firestore.
+Existing daily/weekly duel quests, league state, rewards, invitations, queue, active match, recording/results, history, and leaderboard behavior remain connected through the rebuilt Duel Arena.
 
-## 7) Social
-Social is consolidated into:
-- Friends view (friend code, requests, buddies, leaderboard)
-- Chat view (friend DMs thread model)
+## Community
 
-Chat system (`StudioChatViewModel`) currently uses friend thread semantics (`friend` kind). It supports:
-- thread list
-- unread counting
-- open thread routing
-- send message flow
-- local thread state (pin/mute/hide/read)
+Community opens on the generated-card Practice Moments feed. Its header leads to
+search, Connections, and Messages; Connections locally switches among Friends,
+Following, Followers, and Requests.
 
-App icon badge count is composed from:
-- pending friend requests
-- unread social chat
+- Standard Dynamic Type: equal-width segmented navigation.
+- Accessibility Dynamic Type: full-width menu.
+- Friend rows: avatar, name, optional level context, online/offline status, and coarse last-practice activity.
+- Entire friend/message pill is the hit target.
+- No row chevrons, long dividers, or generic “Practice buddy” copy.
+- Add friend, compose, accept, decline, cancel, contextual message actions, and exact conversation routing are functional.
+- Conversation backgrounds are solid semantic surfaces in both appearances.
 
-## 8) Profile
-Profile includes:
-- top profile card + level/league display
-- progress section
-- icon selection section with carousel UI
-- free icons + token-unlock icons
-- token-gated unlock flow backed by `JourneyProgressManager`
-- personalize section (instrument/bio)
+Practice Moments are optional generated cards only: app-rendered avatar/room,
+fixed tag/category, coarse duration bucket, and factual verification badge. They
+expire after 24 hours, have no photos, media, captions, comments, or private
+reflection data, and support only the bounded musical reaction set. Social
+writes—follows, approvals, blocks, mutes, and reports—are Cloud-Function
+owned, with age, private-profile, and block precedence enforced server-side.
 
-Avatar unlock ownership is persisted and synced through user inventory fields.
+One root `BuddiesViewModel` supplies friends, requests, and presence.
 
-## 9) Settings
-Settings currently includes:
-- Goals
-- Appearance (themes/fonts)
-- General (language, replay tutorial)
-- Account (Sign Out)
-- Notifications (category toggles + open iOS settings)
-- History retention
-- About
+`FriendActivityPublisher` publishes only a last-practice timestamp into accepted-friend projections. It never publishes duration, notes, pieces, audio, messages, friend codes, or profile content. Sharing is enabled by default and can be disabled in Privacy. Opt-out stops publication, marks the user offline, and clears projections. Online presence expires after 120 seconds.
 
-Debug-only controls:
-- `Send Test Push` and Ads debug toggles appear only under debug/master-account conditions.
+## You and secondary destinations
 
-## 10) Shop, Subscription, Ads
-### Shop
-`ShopView` currently has:
-- Ad-Free monthly subscription section
-- 7-day trial trigger path
-- Restore purchases
-- Cosmetics (Coming soon) + Open Inventory link
-- Skins (Coming soon)
-- Bundles (Coming soon)
+You includes:
 
-### Purchase model
-`PurchaseManager` + server sync are aligned to Ad-Free subscription:
-- product id: `com.alexmalaimare.practicebuddy.adfree.monthly`
-- entitlement/trial state synced via function endpoint `syncEntitlements`
+- a runtime-composed empty-room musician studio hero;
+- weekly insight and trend;
+- recent session timeline;
+- Goals;
+- History;
+- Settings.
 
-### Ads
-`PBAdsManager` controls:
-- banner ads (Play + Social placements)
-- rewarded duel ad option
-- debug placeholders / SDK toggles (debug/master only)
-- kill switch and consent gating
+Dedicated Studio Quest destinations:
 
-Configured production IDs are in `Info.plist`:
-- AdMob app id
-- play banner unit id
-- rewarded duel unit id
+- Goals: daily/weekly targets, progress, and adaptive controls.
+- History: trends, filters, session timeline, notes, detail, and Pro export entry.
+- Profile editing is a direct action from the You hero: photo, display name, bio, instrument, avatar identity, and public-profile preview.
+- Settings: System/Light/Dark appearance, language, notifications, privacy, retention, Pro, Help, About, sign-out, and account deletion.
+- Pro: advanced insights/export, unlimited plans and presets, premium avatar/room collections, and no rewarded-ad prompts.
+- Notifications, Practice Library, Duel Arena, Avatar Studio, Help, and About.
 
-## 11) UI/Theming State
-Massive Update Part 1 completed a broad visual refresh while preserving the app skeleton and feature wiring.
+The v2 Settings UI ignores the legacy six-theme and four-font-palette preferences. Those values remain stored only for rollback compatibility.
 
-Current shared design direction:
-- bold, youthful Liquid Glass styling across cards, backdrops, shortcut chips, buttons, and tab chrome
-- animated stage-light backdrop through `PBBackdropView`
-- layered frosted surfaces through `PBLayout` card modifiers
-- brighter theme palettes in `PBTheme`
-- upgraded top shortcut chips through `PBShortcutBar`
-- more translucent, accent-tinted bottom tab bar through `PBTabBarStyle`
+## Design system
 
-This centralization improves consistency across tabs/popups that use shared components.
+`StudioQuestTokens` defines:
 
-## 12) Notifications + Push
-Push infrastructure present:
-- APNs token registration
-- FCM token storage under `users/{uid}/devices/{deviceId}`
-- category preference sync from app to backend/user document
-- app routing handler for notification deep-links (`PBNotificationRoute`)
-- in-app notifications inbox (`PBInAppNotifications`) shared across tabs
-- top bell badge count currently aggregates:
-  - duel invites
-  - friend requests
-  - chat unread threads
-- tapping any in-app notification now routes to destination:
-  - duel invite -> Play duel entry
-  - friend request -> Social friends/pending requests
-  - chat message -> exact Social chat thread
+- semantic light/dark colors;
+- cobalt/violet identity;
+- mint verified/success state;
+- coral/gold reward and competition state;
+- spacing, widths, radii, elevation, motion, and typography.
 
-Cloud Functions include push triggers for:
-- friend invite created
-- friend chat message created
-- studio chat message created (legacy/compat path)
+Typography:
 
-## 13) Backend (Functions + Rules)
-### Functions currently exported (`functions/index.js`)
-- `syncEntitlements`
-- `pushTestNotification`
-- duel lifecycle endpoints (`duelQueueJoin`, `duelQueueCancel`, `duelInvite`, `duelRespond`, `duelSubmitAttempt`, `duelSettleSweep`)
-- push triggers (`onFriendInviteCreated`, `onFriendChatMessageCreated`, `onStudioChatMessageCreated`)
+- Space Grotesk for display moments where available;
+- SF Pro/system semantic styles for body and controls;
+- monospaced system type for timers, tempo, measurements, and scores.
 
-### Firestore rules
-Current rules enforce:
-- protected server-only duel writes
-- friend invite/friendship/chat access policies
-- display-name validation
-- restricted entitlement fields on user docs
+Native materials are reserved for navigation and interactive chrome. Content uses opaque or standard-material semantic surfaces. Ordinary screens do not run a continuously animated full-screen backdrop.
 
-Note: rules still include legacy studio/assignment paths for compatibility, while related app-side studio manager/planner/assignment UI and repos were removed.
+`StudioQuestScrollPage` constrains pages to device width, applies adaptive 16–20 point margins, and adds measured dock clearance. Layouts use wrapping, `ViewThatFits`, or accessibility alternatives rather than fixed horizontal assumptions.
 
-## 14) Major Removals / Simplifications (Recent)
-Removed from active codebase:
-- `StudioManagerView`, `StudioPlannerView`, `StudioManagerViewModel`
-- assignment-specific services and notification manager
-- old studio repository (`FirebaseStudiosRepository`)
-- warmup-of-week manager
-- app icon picker / multi-icon manager
-- alternate icon asset sets and old preview icon sets
+## Avatar identity and assets
 
-## 15) Branding + App Identity
-- Display name: `PractiQuest`
-- Bundle identifier remains: `com.alexmalaimare.practicebuddy`
-- URL scheme remains: `practicebuddy://`
-- Associated domain configured: `applinks:practicebuddytracker.web.app`
+`AvatarLoadout` is a versioned `Codable` model containing base, skin tone, hair, outfit, instrument, accessory, pose, room IDs, and room-specific normalized decoration layouts.
 
-## 16) Entitlements / Capabilities (Current)
-`PracticeBuddy.entitlements` currently includes:
-- `aps-environment` (development)
-- Sign in with Apple entitlement
-- associated domains
-- Family Controls entitlement
+Avatar Studio exposes an expandable V2 foundation:
 
-Info.plist highlights:
-- `ITSAppUsesNonExemptEncryption = false`
-- portrait orientation on iPhone
-- background modes include `audio` and `remote-notification`
+- inclusive starter musician bases with loadout choices;
+- 8 skin tones, 12 hairstyles, outfit and instrument selections, accessories, and poses;
+- 3 intentionally empty rooms;
+- 5 individually owned starter/collectible decorations.
 
-## 17) Localization
-Active app languages:
-- English
-- Korean
-- Romanian
+Scene order is always `empty room → placed decorations → avatar → foreground/lighting`.
+The room asset never includes a person or an optional decoration. Each room has
+its own normalized placement layout; items can be dragged within wall/floor/
+surface zones, adjusted with non-drag accessibility controls, removed without
+losing ownership, and rendered in front of or behind the avatar through depth.
 
-Onboarding now allows immediate language selection before sign-in.
+The renderer is native SwiftUI and uses generated 2.5D raster bases plus native composition. It does not use a live 3D engine. Legacy avatar IDs migrate into starter loadouts and remain written during the compatibility window.
 
-## 18) Latest Updates (2026-04-25)
-- Massive Update Part 1 is complete:
-  - Home tab renamed to Practice
-  - Live Activity extension added and validated on device
-  - notification routing/badge reliability hardened
-  - custom profile photo upload added and refined
-  - visual redesign pushed through shared design tokens
-- Live Activity extension was added and wired:
-  - `PracticeBuddyLiveActivity/PracticeBuddyLiveActivityBundle.swift`
-  - `PracticeBuddyLiveActivity/PracticeTimerLiveActivityWidget.swift`
-  - `PracticeBuddyLiveActivity/PracticeLiveActivityAttributes.swift`
-- App-side Live Activity manager hardened for reuse/end lifecycle:
-  - `PracticeBuddy/Services/PracticeLiveActivityManager.swift`
-- Notification routing and icon badge reliability hardened:
-  - cold-launch pending route consume in app shell
-  - background remote-notification route handling in AppDelegate
-  - app icon badge now follows unified in-app notification unread store
-- Profile photo UX updated:
-  - camera-button anchored popover near avatar (instead of bottom dialog)
-  - immediate upload on selection (no extra Save Profile step)
-  - upload/remove helper text under avatar
-- Friends-name bug fixed:
-  - prevented accidental overwrite of local buddy rows with current user name
-  - added local buddy directory repair pass on startup
-- Season Ladder redesign shipped (Global + Friends):
-  - row cards with avatar + rank + rating + stat chips
-  - expanded actions preserved (`Go to Profile`, `Duel Challenge`)
-- Liquid Glass redesign expanded after initial pass:
-  - stronger shared glass surface layers
-  - richer animated background treatment
-  - more premium shortcut bar and tab bar styling
-  - updated theme palette support colors while preserving all theme ids
-- App Store release-prep patch:
-  - app + Live Activity extension marketing version bumped from `1.0.1` to `1.0.2`
-  - build number remains `27` for the new `1.0.2` train
-  - next App Store Connect upload should target/create version `1.0.2`
-- Season Ladder cleanup:
-  - removed mini-stat chips under player names (`Pts`, `W`, `M`)
-  - rows now focus on avatar + aligned username + rating/action for a cleaner card
-- Memory safety cleanup from commit `a0dced4`:
-  - added defensive `deinit` cleanup to `FriendRequestBadgeManager`
-  - added defensive cleanup for `JourneyProgressManager` inventory listener and telemetry cancellable
-  - added defensive `DuelLeagueManager` realtime listener cleanup
-  - normal runtime cleanup still flows through existing explicit `stop()` / `pauseRealtime()` paths
+Generated asset provenance and prompts are documented in `ASSET_PROVENANCE.md`.
 
-## 19) Current Build/Source Control Status at Time of Snapshot
-- Branch: `codex/launch-hardening`
-- HEAD commit before this snapshot update: `a0dced4`
-- Current app marketing version: `1.0.2`
-- Current build number: `27`
-- Latest simulator build check: `BUILD SUCCEEDED`
+## Authentication and onboarding
 
-## 20) Known Follow-up Items
-- Firestore rules still contain legacy studio/assignment blocks; can be cleaned once no longer needed by any deployed clients/functions.
-- Snapshot had previously drifted; this version replaces stale sections describing removed Studio Manager/Planner and assignment-linked home flows.
-- Validate release entitlements/cert context (`aps-environment`) before App Store production submission builds.
-- Defer remaining optimization-audit ideas unless a real performance issue appears; query-level Firestore sorting needs data/index verification before replacing current in-memory sorts.
+Practice-first onboarding:
 
-## 21) Key Files to Start From
-- App shell and pipeline orchestration:
+1. brand welcome;
+2. instrument and goal;
+3. optional avatar starter;
+4. first practice.
+
+The app continues using anonymous Firebase authentication underneath. Permanent sign-in is requested when entering Community, cloud-linked identity/inventory, account backup, or other account-dependent functionality. User-facing errors use recovery-oriented copy; raw Firebase errors remain diagnostic-only.
+
+## Monetization
+
+- No persistent banner appears in the v2 shell or v2 destinations.
+- Rewarded ads are disabled for duels and never interrupt active practice.
+- Core practice, verification, messaging, fair duels, and progression remain free.
+- PractiQuest Pro recognizes:
+  - new product: `com.alexmalaimare.practiquest.pro.monthly`;
+  - legacy product: `com.alexmalaimare.practicebuddy.adfree.monthly`.
+- Legacy Ad-Free owners are treated as Pro.
+- Both product IDs are recognized locally and by `functions/index.js`.
+
+The Pro product still needs to be created in App Store Connect, and the updated entitlement function must be deployed before release.
+
+## Localization and analytics
+
+- `PracticeBuddy/Localizable.xcstrings` contains 1,534 keys.
+- Korean missing keys: 0.
+- Romanian missing keys: 0.
+- Placeholder mismatches: 0.
+- `scripts/generate_string_catalog.mjs` and its translation cache maintain the catalog.
+
+`PracticeAnalytics` records bounded, content-free events for onboarding, practice start/save/abandon, dock use, tool discovery, route depth, duel entry, and sign-in conversion. It never records notes, messages, audio, profile text, or friend codes.
+
+## Persistence and migration
+
+Preserved:
+
+- SwiftData sessions and journal/history;
+- XP and level;
+- league rating and duel history;
+- token balances and inventory;
+- quest state;
+- avatar identity;
+- notification preferences;
+- subscription entitlements;
+- existing friends, requests, and messages;
+- legacy tab and appearance/font values for rollback.
+
+New v2 state:
+
+- selected `AppDestination`;
+- independent typed navigation paths;
+- versioned `AvatarLoadout`;
+- practice quest event counters;
+- friend activity sharing preference;
+- privacy-safe analytics markers.
+
+## Testing and QA
+
+Targets:
+
+- `PracticeBuddyTests/StudioQuestFoundationTests.swift`
+- `PracticeBuddyUITests/StudioQuestNavigationUITests.swift`
+
+Foundation tests cover migration, typed path preservation, quest completion/persistence, avatar-room schema/zone clamping, presence expiry, and bounded analytics. UI tests cover the four-tab shell, featured Quest nodes, rebuilt secondary routes, full friend-pill action selection, and accessibility/pseudolocalization.
+
+Visual evidence:
+
+- `Design/StudioQuest2/QA/final-reference-comparison.png`
+- `Design/StudioQuest2/QA/final-secondary-destinations.png`
+- `Design/StudioQuest2/QA/final-responsive-matrix.png`
+- root `design-qa.md`
+
+The app compiles cleanly and the foundation and Studio Quest UI test targets pass on the iPhone 17 Pro simulator.
+
+## Primary files
+
+- Shell and routing:
   - `PracticeBuddy/App/ContentView.swift`
-- Home practice flow:
-  - `PracticeBuddy/Features/Home/HomeView.swift`
-- Play/Journey/Duel flow:
-  - `PracticeBuddy/Features/Journey/JourneyView.swift`
-  - `PracticeBuddy/Features/Journey/JourneyDuelRecordingCaptureView.swift`
-- Social and chat:
-  - `PracticeBuddy/Features/Studio/StudioHubView.swift`
-  - `PracticeBuddy/Features/Social/StudioChatViewModel.swift`
-- Profile + avatar economy:
-  - `PracticeBuddy/Features/Profile/UserProfileView.swift`
+  - `PracticeBuddy/App/AppNavigation.swift`
+  - `PracticeBuddy/Features/StudioQuest/StudioQuestShell.swift`
+- Destinations:
+  - `PracticeBuddy/Features/StudioQuest/StudioQuestDestinationViews.swift`
+  - `PracticeBuddy/Features/StudioQuest/StudioQuestSecondaryViews.swift`
+- Practice:
+  - `PracticeBuddy/Features/StudioQuest/PracticeStudioView.swift`
+  - `PracticeBuddy/Services/PracticeSessionCoordinator.swift`
+  - `PracticeBuddy/Models/PracticeRuntimeModels.swift`
+- Design:
+  - `PracticeBuddy/SharedUI/StudioQuestDesign.swift`
   - `PracticeBuddy/SharedUI/PBAvatarView.swift`
-  - `PracticeBuddy/Services/JourneyProgressManager.swift`
-- Settings / notification prefs:
-  - `PracticeBuddy/Features/Settings/SettingsView.swift`
-  - `PracticeBuddy/Features/Settings/SettingsViewSections.swift`
-- Monetization and ads:
-  - `PracticeBuddy/Features/Shop/ShopView.swift`
+- Progress/social:
+  - `PracticeBuddy/Services/PracticeQuestProgressStore.swift`
+  - `PracticeBuddy/Services/FriendActivityPublisher.swift`
+  - `PracticeBuddy/Features/Friends/BuddiesViewModel.swift`
+- Commerce:
   - `PracticeBuddy/Services/PurchaseManager.swift`
-  - `PracticeBuddy/Services/PBAdsManager.swift`
-- Backend:
+  - `PracticeBuddy/Features/Settings/StoreView.swift`
   - `functions/index.js`
-  - `firestore.rules`
+
+## Release gates
+
+Before App Store submission:
+
+1. Create the new Pro product in App Store Connect.
+2. Deploy updated Firebase Functions and verify entitlement synchronization.
+3. Run the final UI suite from a healthy Xcode/CoreSimulator host.
+4. Validate anonymous account upgrade, StoreKit purchase/restore/grandfathering, APNs, Live Activities, Family Controls, and audio on physical devices/TestFlight.
+5. Capture final release screenshots and complete App Store metadata.

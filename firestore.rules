@@ -61,8 +61,8 @@ service cloud.firestore {
     function isValidDisplayName(name) {
       return name is string
         && name.size() >= 2
-        && name.size() <= 16
-        && name.matches('^[\\p{L}\\p{N}._\\- ]+$')
+        && name.size() <= 30
+        && name.matches("^[\\p{L}\\p{N}._'\\- ]+$")
         && name.matches('.*[\\p{L}\\p{N}].*');
     }
 
@@ -75,15 +75,96 @@ service cloud.firestore {
         || isValidDisplayName(request.resource.data.displayName);
     }
 
+    function changesServerOwnedIdentityFields() {
+      return request.resource.data.diff(resource.data).changedKeys().hasAny([
+        "handle",
+        "dateOfBirth",
+        "ageBand",
+        "profileSchemaVersion",
+        "handleChangedAt",
+        "profilePrivacy"
+      ]);
+    }
+
+    function areAcceptedFriends(otherUID) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/friendships/$(request.auth.uid)/buddies/$(otherUID))
+        && exists(/databases/$(database)/documents/friendships/$(otherUID)/buddies/$(request.auth.uid));
+    }
+
     match /users/{uid} {
-      allow read: if isSignedIn();
+      // The private account document never powers search, social profiles, or
+      // leaderboards. Those read the server-owned publicProfiles projection.
+      allow read: if isSelf(uid);
       allow create: if isSelf(uid)
         && !touchesRestrictedUserFieldsOnCreate()
         && validDisplayNameOnCreate();
       allow update: if isSelf(uid)
         && !touchesRestrictedUserFieldsOnUpdate()
+        && !changesServerOwnedIdentityFields()
         && validDisplayNameOnUpdate();
       allow delete: if false;
+    }
+
+    match /publicProfiles/{uid} {
+      allow read: if isSignedIn();
+      // Cloud Functions are the only writers, so birth date, contact details,
+      // entitlements, and migration internals cannot leak through this data.
+      allow create, update, delete: if false;
+    }
+
+    match /handles/{handle} {
+      allow read, write: if false;
+    }
+
+    match /handleRedirects/{handle} {
+      allow read, write: if false;
+    }
+
+    match /presence/{uid} {
+      allow read: if isSelf(uid) || areAcceptedFriends(uid);
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(["presenceState", "presenceLastChanged", "updatedAt"])
+        && request.resource.data.presenceState in ["online", "offline"];
+      allow delete: if isSelf(uid);
+    }
+
+    match /feedInboxes/{uid}/items/{momentID} {
+      allow read: if isSelf(uid);
+      allow create, update, delete: if false;
+    }
+
+    match /practiceMoments/{momentID} {
+      allow get: if isSignedIn() && (
+        resource.data.authorUID == request.auth.uid ||
+        exists(/databases/$(database)/documents/feedInboxes/$(request.auth.uid)/items/$(momentID))
+      ) && resource.data.expiresAt > request.time;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /practiceMoments/{momentID}/reactions/{uid} {
+      allow read: if isSignedIn() && (
+        uid == request.auth.uid ||
+        exists(/databases/$(database)/documents/feedInboxes/$(request.auth.uid)/items/$(momentID))
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /socialFollows/{relationshipID} {
+      allow read, write: if false;
+    }
+
+    match /followRequests/{requestID} {
+      allow read, write: if false;
+    }
+
+    match /socialBlocks/{blockID} {
+      allow read, write: if false;
+    }
+
+    match /contentReports/{reportID} {
+      allow read, write: if false;
     }
 
     match /users/{uid}/devices/{deviceId} {

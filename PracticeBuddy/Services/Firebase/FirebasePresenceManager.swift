@@ -7,7 +7,9 @@ import FirebaseFirestore
 @MainActor
 final class FirebasePresenceManager: ObservableObject {
     private let db = Firestore.firestore()
-    private let usersCollection = "users"
+    /// Presence is deliberately isolated from the private user document. Rules
+    /// permit only the user to write it and accepted friends to observe it.
+    private let presenceCollection = "presence"
     private let heartbeatInterval: TimeInterval = 60
 
     private var activeUID: String?
@@ -61,6 +63,6 @@ final class FirebasePresenceManager: ObservableObject {
             "presenceLastChanged": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
-        db.collection(usersCollection).document(uid).setData(payload, merge: true)
+        db.collection(presenceCollection).document(uid).setData(payload, merge: true)
     }
 }
