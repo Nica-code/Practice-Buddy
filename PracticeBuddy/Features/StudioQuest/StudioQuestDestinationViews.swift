@@ -510,57 +510,134 @@ struct StudioQuestYouView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var buddies: BuddiesViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.studioQuestDockClearance) private var dockClearance
     @AppStorage("practiquest.avatar.loadout") private var loadoutData = Data()
 
     var body: some View {
-        StudioQuestScrollPage {
-            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
-                Text("You")
-                    .font(StudioQuestTokens.Typography.pageTitle)
-                    .tracking(-1)
-                    .padding(.top, StudioQuestTokens.Spacing.sm)
+        GeometryReader { proxy in
+            let heroHeight = proxy.size.height * 0.52
+            let margin = StudioQuestTokens.Spacing.pageMargin(for: proxy.size.width)
 
-                profileHero
-                weeklyInsight
-                activityTimeline
-                secondaryLinks
+            ZStack(alignment: .top) {
+                StudioQuestBackground()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        parallaxHero(height: heroHeight, containerWidth: proxy.size.width)
+
+                        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                            identityBlock
+                            weeklyInsight
+                            activityTimeline
+                            secondaryLinks
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, margin)
+                        .padding(.top, StudioQuestTokens.Spacing.md)
+                        .padding(.bottom, dockClearance + StudioQuestTokens.Spacing.lg)
+                        .background(
+                            StudioQuestTokens.ColorRole.background(colorScheme)
+                                // The body slides up over the artwork, so the
+                                // seam needs a rounded lip rather than a cut.
+                                .clipShape(
+                                    UnevenRoundedRectangle(
+                                        topLeadingRadius: 26,
+                                        topTrailingRadius: 26,
+                                        style: .continuous
+                                    )
+                                )
+                        )
+                        .offset(y: -26)
+                    }
+                }
+                .coordinateSpace(.named(Self.scrollSpace))
+                .ignoresSafeArea(edges: .top)
+
+                heroControls
             }
         }
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private var profileHero: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ZStack(alignment: .topTrailing) {
-                StudioQuestAvatarScene(
-                    loadout: loadout,
-                    layout: loadout.layout(),
-                    displayName: displayName
+    private static let scrollSpace = "you.scroll"
+
+    /// Stretches when pulled down and drifts at half speed when scrolled up.
+    private func parallaxHero(height: CGFloat, containerWidth: CGFloat) -> some View {
+        GeometryReader { geo in
+            let minY = geo.frame(in: .named(Self.scrollSpace)).minY
+            let stretch = max(0, minY)
+            let parallax = reduceMotion ? 0 : min(0, minY) * 0.5
+
+            StudioQuestAvatarScene(
+                loadout: loadout,
+                layout: loadout.layout(),
+                displayName: displayName,
+                presentation: .hero
+            )
+            .frame(width: containerWidth, height: height + stretch)
+            .overlay(alignment: .top) {
+                // Rooms range from a sunlit studio to a midnight stage, so the
+                // status bar and title need their own scrim rather than relying
+                // on the artwork happening to be dark up there.
+                LinearGradient(
+                    colors: [.black.opacity(0.22), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-
-                NavigationLink(value: AppRoute.profile(userID: nil)) {
-                    Image(systemName: "pencil")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .frame(width: 42, height: 42)
-                        .background(.regularMaterial, in: Circle())
-                }
-                .padding(12)
-                .accessibilityLabel("Edit profile")
+                .frame(height: 130)
+                .allowsHitTesting(false)
             }
-
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(displayName)
-                        .font(.title2.bold())
-                    Text("Level \(journey.level) musician")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                StudioQuestVerifiedLabel(isVerified: !firebase.isAnonymousUser)
+            .overlay(alignment: .bottom) {
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        StudioQuestTokens.ColorRole.background(colorScheme).opacity(0.55),
+                        StudioQuestTokens.ColorRole.background(colorScheme)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 150)
+                .allowsHitTesting(false)
             }
-            .padding(.horizontal, 4)
+            .offset(y: -stretch + parallax)
+        }
+        .frame(height: height)
+    }
+
+    /// Kept outside the ScrollView so it stays put while the artwork moves.
+    ///
+    /// There is deliberately no "You" title over the artwork: the tab bar
+    /// already names the tab and the display name sits directly below the hero,
+    /// so a third label was both redundant and unreadable against a sunlit room.
+    private var heroControls: some View {
+        HStack {
+            Spacer()
+
+            NavigationLink(value: AppRoute.profile(userID: nil)) {
+                Image(systemName: "pencil")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .frame(width: 42, height: 42)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .accessibilityLabel("Edit profile")
+        }
+        .padding(.horizontal, StudioQuestTokens.Spacing.md)
+    }
+
+    private var identityBlock: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(displayName)
+                    .font(StudioQuestTokens.Typography.heroTitle)
+                Text("Level \(journey.level) musician")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            StudioQuestVerifiedLabel(isVerified: !firebase.isAnonymousUser)
         }
     }
 

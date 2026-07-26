@@ -176,9 +176,34 @@ struct StudioQuestRoomDecoration: Identifiable, Hashable {
 /// no person or optional decoration; avatar and inventory live in independent
 /// layers and remain portable across scenes and future content packs.
 struct StudioQuestAvatarScene: View {
+    /// How the scene is framed. `.card` is the inset 3:2 tile used in feeds and
+    /// pickers. `.hero` fills whatever frame it is given and drops the rounded
+    /// clip, so the room can run edge to edge behind a profile header — and
+    /// renders the musician larger, because at card scale the avatar reads as a
+    /// speck in an empty room.
+    enum Presentation {
+        case card
+        case hero
+
+        var avatarWidthRatio: CGFloat {
+            switch self {
+            case .card: 0.46
+            case .hero: 0.66
+            }
+        }
+
+        var avatarHeightRatio: CGFloat {
+            switch self {
+            case .card: 0.88
+            case .hero: 0.80
+            }
+        }
+    }
+
     let loadout: AvatarLoadout
     let layout: StudioQuestRoomLayout
     let displayName: String
+    var presentation: Presentation = .card
     var isEditing = false
     var onMove: ((StudioQuestRoomPlacement, StudioQuestRoomPoint) -> Void)?
     var onRemove: ((StudioQuestRoomPlacement) -> Void)?
@@ -205,7 +230,10 @@ struct StudioQuestAvatarScene: View {
                 StudioQuestAvatarRenderer(
                     loadout: loadout,
                     displayName: displayName,
-                    size: min(size.width * 0.46, size.height * 0.88)
+                    size: min(
+                        size.width * presentation.avatarWidthRatio,
+                        size.height * presentation.avatarHeightRatio
+                    )
                 )
                 .position(
                     x: size.width * room.avatarAnchor.x,
@@ -218,14 +246,35 @@ struct StudioQuestAvatarScene: View {
             .clipped()
             .contentShape(Rectangle())
         }
-        .aspectRatio(3 / 2, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.hero, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.hero, style: .continuous)
-                .stroke(isEditing ? StudioQuestTokens.ColorRole.cobalt.opacity(0.7) : .clear, lineWidth: 1.5)
-        }
+        .modifier(SceneFraming(presentation: presentation, isEditing: isEditing))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(displayName)'s \(room.title)")
+    }
+
+    private struct SceneFraming: ViewModifier {
+        let presentation: Presentation
+        let isEditing: Bool
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            switch presentation {
+            case .card:
+                content
+                    .aspectRatio(3 / 2, contentMode: .fit)
+                    .clipShape(
+                        RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.hero, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.hero, style: .continuous)
+                            .stroke(
+                                isEditing ? StudioQuestTokens.ColorRole.cobalt.opacity(0.7) : .clear,
+                                lineWidth: 1.5
+                            )
+                    }
+            case .hero:
+                content.clipped()
+            }
+        }
     }
 
     @ViewBuilder
