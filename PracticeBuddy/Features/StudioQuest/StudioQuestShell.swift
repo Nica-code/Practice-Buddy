@@ -525,17 +525,25 @@ struct StudioQuestTodayView: View {
     }
 
     private var goalHero: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             ZStack {
                 Circle()
                     .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 7)
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
-                        StudioQuestTokens.ColorRole.cobalt,
+                        LinearGradient(
+                            colors: [
+                                StudioQuestTokens.ColorRole.cobalt,
+                                StudioQuestTokens.ColorRole.violet
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
                         style: StrokeStyle(lineWidth: 7, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
+                    .animation(StudioQuestTokens.Motion.gentle, value: progress)
                 VStack(spacing: 0) {
                     Text("Daily goal")
                         .font(.caption)
@@ -553,6 +561,8 @@ struct StudioQuestTodayView: View {
             .accessibilityLabel("Daily practice goal")
             .accessibilityValue("\(store.totalTodaySeconds / 60) of \(goalMinutes) minutes")
 
+            statusPill
+
             Button {
                 coordinator.quickStart()
             } label: {
@@ -566,7 +576,34 @@ struct StudioQuestTodayView: View {
                     .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
             }
         }
-        .padding(.vertical, 6)
+        .padding(StudioQuestTokens.Spacing.md)
+        .frame(maxWidth: .infinity)
+        .studioQuestSurface(.lifted)
+    }
+
+    /// A single honest line about where the musician stands, rather than the
+    /// unconditional encouragement the reference mock implied.
+    private var statusPill: some View {
+        let streak = store.currentStreakDays(dailyGoalMinutes: goalMinutes)
+        let (text, symbol, tint): (String, String, Color) = {
+            if progress >= 1 {
+                return ("Goal met today", "checkmark.circle.fill", StudioQuestTokens.ColorRole.mint)
+            }
+            if streak > 1 {
+                return ("\(streak)-day streak", "flame.fill", StudioQuestTokens.ColorRole.gold)
+            }
+            if store.totalTodaySeconds > 0 {
+                return ("You're in flow", "waveform", StudioQuestTokens.ColorRole.cobalt)
+            }
+            return ("Ready when you are", "sparkles", StudioQuestTokens.ColorRole.violet)
+        }()
+
+        return Label(text, systemImage: symbol)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(tint.opacity(0.12), in: Capsule())
     }
 
     private var suggestedSession: some View {
@@ -592,7 +629,8 @@ struct StudioQuestTodayView: View {
                         .foregroundStyle(.secondary)
                 }
                 .foregroundStyle(.primary)
-                .padding(.vertical, 10)
+                .padding(StudioQuestTokens.Spacing.md)
+                .studioQuestSurface()
             }
             .buttonStyle(.plain)
         }
@@ -630,11 +668,12 @@ struct StudioQuestTodayView: View {
                             .multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 8)
-                    Text("\(dynamicControlQuest.rewardTokens) tokens")
+                    Label("\(dynamicControlQuest.rewardTokens)", systemImage: "diamond.fill")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                 }
-                .padding(.vertical, 10)
+                .padding(StudioQuestTokens.Spacing.md)
+                .studioQuestSurface()
             }
             .foregroundStyle(.primary)
         }
@@ -681,41 +720,98 @@ struct StudioQuestTodayView: View {
                             .foregroundStyle(session.verifiedSeconds > 0 ? StudioQuestTokens.ColorRole.mint : .secondary)
                     }
                     .foregroundStyle(.primary)
-                    .padding(.vertical, 10)
+                    .padding(StudioQuestTokens.Spacing.md)
+                    .studioQuestSurface()
                 }
                 .buttonStyle(.plain)
             } else {
                 Text("Your first completed session will appear here.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
+                    .padding(StudioQuestTokens.Spacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioQuestSurface()
             }
         }
     }
 
+    /// Friends who actually practised in the last seven days. The previous copy
+    /// ("Your practice can inspire a friend today") was the same sentence
+    /// regardless of what anyone had done, so it carried no information.
+    private var activeBuddiesThisWeek: [BuddySummary] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
+        return buddies.buddies
+            .filter { ($0.lastPracticedAt ?? .distantPast) >= cutoff }
+            .sorted { ($0.lastPracticedAt ?? .distantPast) > ($1.lastPracticedAt ?? .distantPast) }
+    }
+
+    @ViewBuilder
     private var communityPulse: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Community pulse")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Your practice can inspire a friend today.")
-                    .font(.subheadline.weight(.medium))
-            }
-            Spacer()
-            HStack(spacing: -7) {
-                ForEach(Array(buddies.buddies.prefix(3))) { buddy in
-                    PBAvatarView(
-                        avatarID: buddy.avatarID,
-                        displayName: buddy.displayName,
-                        profilePhotoURL: buddy.profilePhotoURL,
-                        size: 30
-                    )
-                        .overlay(Circle().stroke(StudioQuestTokens.ColorRole.background(colorScheme), lineWidth: 2))
+        let active = activeBuddiesThisWeek
+        Button {
+            router.popToRoot()
+            router.selectedDestination = .community
+        } label: {
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                VStack(alignment: .leading, spacing: 3) {
+                    StudioQuestEyebrow("Community pulse")
+                    Text(pulseHeadline(activeCount: active.count))
+                        .font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if !active.isEmpty {
+                    HStack(spacing: -8) {
+                        ForEach(Array(active.prefix(3))) { buddy in
+                            PBAvatarView(
+                                avatarID: buddy.avatarID,
+                                displayName: buddy.displayName,
+                                profilePhotoURL: buddy.profilePhotoURL,
+                                size: 32
+                            )
+                            .overlay(
+                                Circle().stroke(
+                                    StudioQuestTokens.ColorRole.surface(colorScheme),
+                                    lineWidth: 2
+                                )
+                            )
+                        }
+                        if active.count > 3 {
+                            Text("+\(active.count - 3)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    StudioQuestTokens.ColorRole.cobalt.opacity(0.14),
+                                    in: Circle()
+                                )
+                                .overlay(
+                                    Circle().stroke(
+                                        StudioQuestTokens.ColorRole.surface(colorScheme),
+                                        lineWidth: 2
+                                    )
+                                )
+                        }
+                    }
                 }
             }
+            .foregroundStyle(.primary)
+            .padding(StudioQuestTokens.Spacing.md)
+            .studioQuestSurface()
         }
-        .padding(.vertical, 8)
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens Community")
+    }
+
+    private func pulseHeadline(activeCount: Int) -> String {
+        switch activeCount {
+        case 0: "Your practice can inspire a friend today."
+        case 1: "1 friend practised this week."
+        default: "\(activeCount) friends practised this week."
+        }
     }
 
     private func sectionLabel(_ text: LocalizedStringKey) -> some View {

@@ -537,16 +537,34 @@ struct StudioQuestConnectionsView: View {
         }
     }
 
+    /// Reads at the granularity people actually care about. "Practiced today"
+    /// collapsed everything from five minutes ago to twenty-three hours ago into
+    /// one indistinguishable string, which made the list feel static.
     private func friendActivityLine(_ friend: BuddySummary) -> String {
-        let online = buddies.isBuddyOnline(friend.id)
-        if online, let date = friend.lastPracticedAt, Calendar.current.isDateInToday(date) {
-            return "Online · Practiced today"
+        let presence = buddies.isBuddyOnline(friend.id) ? "Online" : "Offline"
+        guard let date = friend.lastPracticedAt else { return presence }
+
+        let elapsed = Date.now.timeIntervalSince(date)
+        let recency: String
+        switch elapsed {
+        case ..<300:
+            recency = "Practising now"
+        case ..<3_600:
+            recency = "Practiced \(Int(elapsed / 60))m ago"
+        case ..<86_400:
+            recency = "Practiced \(Int(elapsed / 3_600))h ago"
+        default:
+            let days = max(
+                1,
+                Calendar.current.dateComponents(
+                    [.day],
+                    from: Calendar.current.startOfDay(for: date),
+                    to: Calendar.current.startOfDay(for: .now)
+                ).day ?? 1
+            )
+            recency = days == 1 ? "Practiced yesterday" : "Practiced \(days) days ago"
         }
-        if let date = friend.lastPracticedAt {
-            let days = max(1, Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: date), to: Calendar.current.startOfDay(for: .now)).day ?? 0)
-            return days == 0 ? "Offline · Practiced today" : "Offline · Practiced \(days) day\(days == 1 ? "" : "s") ago"
-        }
-        return "Offline"
+        return "\(presence) · \(recency)"
     }
 }
 

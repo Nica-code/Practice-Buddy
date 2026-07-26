@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct StudioQuestQuestView: View {
     private enum QuestSection: String, CaseIterable, Identifiable {
@@ -513,6 +514,7 @@ struct StudioQuestYouView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.studioQuestDockClearance) private var dockClearance
     @AppStorage("practiquest.avatar.loadout") private var loadoutData = Data()
+    @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes = 30
 
     var body: some View {
         GeometryReader { proxy in
@@ -683,22 +685,45 @@ struct StudioQuestYouView: View {
         .padding(.vertical, 4)
     }
 
+    /// Swift Charts rather than hand-stacked capsules: it gets axis handling,
+    /// VoiceOver audio graphs and sensible scaling for free, and it no longer
+    /// reserves 78pt of empty space on a week with no practice.
     private var weekBars: some View {
-        HStack(alignment: .bottom, spacing: 14) {
-            ForEach(weekDates, id: \.self) { date in
-                let seconds = store.totalSeconds(onDayContaining: date)
-                VStack(spacing: 6) {
-                    Capsule()
-                        .fill(seconds > 0 ? StudioQuestTokens.ColorRole.cobalt : StudioQuestTokens.ColorRole.separator(colorScheme))
-                        .frame(width: 18, height: max(8, min(CGFloat(seconds) / 90, 54)))
-                    Text(date.formatted(.dateTime.weekday(.narrow)))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
+        let entries = weekDates.map { date in
+            WeekEntry(date: date, minutes: store.totalSeconds(onDayContaining: date) / 60)
+        }
+        let peak = max(entries.map(\.minutes).max() ?? 0, goalMinutes)
+
+        return Chart(entries) { entry in
+            BarMark(
+                x: .value("Day", entry.date, unit: .day),
+                y: .value("Minutes", entry.minutes),
+                width: .fixed(18)
+            )
+            .clipShape(Capsule())
+            .foregroundStyle(
+                entry.minutes >= goalMinutes
+                    ? StudioQuestTokens.ColorRole.mint
+                    : StudioQuestTokens.ColorRole.cobalt
+            )
+        }
+        .chartYScale(domain: 0...max(peak, 1))
+        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day)) { value in
+                AxisValueLabel(format: .dateTime.weekday(.narrow))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
-        .frame(height: 78, alignment: .bottom)
+        .frame(height: 92)
+        .accessibilityLabel("Practice minutes this week")
+    }
+
+    private struct WeekEntry: Identifiable {
+        let date: Date
+        let minutes: Int
+        var id: Date { date }
     }
 
     private var weekDates: [Date] {
