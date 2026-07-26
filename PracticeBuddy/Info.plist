@@ -84,21 +84,10 @@
 	<string>https://practiquest.app/terms</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>PlayfairDisplay-Regular.ttf</string>
-		<string>Lora-Regular.ttf</string>
-		<string>IBMPlexMono-Regular.ttf</string>
-		<string>Manrope-Regular.ttf</string>
-		<string>RobotoMono-Regular.ttf</string>
 		<string>SpaceGrotesk-Regular.ttf</string>
 		<string>SpaceGrotesk-Medium.ttf</string>
 		<string>SpaceGrotesk-SemiBold.ttf</string>
 		<string>SpaceGrotesk-Bold.ttf</string>
-		<string>Outfit-Regular.ttf</string>
-		<string>SpaceMono-Regular.ttf</string>
-		<string>Fredoka-Regular.ttf</string>
-		<string>Quicksand-Regular.ttf</string>
-		<string>NunitoSans-VariableFont_YTLC,opsz,wdth,wght.ttf</string>
-		<string>Bina.ttf</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

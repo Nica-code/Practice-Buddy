@@ -26,20 +26,11 @@ struct ContentView: View {
     @EnvironmentObject private var adsManager: PBAdsManager
 
     @AppStorage("practiquest.v2.destination") private var selectedTab: Int = AppDestination.today.rawValue
-    @AppStorage("practiquestV2UI") private var practiquestV2UI: Bool = true
     @AppStorage("practiquest.v2.onboarding.completed") private var v2OnboardingCompleted: Bool = false
     #if DEBUG
     @AppStorage("practiquest.qa.openStudio") private var qaOpenStudio: Bool = false
     @State private var qaState: String?
     #endif
-    @AppStorage("pb.studio.hub.section") private var socialSectionRawValue: String = "friends"
-    @AppStorage("pb.social.jumpTarget") private var socialJumpTargetRaw: String = ""
-    @AppStorage("pb.social.chat.openFriendUID") private var socialOpenFriendUID: String = ""
-    @AppStorage("pb.social.chat.openThreadID") private var socialOpenThreadID: String = ""
-    @AppStorage("pb.play.openChallengeID") private var playOpenChallengeID: String = ""
-    @AppStorage("pb.onboarding.tutorial.forceReplayToken") private var tutorialReplayToken: Int = 0
-    @AppStorage("pb.onboarding.tutorial.handledReplayToken") private var handledTutorialReplayToken: Int = 0
-    @AppStorage(PBFontChoice.selectionKey) private var selectedFontID: String = PBFontChoice.systemDefault.id
     @AppStorage("practiquest.community.shareActivity") private var shareFriendActivity = true
     @AppStorage("practiquest.appearance") private var studioQuestAppearance = "system"
 
@@ -63,13 +54,12 @@ struct ContentView: View {
     @State private var inviteJoinAlert: InviteJoinAlert?
     @State private var lastPipelineSyncKey: String?
     @State private var lastPipelineSyncAt: Date = .distantPast
-    @State private var showFirstRunTutorial: Bool = false
     @State private var showNotificationPrimer: Bool = false
     @State private var didHandleQALaunch = false
     private let buddiesRepository = FirebaseBuddiesRepository()
 
     var body: some View {
-        let fontChoice = practiquestV2UI ? PBFontChoice.systemDefault : PBFontChoice.byID(selectedFontID)
+        let fontChoice = PBFontChoice.systemDefault
         let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
 
         ZStack {
@@ -157,7 +147,7 @@ struct ContentView: View {
             if shouldCheckVersionGate {
                 versionGate.checkIfNeeded()
             }
-            refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: true)
+            refreshRuntimePipelines(forceUserPipeline: true)
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
@@ -165,17 +155,9 @@ struct ContentView: View {
         .onChange(of: themeManager.theme.id) { _, _ in
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
         }
-        .onChange(of: selectedFontID) { _, _ in
-            let refreshedChoice = PBFontChoice.byID(selectedFontID)
-            PBTabBarStyle.apply(
-                colorScheme: colorScheme,
-                accent: UIColor(themeManager.theme.accent),
-                fontChoice: refreshedChoice
-            )
-        }
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID
-            refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
+            refreshRuntimePipelines(forceUserPipeline: false)
             Task {
                 await identityUpgrade.configure(
                     uid: firebase.currentUserID,
@@ -184,7 +166,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
-            refreshRuntimePipelines(forceUserPipeline: false, forceTutorialSync: true)
+            refreshRuntimePipelines(forceUserPipeline: false)
             Task {
                 await identityUpgrade.configure(
                     uid: firebase.currentUserID,
@@ -203,7 +185,7 @@ struct ContentView: View {
                 if shouldCheckVersionGate {
                     versionGate.checkIfNeeded()
                 }
-                refreshRuntimePipelines(forceUserPipeline: true, forceTutorialSync: false)
+                refreshRuntimePipelines(forceUserPipeline: true)
                 Task {
                     await identityUpgrade.configure(
                         uid: firebase.currentUserID,
@@ -245,9 +227,6 @@ struct ContentView: View {
                 presence: presenceManager
             )
         )
-        .onChange(of: tutorialReplayToken) { _, _ in
-            syncTutorialPresentation(force: true)
-        }
         .onOpenURL { url in
             if Auth.auth().canHandle(url) {
                 return
@@ -265,24 +244,6 @@ struct ContentView: View {
                 }
             }
         }
-        .overlay {
-            if showFirstRunTutorial {
-                FirstRunTutorialView(
-                    steps: tutorialSteps,
-                    onSelectTab: { tabIndex in
-                        withAnimation(.snappy(duration: 0.2, extraBounce: 0)) {
-                            selectedTab = min(max(tabIndex, 0), 4)
-                        }
-                    },
-                    onComplete: { _, dontShowAgain in
-                        completeTutorial(dontShowAgain: dontShowAgain)
-                    }
-                )
-                .zIndex(1000)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: showFirstRunTutorial)
         .environmentObject(store)
         .environmentObject(journeyManager)
         .environmentObject(themeManager)
@@ -361,7 +322,6 @@ struct ContentView: View {
     }
 
     private var preferredStudioQuestColorScheme: ColorScheme? {
-        guard practiquestV2UI else { return nil }
         switch studioQuestAppearance {
         case "light": return .light
         case "dark": return .dark
@@ -385,78 +345,22 @@ struct ContentView: View {
             .padding(PBLayout.padLG)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PBBackdropView(palette: theme.resolvedPalette(for: colorScheme)))
-        } else if practiquestV2UI, !v2OnboardingCompleted {
+        } else if !v2OnboardingCompleted {
             PracticeFirstOnboardingView {
                 v2OnboardingCompleted = true
             }
-        } else if practiquestV2UI, identityUpgrade.state == .required {
+        } else if identityUpgrade.state == .required {
             StudioQuestProfileUpgradeView()
-        } else if practiquestV2UI, identityUpgrade.state == .offlineRestricted {
+        } else if identityUpgrade.state == .offlineRestricted {
             StudioQuestOfflineProfileUpgradeView()
-        } else if practiquestV2UI {
+        } else {
             StudioQuestShell(
                 selectedTab: $selectedTab,
                 socialBadgeCount: socialTabBadgeCount
             )
-        } else {
-            legacyTabShell
         }
     }
 
-    private var legacyTabShell: some View {
-            TabView(selection: $selectedTab) {
-                NavigationStack {
-                    PBLazyView(HomeView())
-                        .navigationTitle("")
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-                .tabItem { Label("Practice", systemImage: "figure.mind.and.body") }
-                .tag(0)
-
-                NavigationStack {
-                    PBLazyView(JourneyView())
-                        .navigationTitle("")
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-                .tabItem { Label("Play", systemImage: "gamecontroller") }
-                .tag(1)
-
-                if let socialBadgeCount = socialTabBadgeCount {
-                    NavigationStack {
-                        PBLazyView(StudioHubView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Social", systemImage: "person.2") }
-                    .badge(socialBadgeCount)
-                    .tag(2)
-                } else {
-                    NavigationStack {
-                        PBLazyView(StudioHubView())
-                            .navigationTitle("")
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
-                    .tabItem { Label("Social", systemImage: "person.2") }
-                    .tag(2)
-                }
-
-                NavigationStack {
-                    PBLazyView(ProfileTabView())
-                        .navigationTitle("")
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
-                .tag(3)
-
-                NavigationStack {
-                    PBLazyView(SettingsView())
-                        .navigationTitle("")
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(4)
-            }
-    }
 
     @ViewBuilder
     private var versionGateView: some View {
@@ -525,42 +429,8 @@ struct ContentView: View {
     }
 
     private var theme: PBTheme { themeManager.theme }
-    private var tutorialSteps: [FirstRunTutorialStep] {
-        [
-            FirstRunTutorialStep(
-                id: "home",
-                tabIndex: 0,
-                title: "Practice: Start Practice",
-                message: "Use Start Practice for quick sessions. Practice tools and Session Builder are on Dashboard."
-            ),
-            FirstRunTutorialStep(
-                id: "play",
-                tabIndex: 1,
-                title: "Play: Duels and Quests",
-                message: "Queue a duel, challenge friends, and complete daily or weekly quests for tokens."
-            ),
-            FirstRunTutorialStep(
-                id: "social",
-                tabIndex: 2,
-                title: "Social: Friends and Chat",
-                message: "Manage requests, open chats, and stay connected with your practice buddies."
-            ),
-            FirstRunTutorialStep(
-                id: "profile",
-                tabIndex: 3,
-                title: "Profile: Track Progress",
-                message: "Check your level, league, and streak progress in one place."
-            ),
-            FirstRunTutorialStep(
-                id: "settings",
-                tabIndex: 4,
-                title: "Settings: Personalize App",
-                message: "Adjust goals, appearance, and notifications. You can replay this tour anytime from Settings."
-            )
-        ]
-    }
 
-    private func refreshRuntimePipelines(forceUserPipeline: Bool, forceTutorialSync: Bool) {
+    private func refreshRuntimePipelines(forceUserPipeline: Bool) {
         syncUserPipelines(force: forceUserPipeline)
         syncFriendRequestBadge()
         syncPresence()
@@ -569,7 +439,6 @@ struct ContentView: View {
         syncPushPipeline()
         syncInAppNotificationStore()
         updateAppIconBadge()
-        syncTutorialPresentation(force: forceTutorialSync)
     }
 
     private func syncUserPipelines(force: Bool = false) {
@@ -792,14 +661,8 @@ struct ContentView: View {
                     _ = try await buddiesRepository.sendInvite(from: profile, friendCode: friendCode)
                     await MainActor.run {
                         PBGrowthMetrics.record(.buddyInviteAutoSent)
-                        if practiquestV2UI {
-                            appRouter.replacePath(with: .communityFriends, in: .community)
-                            selectedTab = appRouter.selectedDestination.rawValue
-                        } else {
-                            selectedTab = 2
-                            socialSectionRawValue = "friends"
-                            socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
-                        }
+                        appRouter.replacePath(with: .communityFriends, in: .community)
+                        selectedTab = appRouter.selectedDestination.rawValue
                         inviteJoinAlert = InviteJoinAlert(
                             title: "Friend Request Sent",
                             message: "Your buddy request is now pending."
@@ -843,91 +706,24 @@ struct ContentView: View {
 
     private func applyNotificationRoute(_ route: PBNotificationRoute) {
         PBLog.firebase.info("Applying notification route: \(String(describing: route), privacy: .public)")
-        if practiquestV2UI {
-            switch route {
-            case .homeGoals:
-                appRouter.replacePath(with: .goals, in: .today)
-            case .playDuel(let challengeID):
-                appRouter.replacePath(with: .duelArena(challengeID: challengeID), in: .quest)
-            case .socialFriendRequests:
-                appRouter.replacePath(with: .communityRequests, in: .community)
-            case .socialChat(let friendUID, let threadID):
-                appRouter.replacePath(
-                    with: .communityMessages(friendUID: friendUID, threadID: threadID),
-                    in: .community
-                )
-            case .practiceMoment(let momentID):
-                appRouter.replacePath(with: .practiceMoment(momentID: momentID), in: .community)
-            case .publicProfile(let userID):
-                appRouter.replacePath(with: .publicProfile(userID: userID), in: .community)
-            }
-            selectedTab = appRouter.selectedDestination.rawValue
-            return
-        }
         switch route {
         case .homeGoals:
-            selectedTab = 0
+            appRouter.replacePath(with: .goals, in: .today)
         case .playDuel(let challengeID):
-            selectedTab = 1
-            if let challengeID, !challengeID.isEmpty {
-                playOpenChallengeID = challengeID
-            }
+            appRouter.replacePath(with: .duelArena(challengeID: challengeID), in: .quest)
         case .socialFriendRequests:
-            selectedTab = 2
-            socialSectionRawValue = "friends"
-            socialJumpTargetRaw = "pendingRequests:\(Date().timeIntervalSince1970)"
+            appRouter.replacePath(with: .communityRequests, in: .community)
         case .socialChat(let friendUID, let threadID):
-            selectedTab = 2
-            socialSectionRawValue = "chat"
-            if let threadID, !threadID.isEmpty {
-                socialOpenThreadID = threadID
-            }
-            if let friendUID, !friendUID.isEmpty {
-                socialOpenFriendUID = friendUID
-            }
-        case .practiceMoment:
-            selectedTab = 2
-        case .publicProfile:
-            selectedTab = 2
+            appRouter.replacePath(
+                with: .communityMessages(friendUID: friendUID, threadID: threadID),
+                in: .community
+            )
+        case .practiceMoment(let momentID):
+            appRouter.replacePath(with: .practiceMoment(momentID: momentID), in: .community)
+        case .publicProfile(let userID):
+            appRouter.replacePath(with: .publicProfile(userID: userID), in: .community)
         }
-    }
-
-    private func syncTutorialPresentation(force: Bool = false) {
-        guard !practiquestV2UI else {
-            showFirstRunTutorial = false
-            return
-        }
-        guard let uid = firebase.currentUserID, !uid.isEmpty else {
-            showFirstRunTutorial = false
-            return
-        }
-        guard !firebase.isAnonymousUser, !needsAccountSetup else {
-            showFirstRunTutorial = false
-            return
-        }
-
-        if tutorialReplayToken != handledTutorialReplayToken {
-            OnboardingTutorialState.reset(uid: uid)
-            handledTutorialReplayToken = tutorialReplayToken
-            showFirstRunTutorial = true
-            selectedTab = 0
-            return
-        }
-
-        guard !showFirstRunTutorial else { return }
-        guard force || scenePhase == .active else { return }
-
-        if !OnboardingTutorialState.isCompleted(uid: uid) {
-            showFirstRunTutorial = true
-            selectedTab = 0
-        }
-    }
-
-    private func completeTutorial(dontShowAgain: Bool) {
-        if dontShowAgain, let uid = firebase.currentUserID, !uid.isEmpty {
-            OnboardingTutorialState.markCompleted(uid: uid)
-        }
-        showFirstRunTutorial = false
+        selectedTab = appRouter.selectedDestination.rawValue
     }
 }
 
