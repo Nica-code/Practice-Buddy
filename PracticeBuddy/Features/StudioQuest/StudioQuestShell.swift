@@ -40,6 +40,9 @@ struct StudioQuestShell: View {
         }
         .environmentObject(router)
         .environment(\.studioQuestDockClearance, max(92, dockHeight + 26))
+        .fullScreenCover(isPresented: $router.roomEditorPresented) {
+            StudioQuestRoomEditorView()
+        }
         .fullScreenCover(isPresented: $coordinator.studioPresented) {
             NavigationStack {
                 PracticeStudioView()

@@ -296,9 +296,12 @@ struct ContentView: View {
         case "duel":
             appRouter.replacePath(with: .duelArena(challengeID: nil), in: .quest)
         case "avatar":
-            appRouter.replacePath(with: .avatarStudio(section: .room), in: .you)
+            appRouter.replacePath(with: .avatarStudio(section: .customize), in: .you)
         case "shop":
             appRouter.replacePath(with: .shop, in: .today)
+        case "roomEditor":
+            appRouter.replacePath(with: nil, in: .you)
+            appRouter.roomEditorPresented = true
         case "library":
             appRouter.replacePath(with: .practiceLibrary, in: .today)
         case "notifications":

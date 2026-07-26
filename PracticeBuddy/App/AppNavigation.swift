@@ -89,7 +89,6 @@ enum CommunityConnectionsSection: String, Hashable, Codable, CaseIterable {
 enum AvatarStudioSection: String, Hashable, Codable, CaseIterable {
     case customize
     case collection
-    case room
 }
 
 enum StudioQuestProSource: String, Hashable, Codable {
@@ -182,6 +181,10 @@ struct QuestPresentation: Identifiable, Hashable {
 @MainActor
 final class AppRouter: ObservableObject {
     @Published var selectedDestination: AppDestination
+    /// The studio editor is presented over the whole shell rather than pushed,
+    /// so it escapes the tab bar *and* the practice dock, which is a
+    /// `tabViewBottomAccessory` and survives `.toolbar(.hidden, for: .tabBar)`.
+    @Published var roomEditorPresented = false
     @Published private var paths: [AppDestination: [AppRoute]]
 
     init(selectedDestination: AppDestination = .today) {

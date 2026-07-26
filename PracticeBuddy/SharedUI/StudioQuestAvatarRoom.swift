@@ -205,13 +205,27 @@ struct StudioQuestAvatarScene: View {
     let displayName: String
     var presentation: Presentation = .card
     var isEditing = false
+    /// Lets a host (the full-screen editor) drive selection so it can show
+    /// contextual controls for the selected item outside the scene.
+    var externalSelection: Binding<String?>?
     var onMove: ((StudioQuestRoomPlacement, StudioQuestRoomPoint) -> Void)?
     var onRemove: ((StudioQuestRoomPlacement) -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selectedPlacementID: String?
+    @State private var internalSelection: String?
     @State private var dragPlacementID: String?
     @State private var dragTranslation: CGSize = .zero
+
+    private var selectedPlacementID: String? {
+        get { externalSelection?.wrappedValue ?? internalSelection }
+        nonmutating set {
+            if let externalSelection {
+                externalSelection.wrappedValue = newValue
+            } else {
+                internalSelection = newValue
+            }
+        }
+    }
 
     private var room: StudioQuestAvatarRoom { .room(for: loadout.roomID) }
 
@@ -245,6 +259,11 @@ struct StudioQuestAvatarScene: View {
             }
             .clipped()
             .contentShape(Rectangle())
+            .onTapGesture {
+                // Tapping bare floor clears the selection; decoration taps are
+                // handled closer to the leaf and win over this one.
+                if isEditing { selectedPlacementID = nil }
+            }
         }
         .modifier(SceneFraming(presentation: presentation, isEditing: isEditing))
         .accessibilityElement(children: .contain)

@@ -1924,6 +1924,7 @@ private struct StudioQuestLoadoutOption: Identifiable {
 }
 
 struct StudioQuestAvatarStudioView: View {
+    @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var buddies: BuddiesViewModel
     @EnvironmentObject private var purchaseManager: PurchaseManager
@@ -1949,13 +1950,11 @@ struct StudioQuestAvatarStudioView: View {
                 studioPreview
                 Picker("Studio section", selection: $section) {
                     Text("Customize").tag(AvatarStudioSection.customize)
-                    Text("Room").tag(AvatarStudioSection.room)
                     Text("Collection").tag(AvatarStudioSection.collection)
                 }
                 .pickerStyle(.segmented)
                 switch section {
                 case .customize: avatarChoices
-                case .room: roomEditor
                 case .collection: collection
                 }
                 if let statusMessage {
@@ -1996,6 +1995,19 @@ struct StudioQuestAvatarStudioView: View {
             layout: loadout.layout(),
             displayName: buddies.myProfile?.displayName ?? "Your musician"
         )
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                router.roomEditorPresented = true
+            } label: {
+                Label("Edit studio", systemImage: "wand.and.stars")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .frame(height: 38)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(12)
+        }
     }
 
     private var avatarChoices: some View {
@@ -2100,85 +2112,7 @@ struct StudioQuestAvatarStudioView: View {
         }
     }
 
-    private var roomEditor: some View {
-        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.md) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Edit studio")
-                    .font(StudioQuestTokens.Typography.sectionTitle)
-                Text("Rooms stay empty until you place something. Drag an owned decoration in the scene, or use the precise controls below.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
 
-            StudioQuestAvatarScene(
-                loadout: loadout,
-                layout: loadout.layout(),
-                displayName: buddies.myProfile?.displayName ?? "Your musician",
-                isEditing: true,
-                onMove: { placement, point in
-                    movePlacement(placement, to: point)
-                },
-                onRemove: { placement in
-                    removePlacement(placement)
-                }
-            )
-
-            Text("Place from collection")
-                .font(StudioQuestTokens.Typography.sectionTitle)
-            ForEach(StudioQuestRoomDecoration.catalog) { decoration in
-                roomDecorationRow(decoration)
-            }
-
-            if !loadout.layout().placements.isEmpty {
-                Text("Precise placement")
-                    .font(StudioQuestTokens.Typography.sectionTitle)
-                    .padding(.top, 4)
-                ForEach(loadout.layout().placements) { placement in
-                    if let decoration = StudioQuestRoomDecoration.decoration(for: placement.decorationID) {
-                        StudioQuestRoomPlacementControls(
-                            placement: placement,
-                            decoration: decoration,
-                            onMove: { movePlacement(placement, to: $0) },
-                            onRemove: { removePlacement(placement) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private func roomDecorationRow(_ decoration: StudioQuestRoomDecoration) -> some View {
-        StudioQuestRowSurface {
-            HStack(spacing: 12) {
-                Image(decoration.assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 54, height: 54)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(decoration.title).font(.headline)
-                    Text(decoration.subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                if journey.isRoomDecorationOwned(id: decoration.id) {
-                    Button("Place") { placeDecoration(decoration) }
-                        .buttonStyle(.borderedProminent)
-                        .tint(StudioQuestTokens.ColorRole.cobalt)
-                } else {
-                    Button("Unlock · \(decoration.costTokens)") {
-                        Task {
-                            if await journey.purchaseRoomDecoration(id: decoration.id) {
-                                statusMessage = "\(decoration.title) is now in your collection."
-                            } else {
-                                statusMessage = "You need more tokens to unlock \(decoration.title)."
-                            }
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(journey.isEconomyOperationInProgress)
-                }
-            }
-        }
-    }
 
     private func rewardItem(_ item: JourneyRewardItem, shopMode: Bool) -> some View {
         StudioQuestRowSurface {
