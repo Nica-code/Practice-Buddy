@@ -105,7 +105,7 @@ struct PlanExecuteReflectView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome(fallback: chrome))
+        .modifier(StudioQuestToolChrome())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
@@ -505,7 +505,7 @@ private struct PracticeToolsQuickPanelView: View {
             .listRowBackground(palette.surface)
         }
         .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome(fallback: chrome))
+        .modifier(StudioQuestToolChrome())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {

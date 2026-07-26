@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Environment key for PBTheme
 
 private struct PBThemeKey: EnvironmentKey {
-    static let defaultValue: PBTheme = .classic
+    static let defaultValue: PBTheme = .studioQuest
 }
 
 extension EnvironmentValues {

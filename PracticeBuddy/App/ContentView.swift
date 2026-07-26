@@ -148,6 +148,16 @@ struct ContentView: View {
                 versionGate.checkIfNeeded()
             }
             refreshRuntimePipelines(forceUserPipeline: true)
+            #if DEBUG
+            // BuddiesViewModel.applyStudioQuestDebugFixtures() existed but was
+            // never called from anywhere, so the friend fixtures could never
+            // appear. It has to run *after* refreshRuntimePipelines, because
+            // syncBuddies() stops the manager for an anonymous QA session and
+            // that would clear the fixtures again.
+            if launchArguments.contains("--qa-community-populated") {
+                buddiesManager.applyStudioQuestDebugFixtures()
+            }
+            #endif
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
@@ -299,6 +309,20 @@ struct ContentView: View {
             appRouter.replacePath(with: .avatarStudio(section: .customize), in: .you)
         case "shop":
             appRouter.replacePath(with: .shop, in: .today)
+        case "communityFriends":
+            appRouter.replacePath(with: .communityFriends, in: .community)
+        case "warmUp":
+            appRouter.replacePath(with: .warmUp, in: .today)
+        case "rhythm":
+            appRouter.replacePath(with: .rhythm, in: .today)
+        case "intonation":
+            appRouter.replacePath(with: .intonation, in: .today)
+        case "smartLoop":
+            appRouter.replacePath(with: .smartLoop, in: .today)
+        case "runThrough":
+            appRouter.replacePath(with: .runThrough, in: .today)
+        case "planExecuteReflect":
+            appRouter.replacePath(with: .planExecuteReflect, in: .today)
         case "roomEditor":
             appRouter.replacePath(with: nil, in: .you)
             appRouter.roomEditorPresented = true

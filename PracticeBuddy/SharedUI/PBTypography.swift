@@ -87,18 +87,7 @@ struct PBTypography {
     // MARK: - Factory
 
     static func forTheme(_ theme: PBTheme, fontChoice: PBFontChoice) -> PBTypography {
-        let style: Style
-        switch theme.id {
-        case PBTheme.classic.id:
-            style = .classic
-        case PBTheme.midnight.id:
-            style = .mint
-        case PBTheme.concertHall.id:
-            style = .concertHall
-        default:
-            style = .warm
-        }
-
-        return PBTypography(style: style, fontChoice: fontChoice)
+        // One theme remains, so the per-theme tracking variants collapsed too.
+        PBTypography(style: .classic, fontChoice: fontChoice)
     }
 }

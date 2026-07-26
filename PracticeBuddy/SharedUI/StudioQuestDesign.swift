@@ -314,22 +314,17 @@ struct StudioQuestDockMaterial: ViewModifier {
     }
 }
 
+/// Puts the practice tools on the Studio Quest canvas. Their own layout is
+/// still Form/List-based; this is what makes them share the shell's background
+/// and accent rather than the system grouped style.
 struct StudioQuestToolChrome: ViewModifier {
-    let fallback: Color
-
-    @AppStorage("practiquestV2UI") private var practiquestV2UI = true
     @Environment(\.colorScheme) private var colorScheme
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if practiquestV2UI {
-            content
-                .scrollContentBackground(.hidden)
-                .background(StudioQuestTokens.ColorRole.background(colorScheme).ignoresSafeArea())
-                .tint(StudioQuestTokens.ColorRole.cobalt)
-        } else {
-            content.background(fallback.ignoresSafeArea())
-        }
+        content
+            .scrollContentBackground(.hidden)
+            .background(StudioQuestTokens.ColorRole.background(colorScheme).ignoresSafeArea())
+            .tint(StudioQuestTokens.ColorRole.cobalt)
     }
 }
 

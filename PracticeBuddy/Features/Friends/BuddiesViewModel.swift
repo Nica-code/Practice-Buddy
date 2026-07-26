@@ -84,6 +84,12 @@ final class BuddiesViewModel: ObservableObject {
     }
 
     func stop() {
+        #if DEBUG
+        // Anonymous QA sessions resolve their auth state after launch, which
+        // fires the pipeline again and would wipe the fixtures out from under
+        // whatever is being tested.
+        if isShowingDebugFixtures { return }
+        #endif
         listeners.forEach { $0.remove() }
         presenceListenerByUID.values.forEach { $0.remove() }
         buddyStatsListenerByUID.values.forEach { $0.remove() }
@@ -336,7 +342,10 @@ final class BuddiesViewModel: ObservableObject {
     }
 
     #if DEBUG
+    private(set) var isShowingDebugFixtures = false
+
     func applyStudioQuestDebugFixtures() {
+        isShowingDebugFixtures = true
         let now = Date()
         buddies = [
             BuddySummary(

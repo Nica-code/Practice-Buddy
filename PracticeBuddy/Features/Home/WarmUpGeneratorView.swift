@@ -203,7 +203,7 @@ struct WarmUpGeneratorView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome(fallback: chrome))
+        .modifier(StudioQuestToolChrome())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {

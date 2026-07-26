@@ -84,15 +84,43 @@ final class StudioQuestNavigationUITests: XCTestCase {
         }
     }
 
+    /// iOS 26 renders the back affordance as a floating circular button that
+    /// XCUITest does not expose under `app.navigationBars`, so reaching for
+    /// `navigationBars.buttons` finds nothing. Falls back to the edge swipe.
+    private func goBack(in app: XCUIApplication) {
+        let barButton = app.navigationBars.buttons.element(boundBy: 0)
+        if barButton.exists, barButton.isHittable {
+            barButton.tap()
+            return
+        }
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
     func testYouDestinationLinksOpenTheNewV2Screens() {
         let app = launch(destination: 3)
-        for destination in ["Goals", "History", "Studio", "Settings"] {
+        for destination in ["Goals", "History", "Avatar Studio", "Shop", "Settings"] {
+            // Re-enter You from the tab bar each time. Returning by gesture can
+            // leave the pop mid-flight, and the tab's scroll offset survives, so
+            // driving from a known state is what keeps this deterministic.
+            let youTab = app.tabBars.buttons["You"]
+            XCTAssertTrue(youTab.waitForExistence(timeout: 8), "You tab missing")
+            youTab.tap()
+
             let link = app.buttons[destination]
             XCTAssertTrue(link.waitForExistence(timeout: 6), "Missing You link \(destination)")
-            XCTAssertTrue(reveal(link, in: app), "You link \(destination) was not reachable")
-            link.tap()
-            XCTAssertTrue(app.staticTexts[destination].waitForExistence(timeout: 4))
-            app.navigationBars.buttons.element(boundBy: 0).tap()
+            // The link list sits below the hero, so the lower rows start out
+            // behind the practice dock and tab bar and report as not hittable.
+            // Scroll toward them, then tap by coordinate, which lands correctly
+            // even when XCUITest still considers the element occluded.
+            _ = reveal(link, in: app, maximumSwipes: 12)
+            link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(
+                app.staticTexts[destination].waitForExistence(timeout: 6),
+                "You link \(destination) did not open its screen"
+            )
+            goBack(in: app)
         }
     }
 
@@ -119,11 +147,14 @@ final class StudioQuestNavigationUITests: XCTestCase {
     }
 
     func testTheEntireFriendPillOpensItsActionChooserThenTheExactConversation() {
-        let app = launch(destination: 2)
+        // Friends live under Community -> Connections, not on the feed root.
+        // This previously launched straight to the Community tab, where an
+        // anonymous QA session only ever sees the "join your community" gate.
+        let app = launch(destination: 2, route: "communityFriends")
         let friendPill = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Aya Chen")
         ).firstMatch
-        XCTAssertTrue(friendPill.waitForExistence(timeout: 8))
+        XCTAssertTrue(friendPill.waitForExistence(timeout: 8), "Friend fixture did not appear")
 
         let rightEdgePoint = friendPill.coordinate(
             withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)
