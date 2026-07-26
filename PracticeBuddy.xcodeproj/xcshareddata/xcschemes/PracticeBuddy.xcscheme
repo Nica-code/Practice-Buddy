@@ -29,6 +29,28 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "7E0000100000000000000001"
+               BuildableName = "PracticeBuddyTests.xctest"
+               BlueprintName = "PracticeBuddyTests"
+               ReferencedContainer = "container:PracticeBuddy.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "7E0000110000000000000001"
+               BuildableName = "PracticeBuddyUITests.xctest"
+               BlueprintName = "PracticeBuddyUITests"
+               ReferencedContainer = "container:PracticeBuddy.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

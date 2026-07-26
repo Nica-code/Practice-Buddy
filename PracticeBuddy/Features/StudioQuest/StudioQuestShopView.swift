@@ -367,6 +367,8 @@ struct StudioQuestTokenChip: View {
             HStack(spacing: 5) {
                 Image(systemName: "diamond.fill")
                     .font(.caption.weight(.bold))
+                    // Earning tokens elsewhere in the app should register here.
+                    .symbolEffect(.bounce, value: journey.tokenBalance)
                 Text("\(journey.tokenBalance)")
                     .font(.subheadline.weight(.bold))
                     .contentTransition(.numericText())

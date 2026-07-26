@@ -109,7 +109,7 @@ final class StudioQuestFoundationTests: XCTestCase {
         router.navigate(to: .publicProfile(userID: "musician-42"), in: .community)
         router.navigate(to: .practiceMoment(momentID: "moment-9"), in: .community)
         router.navigate(to: .practiceMomentComposer(sessionID: sessionID), in: .community)
-        router.navigate(to: .avatarStudio(section: .room), in: .you)
+        router.navigate(to: .avatarStudio(section: .customize), in: .you)
         router.navigate(to: .pro(source: .smartCoach), in: .you)
 
         XCTAssertEqual(
@@ -122,7 +122,7 @@ final class StudioQuestFoundationTests: XCTestCase {
         )
         XCTAssertEqual(
             router.pathBinding(for: .you).wrappedValue,
-            [.avatarStudio(section: .room), .pro(source: .smartCoach)]
+            [.avatarStudio(section: .customize), .pro(source: .smartCoach)]
         )
     }
 

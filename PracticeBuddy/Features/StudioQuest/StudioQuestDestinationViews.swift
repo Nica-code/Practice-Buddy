@@ -476,12 +476,17 @@ private struct RewardUnlockedView: View {
     let rewardTokens: Int
     let collect: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(spacing: 8) {
+            // A claimable reward sits somewhere on a tall quest map, so it needs
+            // to keep drawing the eye rather than animating once on appear —
+            // `.symbolEffect(value: true)` never fired again after the first.
             Image(systemName: "shippingbox.fill")
                 .font(.title)
                 .foregroundStyle(StudioQuestTokens.ColorRole.gold)
-                .symbolEffect(.bounce, value: true)
+                .modifier(RewardPulse(isEnabled: !reduceMotion))
             Text("Reward unlocked")
                 .font(.caption.weight(.bold))
             Text("\(rewardTokens) tokens · \(rewardTitle)")
@@ -502,6 +507,26 @@ private struct RewardUnlockedView: View {
                 .stroke(StudioQuestTokens.ColorRole.coral.opacity(0.45), lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct RewardPulse: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.phaseAnimator([false, true]) { view, lifted in
+                view
+                    .scaleEffect(lifted ? 1.12 : 1)
+                    .rotationEffect(.degrees(lifted ? -5 : 0))
+            } animation: { lifted in
+                lifted
+                    ? .spring(response: 0.34, dampingFraction: 0.5)
+                    : .easeInOut(duration: 1.1)
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -653,36 +678,50 @@ struct StudioQuestYouView: View {
         return name.isEmpty ? "Your studio" : name
     }
 
+    /// Minutes practised this week against the weekly target.
+    private var weeklyProgress: Double {
+        let target = Double(goalMinutes * 5 * 60)
+        guard target > 0 else { return 0 }
+        return min(Double(store.totalThisWeekSeconds) / target, 1)
+    }
+
     private var weeklyInsight: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("This week")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("Consistency over intensity.")
-                        .font(.headline)
-                    Text("\(store.totalThisWeekSeconds / 60) minutes of practice")
+                    StudioQuestEyebrow("This week")
+                    Text("\(store.totalThisWeekSeconds / 60) minutes practised")
+                        .font(StudioQuestTokens.Typography.cardTitle)
+                        .contentTransition(.numericText())
+                    Text("\(store.sessions.count) session\(store.sessions.count == 1 ? "" : "s") recorded")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                // The ring previously filled by weekly minutes but printed the
+                // session count in the middle, so the number and the arc were
+                // measuring two different things.
                 ZStack {
                     Circle()
                         .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 5)
                     Circle()
-                        .trim(from: 0, to: min(Double(store.totalThisWeekSeconds) / (5 * 30 * 60), 1))
+                        .trim(from: 0, to: weeklyProgress)
                         .stroke(StudioQuestTokens.ColorRole.cobalt, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Text("\(min(store.sessions.count, 99))")
-                        .font(.headline.monospacedDigit())
+                        .animation(StudioQuestTokens.Motion.gentle, value: weeklyProgress)
+                    Text("\(Int(weeklyProgress * 100))%")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .contentTransition(.numericText())
                 }
                 .frame(width: 66, height: 66)
-                .accessibilityLabel("\(store.sessions.count) recorded sessions")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Weekly practice goal")
+                .accessibilityValue("\(Int(weeklyProgress * 100)) percent")
             }
             weekBars
         }
-        .padding(.vertical, 4)
+        .padding(StudioQuestTokens.Spacing.md)
+        .studioQuestSurface()
     }
 
     /// Swift Charts rather than hand-stacked capsules: it gets axis handling,
@@ -710,13 +749,23 @@ struct StudioQuestYouView: View {
         .chartYScale(domain: 0...max(peak, 1))
         .chartYAxis(.hidden)
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day)) { value in
+            AxisMarks(values: .stride(by: .day)) { _ in
                 AxisValueLabel(format: .dateTime.weekday(.narrow))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    // Charts tints axis labels with the ambient accent, which
+                    // made the weekday row read as interactive cobalt text.
+                    .foregroundStyle(Color.secondary)
             }
         }
-        .frame(height: 92)
+        .frame(height: entries.allSatisfy { $0.minutes == 0 } ? 52 : 92)
+        .overlay {
+            if entries.allSatisfy({ $0.minutes == 0 }) {
+                Text("No practice logged this week yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 18)
+            }
+        }
         .accessibilityLabel("Practice minutes this week")
     }
 

@@ -6,6 +6,7 @@ struct StudioQuestCommunityFeedView: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var buddies: BuddiesViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var community = CommunityCoordinator()
     @State private var signInPresented = false
 
@@ -73,6 +74,11 @@ struct StudioQuestCommunityFeedView: View {
         } else {
             ForEach(community.moments) { moment in
                 momentCard(moment)
+                    .scrollTransition(reduceMotion ? .identity : .interactive) { content, phase in
+                        content
+                            .opacity(phase.isIdentity ? 1 : 0.55)
+                            .scaleEffect(phase.isIdentity ? 1 : 0.96)
+                    }
             }
         }
     }

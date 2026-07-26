@@ -410,6 +410,7 @@ struct StudioQuestPracticeDock: View {
                     .foregroundStyle(.white)
                     .frame(width: 32, height: 32)
                     .background(StudioQuestTokens.ColorRole.cobalt, in: Circle())
+                    .contentTransition(.symbolEffect(.replace))
             }
             .padding(.horizontal, 10)
             .frame(height: 58)
