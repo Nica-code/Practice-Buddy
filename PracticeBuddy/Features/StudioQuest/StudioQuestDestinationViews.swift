@@ -56,9 +56,7 @@ struct StudioQuestQuestView: View {
     }
 
     private var tokenBalance: some View {
-        Label("\(journey.tokenBalance)", systemImage: "diamond.fill")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+        StudioQuestTokenChip()
     }
 
     private var progressSummary: some View {
@@ -663,25 +661,22 @@ struct StudioQuestYouView: View {
 
     private var secondaryLinks: some View {
         VStack(spacing: 0) {
-            profileLink("Activity", systemImage: "chart.bar.xaxis", route: .history)
-            Divider()
-            profileLink("Achievements", systemImage: "medal", route: .achievements)
-            Divider()
-            profileLink("Studio", systemImage: "lamp.floor.fill", route: .avatarStudio(section: .room))
-            Divider()
             profileLink("Goals", systemImage: "scope", route: .goals)
             Divider()
             profileLink("History", systemImage: "clock.arrow.circlepath", route: .history)
+            Divider()
+            profileLink("Achievements", systemImage: "medal", route: .achievements)
+            Divider()
+            profileLink("Avatar Studio", systemImage: "lamp.floor.fill", route: .avatarStudio(section: .customize))
+            Divider()
+            profileLink("Shop", systemImage: "bag", route: .shop)
             Divider()
             profileLink("PractiQuest Pro", systemImage: "sparkles", route: .pro(source: .you))
             Divider()
             profileLink("Settings", systemImage: "gearshape", route: .settings(section: nil))
         }
         .padding(.horizontal, 14)
-        .background(
-            StudioQuestTokens.ColorRole.surface(colorScheme),
-            in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface)
-        )
+        .studioQuestSurface()
     }
 
     private func profileLink(_ title: LocalizedStringKey, systemImage: String, route: AppRoute) -> some View {

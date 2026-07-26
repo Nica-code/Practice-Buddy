@@ -1951,14 +1951,12 @@ struct StudioQuestAvatarStudioView: View {
                     Text("Customize").tag(AvatarStudioSection.customize)
                     Text("Room").tag(AvatarStudioSection.room)
                     Text("Collection").tag(AvatarStudioSection.collection)
-                    Text("Shop").tag(AvatarStudioSection.shop)
                 }
                 .pickerStyle(.segmented)
                 switch section {
                 case .customize: avatarChoices
                 case .room: roomEditor
                 case .collection: collection
-                case .shop: shop
                 }
                 if let statusMessage {
                     StudioQuestInlineStatus(
@@ -2178,18 +2176,6 @@ struct StudioQuestAvatarStudioView: View {
                     .buttonStyle(.bordered)
                     .disabled(journey.isEconomyOperationInProgress)
                 }
-            }
-        }
-    }
-
-    private var shop: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Shop category", selection: $selectedCategory) {
-                ForEach(JourneyRewardCategory.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            ForEach(journey.rewards.filter { $0.category == selectedCategory }) { item in
-                rewardItem(item, shopMode: true)
             }
         }
     }

@@ -297,6 +297,8 @@ struct ContentView: View {
             appRouter.replacePath(with: .duelArena(challengeID: nil), in: .quest)
         case "avatar":
             appRouter.replacePath(with: .avatarStudio(section: .room), in: .you)
+        case "shop":
+            appRouter.replacePath(with: .shop, in: .today)
         case "library":
             appRouter.replacePath(with: .practiceLibrary, in: .today)
         case "notifications":

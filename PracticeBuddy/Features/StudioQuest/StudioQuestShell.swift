@@ -124,6 +124,8 @@ struct StudioQuestRouteView: View {
             StudioQuestProView()
         case .avatarStudio(let section):
             StudioQuestAvatarStudioView(initialSection: section)
+        case .shop:
+            StudioQuestShopView()
         case .inventory:
             StudioQuestAvatarStudioView(initialSection: .collection)
         case .duelArena(let challengeID):
@@ -505,14 +507,17 @@ struct StudioQuestTodayView: View {
                     .font(.subheadline)
                     .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
             }
-            Spacer()
-            NavigationLink(value: AppRoute.notifications) {
-                Image(systemName: "bell")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                StudioQuestTokenChip()
+                NavigationLink(value: AppRoute.notifications) {
+                    Image(systemName: "bell")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Notifications")
             }
-            .accessibilityLabel("Notifications")
         }
     }
 

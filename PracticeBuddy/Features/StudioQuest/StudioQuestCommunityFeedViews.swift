@@ -145,11 +145,7 @@ struct StudioQuestCommunityFeedView: View {
             }
         }
         .padding(StudioQuestTokens.Spacing.md)
-        .background(StudioQuestTokens.ColorRole.surface(colorScheme), in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
-                .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 0.75)
-        }
+        .studioQuestSurface()
     }
 
     private func socialIdentity(photoURL: String, avatarID: String, name: String) -> some View {

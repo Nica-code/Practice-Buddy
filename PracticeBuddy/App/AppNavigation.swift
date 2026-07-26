@@ -60,6 +60,7 @@ indirect enum AppRoute: Hashable {
     case profileUpgrade
     case pro(source: StudioQuestProSource)
     case avatarStudio(section: AvatarStudioSection)
+    case shop
     case inventory
     case duelArena(challengeID: String?)
     case questDetail(QuestPresentation)
@@ -82,10 +83,12 @@ enum CommunityConnectionsSection: String, Hashable, Codable, CaseIterable {
     case requests
 }
 
+/// The shop was previously a fourth segment here. It is now `AppRoute.shop`,
+/// a destination of its own, so it is reachable from the token chip rather than
+/// only from inside Avatar Studio.
 enum AvatarStudioSection: String, Hashable, Codable, CaseIterable {
     case customize
     case collection
-    case shop
     case room
 }
 

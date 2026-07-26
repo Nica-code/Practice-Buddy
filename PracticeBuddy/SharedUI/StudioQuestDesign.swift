@@ -56,6 +56,56 @@ enum StudioQuestTokens {
         static let gentle = Animation.spring(response: 0.42, dampingFraction: 0.88)
     }
 
+    /// How far a surface sits off the page.
+    ///
+    /// Light and dark need different mechanisms for the same perception: a cast
+    /// shadow reads as lift on a light canvas but disappears on a dark one,
+    /// where lift instead comes from the surface being lighter than what's
+    /// behind it plus a hairline catching the "light" along the top edge.
+    enum Elevation {
+        case flat
+        /// Cards, list surfaces, anything sitting directly on the page.
+        case resting
+        /// Floating chrome: the practice dock, popovers, sheets.
+        case lifted
+
+        func shadowColor(_ scheme: ColorScheme) -> Color {
+            guard scheme == .light else { return .clear }
+            switch self {
+            case .flat: return .clear
+            case .resting: return .black.opacity(0.06)
+            case .lifted: return .black.opacity(0.11)
+            }
+        }
+
+        var shadowRadius: CGFloat {
+            switch self {
+            case .flat: 0
+            case .resting: 10
+            case .lifted: 22
+            }
+        }
+
+        var shadowY: CGFloat {
+            switch self {
+            case .flat: 0
+            case .resting: 3
+            case .lifted: 8
+            }
+        }
+
+        /// In dark mode the border carries the lift, so it strengthens with
+        /// elevation instead of staying a uniform hairline.
+        func borderColor(_ scheme: ColorScheme) -> Color {
+            guard scheme == .dark else { return ColorRole.separator(scheme) }
+            switch self {
+            case .flat: return .white.opacity(0.06)
+            case .resting: return .white.opacity(0.10)
+            case .lifted: return .white.opacity(0.16)
+            }
+        }
+    }
+
     enum Typography {
         /// Space Grotesk ships as four separately drawn files. Asking for a
         /// weight the loaded face does not contain makes CoreText synthesize it
@@ -164,6 +214,40 @@ struct StudioQuestPageTitle: View {
     }
 }
 
+/// Gives a view the standard card treatment: surface fill, continuous corner,
+/// elevation-aware border and shadow. Replaces the fill-plus-hairline that was
+/// repeated inline across the destinations, which is why cards read as flat
+/// tinted rectangles rather than as surfaces.
+struct StudioQuestSurfaceModifier: ViewModifier {
+    var elevation: StudioQuestTokens.Elevation = .resting
+    var cornerRadius: CGFloat = StudioQuestTokens.Radius.surface
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(StudioQuestTokens.ColorRole.surface(colorScheme), in: shape)
+            .overlay {
+                shape.stroke(elevation.borderColor(colorScheme), lineWidth: 0.75)
+            }
+            .shadow(
+                color: elevation.shadowColor(colorScheme),
+                radius: elevation.shadowRadius,
+                y: elevation.shadowY
+            )
+    }
+}
+
+extension View {
+    func studioQuestSurface(
+        _ elevation: StudioQuestTokens.Elevation = .resting,
+        cornerRadius: CGFloat = StudioQuestTokens.Radius.surface
+    ) -> some View {
+        modifier(StudioQuestSurfaceModifier(elevation: elevation, cornerRadius: cornerRadius))
+    }
+}
+
 /// The small uppercase label that introduces a section. Previously each
 /// destination re-declared its own `sectionLabel`, which let the tracking and
 /// colour drift apart between tabs.
@@ -196,10 +280,7 @@ struct StudioQuestRowSurface<Content: View>: View {
         content
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                StudioQuestTokens.ColorRole.surface(colorScheme),
-                in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
-            )
+            .studioQuestSurface()
     }
 }
 
@@ -306,14 +387,7 @@ struct StudioQuestSection<Content: View>: View {
         content
             .padding(StudioQuestTokens.Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                StudioQuestTokens.ColorRole.surface(colorScheme),
-                in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
-                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 0.75)
-            }
+            .studioQuestSurface()
     }
 }
 
@@ -383,7 +457,7 @@ struct StudioQuestEmptyState: View {
         }
         .padding(StudioQuestTokens.Spacing.xl)
         .frame(maxWidth: .infinity)
-        .background(StudioQuestTokens.ColorRole.surface(colorScheme), in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
+        .studioQuestSurface()
         .accessibilityElement(children: .combine)
     }
 }
