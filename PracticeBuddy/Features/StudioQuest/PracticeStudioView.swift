@@ -475,7 +475,18 @@ struct PracticeLibraryView: View {
         .init(id: "metronome", title: "Metronome", subtitle: "Keep a steady pulse without leaving the session.", systemImage: "metronome", category: .timing, tags: ["tempo", "pulse", "bpm"], route: .metronome, supportsActiveSession: true),
         .init(id: "tuner", title: "Tuner", subtitle: "Check pitch or play a reference tone.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "reference", "intonation"], route: .tuner, supportsActiveSession: true),
         .init(id: "smart-loop", title: "Smart Loop", subtitle: "Repeat hard passages with intention.", systemImage: "repeat", category: .timing, tags: ["repeat", "tempo"], route: .smartLoop, supportsActiveSession: true),
-        .init(id: "warm-up", title: "Warm-up Generator", subtitle: "Build a focused warm-up in seconds.", systemImage: "sparkles", category: .planning, tags: ["warmup", "routine"], route: .warmUp, supportsActiveSession: false),
+        .init(
+            id: "warm-up",
+            title: "Warm-up Generator",
+            subtitle: "Build a focused warm-up in seconds.",
+            systemImage: "sparkles",
+            category: .planning,
+            tags: ["warmup", "routine"],
+            route: .warmUp,
+            supportsActiveSession: true,
+            toolID: .warmUp,
+            capabilities: [.timed, .producesResult, .supportsActiveSession, .supportsRecovery]
+        ),
         .init(id: "per", title: "Plan · Execute · Reflect", subtitle: "Turn an intention into a useful session.", systemImage: "checklist", category: .planning, tags: ["plan", "reflect"], route: .planExecuteReflect, supportsActiveSession: true),
         .init(id: "rhythm", title: "Rhythm", subtitle: "Measure pulse and timing accuracy.", systemImage: "waveform.path", category: .listening, tags: ["rhythm", "accuracy"], route: .rhythm, supportsActiveSession: true),
         .init(id: "intonation", title: "Intonation", subtitle: "Practice pitch with visual feedback.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "scales"], route: .intonation, supportsActiveSession: true),
@@ -1136,19 +1147,17 @@ struct PracticeReflectionView: View {
             noteSections.append(lines.joined(separator: "\n"))
         }
 
-        let didSave = store.addSession(
-            date: Date(),
-            durationSeconds: snapshot.durationSeconds,
-            verifiedSeconds: snapshot.verifiedSeconds,
-            unverifiedSeconds: snapshot.unverifiedSeconds,
-            checkInCount: snapshot.checkInCount,
-            missedCheckInCount: snapshot.missedCheckInCount,
-            checkInLogJSON: snapshot.checkInLogJSON,
-            notes: noteSections.joined(separator: "\n\n"),
-            noteTitle: cleanedTitle.isEmpty ? coordinator.currentPiece : cleanedTitle,
-            noteFocus: cleanedFocus,
-            noteMoodRaw: mood.rawValue,
-            noteStructuredJSON: structuredJSON
+        let didSave = store.savePracticeCompletion(
+            PracticeSavePayload(
+                sessionID: coordinator.activeSessionID,
+                snapshot: snapshot,
+                notes: noteSections.joined(separator: "\n\n"),
+                noteTitle: cleanedTitle.isEmpty ? coordinator.currentPiece : cleanedTitle,
+                noteFocus: cleanedFocus,
+                noteMoodRaw: mood.rawValue,
+                noteStructuredJSON: structuredJSON,
+                toolResult: coordinator.latestToolResult
+            )
         )
 
         if didSave {

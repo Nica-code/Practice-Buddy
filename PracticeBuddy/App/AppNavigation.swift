@@ -126,20 +126,55 @@ struct PracticePreset: Hashable, Codable {
 
 struct PracticeLaunchContext: Hashable, Codable {
     var source: String
+    var sourceKind: PracticeLaunchSource
+    var toolID: PracticeToolID?
     var questID: String?
     var smartCoachPlanID: String?
     var sessionID: UUID?
 
     init(
         source: String,
+        toolID: PracticeToolID? = nil,
         questID: String? = nil,
         smartCoachPlanID: String? = nil,
         sessionID: UUID? = nil
     ) {
         self.source = source
+        self.sourceKind = PracticeLaunchSource(legacyValue: source)
+        self.toolID = toolID
         self.questID = questID
         self.smartCoachPlanID = smartCoachPlanID
         self.sessionID = sessionID
+    }
+
+    init(
+        source: PracticeLaunchSource,
+        toolID: PracticeToolID? = nil,
+        questID: String? = nil,
+        smartCoachPlanID: String? = nil,
+        sessionID: UUID? = nil
+    ) {
+        self.source = source.rawValue
+        self.sourceKind = source
+        self.toolID = toolID
+        self.questID = questID
+        self.smartCoachPlanID = smartCoachPlanID
+        self.sessionID = sessionID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, sourceKind, toolID, questID, smartCoachPlanID, sessionID
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        source = try values.decodeIfPresent(String.self, forKey: .source) ?? "legacy"
+        sourceKind = try values.decodeIfPresent(PracticeLaunchSource.self, forKey: .sourceKind)
+            ?? PracticeLaunchSource(legacyValue: source)
+        toolID = try values.decodeIfPresent(PracticeToolID.self, forKey: .toolID)
+        questID = try values.decodeIfPresent(String.self, forKey: .questID)
+        smartCoachPlanID = try values.decodeIfPresent(String.self, forKey: .smartCoachPlanID)
+        sessionID = try values.decodeIfPresent(UUID.self, forKey: .sessionID)
     }
 }
 
@@ -187,9 +222,17 @@ final class AppRouter: ObservableObject {
     @Published var roomEditorPresented = false
     @Published private var paths: [AppDestination: [AppRoute]]
 
-    init(selectedDestination: AppDestination = .today) {
+    init(
+        selectedDestination: AppDestination = .today,
+        initialRoute: AppRoute? = nil,
+        roomEditorPresented: Bool = false
+    ) {
         self.selectedDestination = selectedDestination
         self.paths = Dictionary(uniqueKeysWithValues: AppDestination.allCases.map { ($0, []) })
+        if let initialRoute {
+            self.paths[selectedDestination] = [initialRoute]
+        }
+        self.roomEditorPresented = roomEditorPresented
     }
 
     func pathBinding(for destination: AppDestination) -> Binding<[AppRoute]> {
@@ -219,11 +262,196 @@ final class AppRouter: ObservableObject {
     }
 }
 
+/// A single, immutable snapshot of everything that can influence the app's
+/// initial UI. Parsing this before SwiftUI creates the navigation stacks keeps
+/// persisted state, UI-test overrides, and exact routes from racing in
+/// `onAppear`.
+@MainActor
+struct AppLaunchConfiguration: Equatable {
+    enum FixtureSet: String, Equatable {
+        case none
+        case populated
+        case community
+        case complete
+
+        var includesPracticeHistory: Bool {
+            self == .populated || self == .complete
+        }
+
+        var includesCommunity: Bool {
+            self == .community || self == .complete
+        }
+    }
+
+    enum Appearance: String, Equatable {
+        case system
+        case light
+        case dark
+    }
+
+    enum PracticeState: String, Equatable {
+        case idle
+        case planned
+        case running
+        case paused
+    }
+
+    let initialDestination: AppDestination
+    let initialRoute: AppRoute?
+    let skipOnboarding: Bool
+    let skipVersionGate: Bool
+    let fixtureSet: FixtureSet
+    let appearance: Appearance?
+    let qaState: String?
+    let practiceState: PracticeState
+    let roomEditorPresented: Bool
+    let isQA: Bool
+
+    static func current(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        defaults: UserDefaults = .standard
+    ) -> AppLaunchConfiguration {
+        PractiQuestV2Migration.run(defaults: defaults)
+        #if DEBUG
+        return AppLaunchConfiguration(
+            arguments: arguments,
+            defaults: defaults,
+            qaOverridesEnabled: true
+        )
+        #else
+        return AppLaunchConfiguration(
+            arguments: arguments,
+            defaults: defaults,
+            qaOverridesEnabled: false
+        )
+        #endif
+    }
+
+    init(
+        arguments: [String],
+        defaults: UserDefaults,
+        qaOverridesEnabled: Bool
+    ) {
+        let persistedDestination = AppDestination(
+            rawValue: defaults.integer(forKey: "practiquest.v2.destination")
+        ) ?? .today
+
+        guard qaOverridesEnabled else {
+            initialDestination = persistedDestination
+            initialRoute = nil
+            skipOnboarding = false
+            skipVersionGate = false
+            fixtureSet = .none
+            appearance = nil
+            qaState = nil
+            practiceState = .idle
+            roomEditorPresented = false
+            isQA = false
+            return
+        }
+
+        let requestedDestination = Self.value(after: "--qa-destination", in: arguments)
+            .flatMap(Int.init)
+            .flatMap(AppDestination.init(rawValue:))
+            ?? persistedDestination
+        let requestedRoute = Self.value(after: "--qa-route", in: arguments)
+            .flatMap(Self.route(named:))
+
+        initialDestination = requestedRoute?.destination ?? requestedDestination
+        initialRoute = requestedRoute?.route
+        skipOnboarding = arguments.contains("--qa-skip-onboarding")
+        skipVersionGate = arguments.contains("--qa-skip-version-gate")
+        appearance = Self.value(after: "--qa-appearance", in: arguments)
+            .flatMap(Appearance.init(rawValue:))
+        qaState = Self.value(after: "--qa-state", in: arguments)
+        practiceState = Self.value(after: "--qa-practice-state", in: arguments)
+            .flatMap(PracticeState.init(rawValue:))
+            ?? (arguments.contains("--qa-open-studio") ? .running : .idle)
+        roomEditorPresented = requestedRoute?.opensRoomEditor == true
+        isQA = arguments.contains(where: { $0.hasPrefix("--qa-") })
+
+        if arguments.contains("--qa-community-populated"),
+           arguments.contains("--qa-populated") {
+            fixtureSet = .complete
+        } else if arguments.contains("--qa-community-populated") {
+            fixtureSet = .community
+        } else if arguments.contains("--qa-populated") {
+            fixtureSet = .populated
+        } else {
+            fixtureSet = .none
+        }
+    }
+
+    private static func value(after flag: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: flag),
+              arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+
+    private struct RouteRequest {
+        let destination: AppDestination
+        let route: AppRoute?
+        let opensRoomEditor: Bool
+    }
+
+    private static func route(named name: String) -> RouteRequest? {
+        switch name {
+        case "goals":
+            RouteRequest(destination: .today, route: .goals, opensRoomEditor: false)
+        case "history":
+            RouteRequest(destination: .you, route: .history, opensRoomEditor: false)
+        case "profile":
+            RouteRequest(destination: .you, route: .profile(userID: nil), opensRoomEditor: false)
+        case "settings":
+            RouteRequest(destination: .you, route: .settings(section: nil), opensRoomEditor: false)
+        case "duel":
+            RouteRequest(destination: .quest, route: .duelArena(challengeID: nil), opensRoomEditor: false)
+        case "avatar":
+            RouteRequest(destination: .you, route: .avatarStudio(section: .customize), opensRoomEditor: false)
+        case "shop":
+            RouteRequest(destination: .today, route: .shop, opensRoomEditor: false)
+        case "communityFriends":
+            RouteRequest(destination: .community, route: .communityFriends, opensRoomEditor: false)
+        case "warmUp":
+            RouteRequest(destination: .today, route: .warmUp, opensRoomEditor: false)
+        case "rhythm":
+            RouteRequest(destination: .today, route: .rhythm, opensRoomEditor: false)
+        case "intonation":
+            RouteRequest(destination: .today, route: .intonation, opensRoomEditor: false)
+        case "smartLoop":
+            RouteRequest(destination: .today, route: .smartLoop, opensRoomEditor: false)
+        case "runThrough":
+            RouteRequest(destination: .today, route: .runThrough, opensRoomEditor: false)
+        case "planExecuteReflect":
+            RouteRequest(destination: .today, route: .planExecuteReflect, opensRoomEditor: false)
+        case "roomEditor":
+            RouteRequest(destination: .you, route: nil, opensRoomEditor: true)
+        case "library":
+            RouteRequest(destination: .today, route: .practiceLibrary, opensRoomEditor: false)
+        case "notifications":
+            RouteRequest(destination: .today, route: .notifications, opensRoomEditor: false)
+        case "chat":
+            RouteRequest(
+                destination: .community,
+                route: .communityMessages(
+                    friendUID: "fixture-aya",
+                    threadID: "fixture-thread-aya"
+                ),
+                opensRoomEditor: false
+            )
+        default:
+            nil
+        }
+    }
+}
+
 enum PracticeDockState: Equatable {
     case idle
     case planned(title: String, durationMinutes: Int)
     case running(elapsedSeconds: Int, task: String, isVerified: Bool)
     case paused(elapsedSeconds: Int, task: String)
+    case focusedToolRunning(tool: PracticeToolID, elapsedSeconds: Int)
+    case focusedToolPaused(tool: PracticeToolID, elapsedSeconds: Int)
 }
 
 struct PracticeLibraryItem: Identifiable, Hashable {
@@ -242,6 +470,38 @@ struct PracticeLibraryItem: Identifiable, Hashable {
     let tags: [String]
     let route: AppRoute
     let supportsActiveSession: Bool
+    let toolID: PracticeToolID?
+    let capabilities: PracticeToolCapability
+    var isFavorite: Bool
+    var lastUsedAt: Date?
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        category: Category,
+        tags: [String],
+        route: AppRoute,
+        supportsActiveSession: Bool,
+        toolID: PracticeToolID? = nil,
+        capabilities: PracticeToolCapability = [],
+        isFavorite: Bool = false,
+        lastUsedAt: Date? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.category = category
+        self.tags = tags
+        self.route = route
+        self.supportsActiveSession = supportsActiveSession
+        self.toolID = toolID
+        self.capabilities = capabilities
+        self.isFavorite = isFavorite
+        self.lastUsedAt = lastUsedAt
+    }
 }
 
 struct AvatarLoadout: Codable, Equatable, Hashable {

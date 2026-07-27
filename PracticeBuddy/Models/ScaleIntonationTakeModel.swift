@@ -19,6 +19,9 @@ final class ScaleIntonationTakeModel {
     var meanOffsetCents: Double
     var suggestionsRaw: String
     var perNoteJSON: String
+    var parentSessionID: UUID?
+    var launchSource: String?
+    var toolVersion: Int?
 
     init(
         id: UUID = UUID(),
@@ -36,7 +39,10 @@ final class ScaleIntonationTakeModel {
         consistencyScore: Double,
         meanOffsetCents: Double,
         suggestionsRaw: String,
-        perNoteJSON: String
+        perNoteJSON: String,
+        parentSessionID: UUID? = nil,
+        launchSource: String? = nil,
+        toolVersion: Int? = nil
     ) {
         self.id = id
         self.date = date
@@ -54,6 +60,8 @@ final class ScaleIntonationTakeModel {
         self.meanOffsetCents = meanOffsetCents
         self.suggestionsRaw = suggestionsRaw
         self.perNoteJSON = perNoteJSON
+        self.parentSessionID = parentSessionID
+        self.launchSource = launchSource
+        self.toolVersion = toolVersion
     }
 }
-

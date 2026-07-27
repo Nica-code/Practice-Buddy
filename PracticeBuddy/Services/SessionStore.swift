@@ -127,6 +127,79 @@ final class SessionStore: ObservableObject {
 
     // MARK: - CRUD
 
+    /// Commits the canonical practice session and its typed tool result as one
+    /// idempotent SwiftData save. Specialized tool models are inserted by the
+    /// tool-specific adapters during their rebuild; the canonical result is
+    /// retained here so History never loses attribution.
+    @discardableResult
+    func savePracticeCompletion(_ payload: PracticeSavePayload) -> Bool {
+        guard let modelContext else {
+            PBLog.sessionStore.error("savePracticeCompletion failed: modelContext is nil")
+            return false
+        }
+
+        let sessionID = payload.sessionID
+        let existingDescriptor = FetchDescriptor<PracticeSessionModel>(
+            predicate: #Predicate { row in
+                row.id == sessionID
+            }
+        )
+        if let existing = try? modelContext.fetch(existingDescriptor).first {
+            lastSavedSessionID = existing.id
+            return true
+        }
+
+        let resultJSON: String? = {
+            guard let result = payload.toolResult,
+                  let data = try? JSONEncoder().encode(result) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
+        let snapshot = payload.snapshot
+        let session = PracticeSessionModel(
+            id: sessionID,
+            date: payload.date,
+            durationSeconds: max(0, snapshot.durationSeconds),
+            verifiedSeconds: max(0, snapshot.verifiedSeconds),
+            unverifiedSeconds: max(0, snapshot.unverifiedSeconds),
+            checkInCount: max(0, snapshot.checkInCount),
+            missedCheckInCount: max(0, snapshot.missedCheckInCount),
+            checkInLogJSON: snapshot.checkInLogJSON,
+            notes: payload.notes,
+            noteTitle: payload.noteTitle,
+            noteFocus: payload.noteFocus,
+            noteMoodRaw: payload.noteMoodRaw,
+            noteStructuredJSON: payload.noteStructuredJSON,
+            launchSource: snapshot.launchContext?.source,
+            toolIDRaw: payload.toolResult?.toolID.rawValue,
+            toolResultJSON: resultJSON
+        )
+        modelContext.insert(session)
+
+        do {
+            try modelContext.save()
+            lastSavedSessionID = session.id
+            reload()
+            if !sessions.contains(where: { $0.id == session.id }) {
+                sessions.insert(session, at: 0)
+            }
+            pruneToRetentionIfNeeded()
+            PBLog.sessionStore.info(
+                "savePracticeCompletion committed id=\(session.id.uuidString, privacy: .public)"
+            )
+            return true
+        } catch {
+            modelContext.rollback()
+            PBLog.sessionStore.error(
+                "SwiftData save failed (savePracticeCompletion): \(String(describing: error), privacy: .public)"
+            )
+            lastAppError = PBAppError(
+                title: "Save Failed",
+                message: "Your practice session couldn't be saved. Nothing was awarded. Please try again."
+            )
+            return false
+        }
+    }
+
     @discardableResult
     func addSession(
         date: Date,

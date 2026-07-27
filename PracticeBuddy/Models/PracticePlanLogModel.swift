@@ -13,6 +13,9 @@ final class PracticePlanLogModel {
     var reflectionFix: String
     var reflectionNext: String
     var selfRating: Int
+    var parentSessionID: UUID?
+    var launchSource: String?
+    var toolVersion: Int?
 
     init(
         id: UUID = UUID(),
@@ -24,7 +27,10 @@ final class PracticePlanLogModel {
         reflectionWins: String,
         reflectionFix: String,
         reflectionNext: String,
-        selfRating: Int
+        selfRating: Int,
+        parentSessionID: UUID? = nil,
+        launchSource: String? = nil,
+        toolVersion: Int? = nil
     ) {
         self.id = id
         self.date = date
@@ -36,6 +42,8 @@ final class PracticePlanLogModel {
         self.reflectionFix = reflectionFix
         self.reflectionNext = reflectionNext
         self.selfRating = min(max(selfRating, 1), 5)
+        self.parentSessionID = parentSessionID
+        self.launchSource = launchSource
+        self.toolVersion = toolVersion
     }
 }
-

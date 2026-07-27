@@ -57,6 +57,25 @@ struct ContentView: View {
     @State private var showNotificationPrimer: Bool = false
     @State private var didHandleQALaunch = false
     private let buddiesRepository = FirebaseBuddiesRepository()
+    private let launchConfiguration: AppLaunchConfiguration
+
+    init() {
+        self.init(launchConfiguration: .current())
+    }
+
+    init(launchConfiguration: AppLaunchConfiguration) {
+        self.launchConfiguration = launchConfiguration
+        _appRouter = StateObject(
+            wrappedValue: AppRouter(
+                selectedDestination: launchConfiguration.initialDestination,
+                initialRoute: launchConfiguration.initialRoute,
+                roomEditorPresented: launchConfiguration.roomEditorPresented
+            )
+        )
+        #if DEBUG
+        _qaState = State(initialValue: launchConfiguration.qaState)
+        #endif
+    }
 
     var body: some View {
         let fontChoice = PBFontChoice.systemDefault
@@ -76,8 +95,6 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            PractiQuestV2Migration.run()
-            selectedTab = UserDefaults.standard.integer(forKey: "practiquest.v2.destination")
             if !firebase.isAnonymousUser, firebase.currentUserID != nil {
                 v2OnboardingCompleted = true
             }
@@ -88,25 +105,8 @@ struct ContentView: View {
                 )
             }
             #if DEBUG
-            let launchArguments = ProcessInfo.processInfo.arguments
-            if launchArguments.contains("--qa-skip-onboarding") {
+            if launchConfiguration.skipOnboarding {
                 v2OnboardingCompleted = true
-            }
-            if let destinationFlag = launchArguments.firstIndex(of: "--qa-destination"),
-               launchArguments.indices.contains(destinationFlag + 1),
-               let qaDestination = Int(launchArguments[destinationFlag + 1]),
-               AppDestination(rawValue: qaDestination) != nil {
-                selectedTab = qaDestination
-            }
-            if let stateFlag = launchArguments.firstIndex(of: "--qa-state"),
-               launchArguments.indices.contains(stateFlag + 1) {
-                qaState = launchArguments[stateFlag + 1]
-            }
-            if qaOpenStudio, !didHandleQALaunch {
-                didHandleQALaunch = true
-                DispatchQueue.main.async {
-                    practiceCoordinator.quickStart()
-                }
             }
             #endif
 
@@ -115,17 +115,11 @@ struct ContentView: View {
 
             store.configure(context: modelContext)
             #if DEBUG
-            if launchArguments.contains("--qa-populated") {
+            if launchConfiguration.fixtureSet.includesPracticeHistory {
                 store.applyStudioQuestFixtureIfNeeded()
                 PracticeQuestProgressStore.shared.applyStudioQuestFixture()
             }
-            applyQARouteIfNeeded(arguments: launchArguments)
-            if launchArguments.contains("--qa-open-studio"), !didHandleQALaunch {
-                didHandleQALaunch = true
-                DispatchQueue.main.async {
-                    practiceCoordinator.quickStart()
-                }
-            }
+            applyInitialPracticeStateIfNeeded()
             #endif
             sessionsCancellable = store.$sessions
                 .sink { sessions in
@@ -154,10 +148,13 @@ struct ContentView: View {
             // appear. It has to run *after* refreshRuntimePipelines, because
             // syncBuddies() stops the manager for an anonymous QA session and
             // that would clear the fixtures again.
-            if launchArguments.contains("--qa-community-populated") {
+            if launchConfiguration.fixtureSet.includesCommunity {
                 buddiesManager.applyStudioQuestDebugFixtures()
             }
             #endif
+        }
+        .onChange(of: appRouter.selectedDestination) { _, destination in
+            selectedTab = destination.rawValue
         }
         .onChange(of: colorScheme) {
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
@@ -291,66 +288,58 @@ struct ContentView: View {
     }
 
     #if DEBUG
-    private func applyQARouteIfNeeded(arguments: [String]) {
-        guard let routeFlag = arguments.firstIndex(of: "--qa-route"),
-              arguments.indices.contains(routeFlag + 1) else { return }
-        switch arguments[routeFlag + 1] {
-        case "goals":
-            appRouter.replacePath(with: .goals, in: .today)
-        case "history":
-            appRouter.replacePath(with: .history, in: .you)
-        case "profile":
-            appRouter.replacePath(with: .profile(userID: nil), in: .you)
-        case "settings":
-            appRouter.replacePath(with: .settings(section: nil), in: .you)
-        case "duel":
-            appRouter.replacePath(with: .duelArena(challengeID: nil), in: .quest)
-        case "avatar":
-            appRouter.replacePath(with: .avatarStudio(section: .customize), in: .you)
-        case "shop":
-            appRouter.replacePath(with: .shop, in: .today)
-        case "communityFriends":
-            appRouter.replacePath(with: .communityFriends, in: .community)
-        case "warmUp":
-            appRouter.replacePath(with: .warmUp, in: .today)
-        case "rhythm":
-            appRouter.replacePath(with: .rhythm, in: .today)
-        case "intonation":
-            appRouter.replacePath(with: .intonation, in: .today)
-        case "smartLoop":
-            appRouter.replacePath(with: .smartLoop, in: .today)
-        case "runThrough":
-            appRouter.replacePath(with: .runThrough, in: .today)
-        case "planExecuteReflect":
-            appRouter.replacePath(with: .planExecuteReflect, in: .today)
-        case "roomEditor":
-            appRouter.replacePath(with: nil, in: .you)
-            appRouter.roomEditorPresented = true
-        case "library":
-            appRouter.replacePath(with: .practiceLibrary, in: .today)
-        case "notifications":
-            appRouter.replacePath(with: .notifications, in: .today)
-        case "chat":
-            appRouter.replacePath(
-                with: .communityMessages(friendUID: "fixture-aya", threadID: "fixture-thread-aya"),
-                in: .community
+    private func applyInitialPracticeStateIfNeeded() {
+        guard !didHandleQALaunch else { return }
+        didHandleQALaunch = true
+
+        switch launchConfiguration.practiceState {
+        case .idle:
+            if qaOpenStudio {
+                DispatchQueue.main.async {
+                    practiceCoordinator.quickStart()
+                }
+            }
+        case .planned:
+            practiceCoordinator.preparePlan(
+                piece: "Bach: Partita No. 2",
+                tasks: [
+                    PracticePlanTask(title: "Warm-up", minutes: 5),
+                    PracticePlanTask(title: "Focused passage", minutes: 15)
+                ],
+                verified: true,
+                launchContext: PracticeLaunchContext(source: "qa")
             )
-        default:
-            break
+        case .running:
+            DispatchQueue.main.async {
+                practiceCoordinator.quickStart()
+            }
+        case .paused:
+            DispatchQueue.main.async {
+                practiceCoordinator.quickStart()
+                practiceCoordinator.pause()
+            }
         }
-        selectedTab = appRouter.selectedDestination.rawValue
     }
     #endif
 
     private var shouldCheckVersionGate: Bool {
         #if DEBUG
-        !ProcessInfo.processInfo.arguments.contains("--qa-skip-version-gate")
+        !launchConfiguration.skipVersionGate
         #else
         true
         #endif
     }
 
     private var preferredStudioQuestColorScheme: ColorScheme? {
+        #if DEBUG
+        if let appearance = launchConfiguration.appearance {
+            switch appearance {
+            case .system: return nil
+            case .light: return .light
+            case .dark: return .dark
+            }
+        }
+        #endif
         switch studioQuestAppearance {
         case "light": return .light
         case "dark": return .dark
@@ -384,7 +373,6 @@ struct ContentView: View {
             StudioQuestOfflineProfileUpgradeView()
         } else {
             StudioQuestShell(
-                selectedTab: $selectedTab,
                 socialBadgeCount: socialTabBadgeCount
             )
         }
@@ -691,7 +679,6 @@ struct ContentView: View {
                     await MainActor.run {
                         PBGrowthMetrics.record(.buddyInviteAutoSent)
                         appRouter.replacePath(with: .communityFriends, in: .community)
-                        selectedTab = appRouter.selectedDestination.rawValue
                         inviteJoinAlert = InviteJoinAlert(
                             title: "Friend Request Sent",
                             message: "Your buddy request is now pending."
@@ -752,7 +739,6 @@ struct ContentView: View {
         case .publicProfile(let userID):
             appRouter.replacePath(with: .publicProfile(userID: userID), in: .community)
         }
-        selectedTab = appRouter.selectedDestination.rawValue
     }
 }
 

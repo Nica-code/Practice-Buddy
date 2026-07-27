@@ -16,6 +16,9 @@ final class PracticeSessionModel {
     var noteFocus: String
     var noteMoodRaw: String
     var noteStructuredJSON: String
+    var launchSource: String?
+    var toolIDRaw: String?
+    var toolResultJSON: String?
 
     // MARK: - Convenience (non-persistent)
 
@@ -48,7 +51,10 @@ final class PracticeSessionModel {
         noteTitle: String = "",
         noteFocus: String = "",
         noteMoodRaw: String = "",
-        noteStructuredJSON: String = ""
+        noteStructuredJSON: String = "",
+        launchSource: String? = nil,
+        toolIDRaw: String? = nil,
+        toolResultJSON: String? = nil
     ) {
         self.id = id
         self.date = date
@@ -63,5 +69,8 @@ final class PracticeSessionModel {
         self.noteFocus = noteFocus
         self.noteMoodRaw = noteMoodRaw
         self.noteStructuredJSON = noteStructuredJSON
+        self.launchSource = launchSource
+        self.toolIDRaw = toolIDRaw
+        self.toolResultJSON = toolResultJSON
     }
 }

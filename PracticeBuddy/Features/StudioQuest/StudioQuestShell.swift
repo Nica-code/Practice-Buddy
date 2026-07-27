@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct StudioQuestShell: View {
-    @Binding var selectedTab: Int
     let socialBadgeCount: Int?
 
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
@@ -51,17 +50,6 @@ struct StudioQuestShell: View {
         }
         .sheet(item: $coordinator.momentPrompt) { prompt in
             StudioQuestPracticeMomentComposer(prompt: prompt)
-        }
-        .onAppear {
-            router.selectedDestination = AppDestination(rawValue: selectedTab) ?? .today
-        }
-        .onChange(of: router.selectedDestination) { _, destination in
-            selectedTab = destination.rawValue
-        }
-        .onChange(of: selectedTab) { _, value in
-            guard let destination = AppDestination(rawValue: value),
-                  destination != router.selectedDestination else { return }
-            router.selectedDestination = destination
         }
         .onChange(of: scenePhase) { _, phase in
             coordinator.handleScenePhase(isActive: phase == .active)
@@ -371,12 +359,15 @@ private struct StudioQuestFixtureConversationView: View {
 
 struct StudioQuestPracticeDock: View {
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
+    @EnvironmentObject private var router: AppRouter
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button {
             PracticeAnalytics.record(.dockOpened(state: analyticsState))
-            if coordinator.elapsedSeconds > 0 {
+            if let toolID = coordinator.activeToolID {
+                router.navigate(to: route(for: toolID))
+            } else if coordinator.elapsedSeconds > 0 {
                 coordinator.studioPresented = true
             } else {
                 coordinator.quickStart()
@@ -443,6 +434,9 @@ struct StudioQuestPracticeDock: View {
         case .planned(let title, _): title
         case .running(_, let task, _): task
         case .paused(_, let task): task
+        case .focusedToolRunning(let tool, _),
+             .focusedToolPaused(let tool, _):
+            tool.title
         }
     }
 
@@ -452,12 +446,17 @@ struct StudioQuestPracticeDock: View {
         case .planned(_, let durationMinutes): "\(durationMinutes) min plan"
         case .running(let elapsedSeconds, _, _): "\(DurationFormatter.string(from: elapsedSeconds)) · Practicing"
         case .paused(let elapsedSeconds, _): "\(DurationFormatter.string(from: elapsedSeconds)) · Paused"
+        case .focusedToolRunning(_, let elapsedSeconds):
+            "\(DurationFormatter.string(from: elapsedSeconds)) · Active"
+        case .focusedToolPaused(_, let elapsedSeconds):
+            "\(DurationFormatter.string(from: elapsedSeconds)) · Paused"
         }
     }
 
     private var actionImage: String {
         switch coordinator.state {
-        case .running, .paused: "arrow.up.right"
+        case .running, .paused, .focusedToolRunning, .focusedToolPaused:
+            "arrow.up.right"
         case .idle, .planned: "play.fill"
         }
     }
@@ -468,6 +467,22 @@ struct StudioQuestPracticeDock: View {
         case .planned: "planned"
         case .running: "running"
         case .paused: "paused"
+        case .focusedToolRunning: "focused_tool_running"
+        case .focusedToolPaused: "focused_tool_paused"
+        }
+    }
+
+    private func route(for toolID: PracticeToolID) -> AppRoute {
+        switch toolID {
+        case .metronome: .metronome
+        case .tuner: .tuner
+        case .smartLoop: .smartLoop
+        case .warmUp: .warmUp
+        case .planExecuteReflect: .planExecuteReflect
+        case .rhythm: .rhythm
+        case .intonation: .intonation
+        case .runThrough: .runThrough
+        case .smartCoach: .smartCoach
         }
     }
 }

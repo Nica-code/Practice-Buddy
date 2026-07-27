@@ -3,6 +3,184 @@ import XCTest
 
 @MainActor
 final class StudioQuestFoundationTests: XCTestCase {
+    func testLaunchConfigurationUsesPersistedDestinationWithoutQAOverrides() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.persisted.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppDestination.community.rawValue, forKey: "practiquest.v2.destination")
+
+        let configuration = AppLaunchConfiguration(
+            arguments: ["PracticeBuddy"],
+            defaults: defaults,
+            qaOverridesEnabled: false
+        )
+
+        XCTAssertEqual(configuration.initialDestination, .community)
+        XCTAssertNil(configuration.initialRoute)
+        XCTAssertFalse(configuration.isQA)
+    }
+
+    func testLaunchConfigurationQADestinationOverridesPersistedDestination() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.destination.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppDestination.you.rawValue, forKey: "practiquest.v2.destination")
+
+        let configuration = AppLaunchConfiguration(
+            arguments: ["PracticeBuddy", "--qa-destination", "1"],
+            defaults: defaults,
+            qaOverridesEnabled: true
+        )
+
+        XCTAssertEqual(configuration.initialDestination, .quest)
+        XCTAssertNil(configuration.initialRoute)
+        XCTAssertTrue(configuration.isQA)
+    }
+
+    func testLaunchConfigurationExactRouteOwnsItsDestination() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.route.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let configuration = AppLaunchConfiguration(
+            arguments: [
+                "PracticeBuddy",
+                "--qa-destination", "0",
+                "--qa-route", "chat",
+                "--qa-community-populated",
+                "--qa-populated"
+            ],
+            defaults: defaults,
+            qaOverridesEnabled: true
+        )
+
+        XCTAssertEqual(configuration.initialDestination, .community)
+        XCTAssertEqual(
+            configuration.initialRoute,
+            .communityMessages(
+                friendUID: "fixture-aya",
+                threadID: "fixture-thread-aya"
+            )
+        )
+        XCTAssertEqual(configuration.fixtureSet, .complete)
+    }
+
+    func testRouterStartsWithOneExactPathWithoutOnAppearMutation() throws {
+        let router = AppRouter(
+            selectedDestination: .you,
+            initialRoute: .settings(section: .privacy)
+        )
+
+        XCTAssertEqual(router.selectedDestination, .you)
+        XCTAssertEqual(
+            router.pathBinding(for: .you).wrappedValue,
+            [.settings(section: .privacy)]
+        )
+        XCTAssertTrue(router.pathBinding(for: .today).wrappedValue.isEmpty)
+    }
+
+    func testPracticeActivityStateUsesTimestampsInsteadOfTimerTicks() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let state = PracticeActivityState(
+            sessionID: UUID(),
+            kind: .focusedTool(.warmUp),
+            phase: .running,
+            phaseStartedAt: start,
+            accumulatedSeconds: 12
+        )
+
+        XCTAssertEqual(
+            state.elapsed(at: start.addingTimeInterval(8.9)),
+            20
+        )
+    }
+
+    func testFocusedToolOwnsThePracticeDockRuntime() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.focused.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        coordinator.beginFocusedTool(
+            .warmUp,
+            durationMinutes: 5,
+            verified: false,
+            source: .library
+        )
+
+        XCTAssertEqual(coordinator.activeToolID, .warmUp)
+        XCTAssertTrue(coordinator.isFocusedToolSession)
+        XCTAssertTrue(coordinator.isRunning)
+        guard case .focusedToolRunning(let tool, _) = coordinator.state else {
+            return XCTFail("Focused tool did not own the Practice Dock")
+        }
+        XCTAssertEqual(tool, .warmUp)
+        coordinator.pause()
+    }
+
+    func testContextualToolKeepsTheParentSessionIdentity() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.contextual.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+        coordinator.preparePlan(
+            piece: "Cello",
+            tasks: [PracticePlanTask(title: "Bowing", minutes: 10)],
+            verified: false,
+            launchContext: PracticeLaunchContext(source: .setup)
+        )
+        let parentID = coordinator.activeSessionID
+
+        let context = coordinator.attachTool(.tuner)
+
+        XCTAssertEqual(coordinator.activeSessionID, parentID)
+        XCTAssertEqual(context.parentSessionID, parentID)
+        XCTAssertEqual(context.source, .activeSession)
+    }
+
+    func testToolActivityPauseUsesTimestampElapsedAndPersistsRecovery() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.recovery.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        coordinator.beginFocusedTool(.warmUp, durationMinutes: 5)
+        coordinator.startToolActivity(recoveryPayloadJSON: #"{"step":2}"#)
+        coordinator.pauseToolActivity(recoveryPayloadJSON: #"{"step":3}"#)
+
+        XCTAssertEqual(coordinator.toolActivityState?.phase, .paused)
+        XCTAssertEqual(
+            coordinator.toolActivityState?.recoveryPayloadJSON,
+            #"{"step":3}"#
+        )
+
+        let restored = PracticeSessionCoordinator(defaults: defaults)
+        XCTAssertEqual(restored.activeToolID, .warmUp)
+        XCTAssertEqual(restored.toolActivityState?.phase, .paused)
+        XCTAssertEqual(
+            restored.toolActivityState?.recoveryPayloadJSON,
+            #"{"step":3}"#
+        )
+        restored.discard()
+    }
+
+    func testQuestCompletionIsQueuedUntilCanonicalSaveCompletes() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.quest.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        coordinator.beginFocusedTool(.warmUp, durationMinutes: 5)
+        coordinator.queueQuestCompletion("warm-up-warrior")
+
+        XCTAssertEqual(coordinator.pendingQuestIDs, Set(["warm-up-warrior"]))
+
+        let restored = PracticeSessionCoordinator(defaults: defaults)
+        XCTAssertEqual(restored.pendingQuestIDs, Set(["warm-up-warrior"]))
+        restored.discard()
+        XCTAssertTrue(restored.pendingQuestIDs.isEmpty)
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

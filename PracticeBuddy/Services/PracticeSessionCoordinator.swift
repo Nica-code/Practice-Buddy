@@ -11,6 +11,7 @@ struct PracticeMomentPrompt: Identifiable, Equatable {
 
 @MainActor
 final class PracticeSessionCoordinator: ObservableObject {
+    @Published private(set) var activeSessionID: UUID
     @Published private(set) var isRunning = false
     @Published private(set) var accumulatedSeconds = 0
     @Published private(set) var elapsedSeconds = 0
@@ -19,6 +20,12 @@ final class PracticeSessionCoordinator: ObservableObject {
     @Published private(set) var checkInStatusMessage: String?
     @Published private(set) var activeTaskIndex = 0
     @Published private(set) var launchContext: PracticeLaunchContext?
+    @Published private(set) var activeToolID: PracticeToolID?
+    @Published private(set) var toolLaunchContext: PracticeToolLaunchContext?
+    @Published private(set) var latestToolResult: PracticeToolResult?
+    @Published private(set) var toolErrorMessage: String?
+    @Published private(set) var pendingQuestIDs: Set<String> = []
+    @Published private(set) var toolActivityState: PracticeActivityState?
 
     @Published var currentTask = "Open practice"
     @Published var currentPiece = "Your instrument"
@@ -77,6 +84,7 @@ final class PracticeSessionCoordinator: ObservableObject {
     let checkInManager = PracticeCheckInManager()
     let metronome = MetronomeEngine()
     let tuner = TunerEngine()
+    let audioSession = PracticeAudioSessionCoordinator()
 
     private let defaults: UserDefaults
     private var startDate: Date?
@@ -107,10 +115,19 @@ final class PracticeSessionCoordinator: ObservableObject {
         static let lastPiece = "practiquest.practice.lastPiece"
         static let lastTasks = "practiquest.practice.lastTasks.v2"
         static let lastVerified = "practiquest.practice.lastVerified"
+        static let activeSessionID = "practiquest.practice.activeSessionID"
+        static let activeToolID = "practiquest.practice.activeToolID"
+        static let toolLaunchContext = "practiquest.practice.toolLaunchContext"
+        static let latestToolResult = "practiquest.practice.latestToolResult"
+        static let pendingQuestIDs = "practiquest.practice.pendingQuestIDs"
+        static let toolActivityState = "practiquest.practice.toolActivityState"
     }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        activeSessionID = defaults.string(forKey: Key.activeSessionID)
+            .flatMap(UUID.init(uuidString:))
+            ?? UUID()
         accumulatedSeconds = max(0, defaults.integer(forKey: Key.accumulated))
         verifiedSeconds = max(0, defaults.integer(forKey: Key.verifiedSeconds))
         unverifiedSeconds = max(0, defaults.integer(forKey: Key.unverifiedSeconds))
@@ -134,6 +151,30 @@ final class PracticeSessionCoordinator: ObservableObject {
         }
         if let data = defaults.data(forKey: Key.launchContext) {
             launchContext = try? JSONDecoder().decode(PracticeLaunchContext.self, from: data)
+        }
+        if let rawToolID = defaults.string(forKey: Key.activeToolID) {
+            activeToolID = PracticeToolID(rawValue: rawToolID)
+        }
+        if let data = defaults.data(forKey: Key.toolLaunchContext) {
+            toolLaunchContext = try? JSONDecoder().decode(
+                PracticeToolLaunchContext.self,
+                from: data
+            )
+        }
+        if let data = defaults.data(forKey: Key.latestToolResult) {
+            latestToolResult = try? JSONDecoder().decode(
+                PracticeToolResult.self,
+                from: data
+            )
+        }
+        if let values = defaults.stringArray(forKey: Key.pendingQuestIDs) {
+            pendingQuestIDs = Set(values.filter { !$0.isEmpty })
+        }
+        if let data = defaults.data(forKey: Key.toolActivityState) {
+            toolActivityState = try? JSONDecoder().decode(
+                PracticeActivityState.self,
+                from: data
+            )
         }
 
         let checkInCount = max(0, defaults.integer(forKey: Key.checkInCount))
@@ -169,6 +210,20 @@ final class PracticeSessionCoordinator: ObservableObject {
     }
 
     var state: PracticeDockState {
+        if let activeToolID {
+            if isRunning {
+                return .focusedToolRunning(
+                    tool: activeToolID,
+                    elapsedSeconds: elapsedSeconds
+                )
+            }
+            if elapsedSeconds > 0 {
+                return .focusedToolPaused(
+                    tool: activeToolID,
+                    elapsedSeconds: elapsedSeconds
+                )
+            }
+        }
         if isRunning {
             return .running(elapsedSeconds: elapsedSeconds, task: currentTask, isVerified: verificationMechanismActive)
         }
@@ -247,6 +302,18 @@ final class PracticeSessionCoordinator: ObservableObject {
         )
     }
 
+    var hasActivePractice: Bool {
+        isRunning || elapsedSeconds > 0 || !tasks.isEmpty
+    }
+
+    var isFocusedToolSession: Bool {
+        activeToolID != nil
+    }
+
+    var toolElapsedSeconds: Int {
+        toolActivityState?.elapsed() ?? 0
+    }
+
     func quickStart() {
         if elapsedSeconds > 0 {
             resume()
@@ -305,7 +372,28 @@ final class PracticeSessionCoordinator: ObservableObject {
         launchContext: PracticeLaunchContext?,
         source: String = "setup"
     ) {
+        preparePlan(
+            piece: piece,
+            tasks: tasks,
+            verified: verified,
+            launchContext: launchContext
+        )
+        resume()
+        studioPresented = true
+        PracticeAnalytics.record(.practiceStarted(source: source))
+    }
+
+    /// Configures a recoverable plan without starting its clock. This is used
+    /// by planned Practice Dock states and keeps "planned" distinct from a
+    /// zero-second paused session.
+    func preparePlan(
+        piece: String,
+        tasks: [PracticePlanTask],
+        verified: Bool,
+        launchContext: PracticeLaunchContext?
+    ) {
         reset(keepLastSetup: true)
+        activeSessionID = launchContext?.sessionID ?? UUID()
         let cleanTasks = Self.sanitizedTasks(tasks)
         self.tasks = cleanTasks.isEmpty
             ? [PracticePlanTask(title: "Focused practice", minutes: 30)]
@@ -320,9 +408,162 @@ final class PracticeSessionCoordinator: ObservableObject {
         currentTask = self.tasks.first?.title ?? "Focused practice"
         persistPlan()
         saveAsLastSetup()
+        persistActivityIdentity()
+    }
+
+    /// Starts a standalone practice tool through the same timer, persistence,
+    /// verification, and Dock runtime as Practice Studio. Contextual tools use
+    /// `attachTool` instead so the parent session clock remains untouched.
+    func beginFocusedTool(
+        _ toolID: PracticeToolID,
+        title: String? = nil,
+        durationMinutes: Int = 10,
+        verified: Bool = false,
+        source: PracticeLaunchSource = .library,
+        questID: String? = nil,
+        smartCoachPlanID: String? = nil
+    ) {
+        let sessionID = UUID()
+        let toolContext = PracticeToolLaunchContext(
+            toolID: toolID,
+            source: source,
+            parentSessionID: nil,
+            questID: questID,
+            smartCoachPlanID: smartCoachPlanID
+        )
+        preparePlan(
+            piece: "Your instrument",
+            tasks: [
+                PracticePlanTask(
+                    title: title ?? toolID.title,
+                    minutes: max(1, durationMinutes)
+                )
+            ],
+            verified: verified,
+            launchContext: PracticeLaunchContext(
+                source: source,
+                toolID: toolID,
+                questID: questID,
+                smartCoachPlanID: smartCoachPlanID,
+                sessionID: sessionID
+            )
+        )
+        activeSessionID = sessionID
+        activeToolID = toolID
+        toolLaunchContext = toolContext
+        latestToolResult = nil
+        toolErrorMessage = nil
+        toolActivityState = PracticeActivityState(
+            sessionID: sessionID,
+            kind: .focusedTool(toolID),
+            phase: .ready,
+            launchContext: toolContext
+        )
+        persistActivityIdentity()
         resume()
-        studioPresented = true
-        PracticeAnalytics.record(.practiceStarted(source: source))
+        PracticeAnalytics.record(.practiceStarted(source: source.rawValue))
+    }
+
+    @discardableResult
+    func attachTool(
+        _ toolID: PracticeToolID,
+        source: PracticeLaunchSource = .activeSession,
+        questID: String? = nil
+    ) -> PracticeToolLaunchContext {
+        let context = PracticeToolLaunchContext(
+            toolID: toolID,
+            source: source,
+            parentSessionID: activeSessionID,
+            questID: questID,
+            smartCoachPlanID: launchContext?.smartCoachPlanID
+        )
+        activeToolID = toolID
+        toolLaunchContext = context
+        latestToolResult = nil
+        toolErrorMessage = nil
+        toolActivityState = PracticeActivityState(
+            sessionID: activeSessionID,
+            kind: .focusedTool(toolID),
+            phase: .ready,
+            launchContext: context
+        )
+        persistActivityIdentity()
+        return context
+    }
+
+    func startToolActivity(recoveryPayloadJSON: String? = nil) {
+        guard let activeToolID else { return }
+        var state = toolActivityState ?? PracticeActivityState(
+            sessionID: activeSessionID,
+            kind: .focusedTool(activeToolID),
+            launchContext: toolLaunchContext
+        )
+        guard state.phase != .running else { return }
+        state.phase = .running
+        state.phaseStartedAt = .now
+        if let recoveryPayloadJSON {
+            state.recoveryPayloadJSON = recoveryPayloadJSON
+        }
+        toolActivityState = state
+        persistActivityIdentity()
+    }
+
+    func pauseToolActivity(recoveryPayloadJSON: String? = nil) {
+        guard var state = toolActivityState else { return }
+        if state.phase == .running {
+            state.accumulatedSeconds = state.elapsed()
+        }
+        state.phase = .paused
+        state.phaseStartedAt = nil
+        if let recoveryPayloadJSON {
+            state.recoveryPayloadJSON = recoveryPayloadJSON
+        }
+        toolActivityState = state
+        persistActivityIdentity()
+    }
+
+    func updateToolRecoveryPayload(_ payloadJSON: String?) {
+        guard var state = toolActivityState else { return }
+        state.recoveryPayloadJSON = payloadJSON
+        toolActivityState = state
+        persistActivityIdentity()
+    }
+
+    func completeTool(_ result: PracticeToolResult) {
+        guard result.sessionID == activeSessionID else {
+            toolErrorMessage = "This result belongs to a different practice session."
+            return
+        }
+        latestToolResult = result
+        if var state = toolActivityState {
+            state.accumulatedSeconds = result.durationSeconds
+            state.phase = .completed
+            state.phaseStartedAt = nil
+            state.recoveryPayloadJSON = nil
+            toolActivityState = state
+        }
+        persistActivityIdentity()
+    }
+
+    func detachTool() {
+        audioSession.releaseCurrentOwner()
+        activeToolID = nil
+        toolLaunchContext = nil
+        toolErrorMessage = nil
+        toolActivityState = nil
+        persistActivityIdentity()
+    }
+
+    func reportToolError(_ message: String) {
+        toolErrorMessage = message
+    }
+
+    /// Queues progression until the canonical practice session has committed.
+    /// Tools must never award quest progress before `completeAfterSave`.
+    func queueQuestCompletion(_ questID: String) {
+        guard !questID.isEmpty else { return }
+        pendingQuestIDs.insert(questID)
+        persistActivityIdentity()
     }
 
     func resume() {
@@ -403,9 +644,13 @@ final class PracticeSessionCoordinator: ObservableObject {
     func completeAfterSave(savedSessionID: UUID? = nil) {
         let completedContext = launchContext
         let completedDuration = elapsedSeconds
+        var completedQuestIDs = pendingQuestIDs
+        if let questID = completedContext?.questID, !questID.isEmpty {
+            completedQuestIDs.insert(questID)
+        }
         PracticeLiveActivityManager.shared.end()
         stopAllTools()
-        if let questID = completedContext?.questID, !questID.isEmpty {
+        for questID in completedQuestIDs.sorted() {
             PracticeQuestProgressStore.shared.record(questID)
         }
         PracticeAnalytics.record(.practiceSaved(durationSeconds: elapsedSeconds))
@@ -459,6 +704,13 @@ final class PracticeSessionCoordinator: ObservableObject {
         plannedMinutes = 30
         tasks = []
         launchContext = nil
+        activeSessionID = UUID()
+        activeToolID = nil
+        toolLaunchContext = nil
+        latestToolResult = nil
+        toolErrorMessage = nil
+        pendingQuestIDs = []
+        toolActivityState = nil
         checkInStatusMessage = nil
         checkInManager.reset()
         appShield.stopShielding()
@@ -471,6 +723,7 @@ final class PracticeSessionCoordinator: ObservableObject {
         persistPlan()
         persistClock()
         persistCounters()
+        persistActivityIdentity()
     }
 
     private func startTicker() {
@@ -601,6 +854,34 @@ final class PracticeSessionCoordinator: ObservableObject {
         defaults.set(checkInManager.eventsJSON(), forKey: Key.checkInEventsJSON)
     }
 
+    private func persistActivityIdentity() {
+        defaults.set(activeSessionID.uuidString, forKey: Key.activeSessionID)
+        if let activeToolID {
+            defaults.set(activeToolID.rawValue, forKey: Key.activeToolID)
+        } else {
+            defaults.removeObject(forKey: Key.activeToolID)
+        }
+        if let toolLaunchContext,
+           let data = try? JSONEncoder().encode(toolLaunchContext) {
+            defaults.set(data, forKey: Key.toolLaunchContext)
+        } else {
+            defaults.removeObject(forKey: Key.toolLaunchContext)
+        }
+        if let latestToolResult,
+           let data = try? JSONEncoder().encode(latestToolResult) {
+            defaults.set(data, forKey: Key.latestToolResult)
+        } else {
+            defaults.removeObject(forKey: Key.latestToolResult)
+        }
+        defaults.set(pendingQuestIDs.sorted(), forKey: Key.pendingQuestIDs)
+        if let toolActivityState,
+           let data = try? JSONEncoder().encode(toolActivityState) {
+            defaults.set(data, forKey: Key.toolActivityState)
+        } else {
+            defaults.removeObject(forKey: Key.toolActivityState)
+        }
+    }
+
     private func updateLiveActivity() {
         guard isRunning || elapsedSeconds > 0 else {
             PracticeLiveActivityManager.shared.end()
@@ -623,6 +904,7 @@ final class PracticeSessionCoordinator: ObservableObject {
     }
 
     private func stopAllTools() {
+        audioSession.releaseCurrentOwner()
         metronome.stop()
         tuner.stopListening()
         tuner.stopReferenceTone()

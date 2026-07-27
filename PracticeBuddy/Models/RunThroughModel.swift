@@ -25,6 +25,9 @@ final class RunThroughModel {
     var usedMetronome: Bool
     var markerJSON: String
     var pieceName: String
+    var parentSessionID: UUID?
+    var launchSource: String?
+    var toolVersion: Int?
 
     init(
         id: UUID = UUID(),
@@ -36,7 +39,10 @@ final class RunThroughModel {
         noPauseMode: Bool,
         usedMetronome: Bool,
         markerJSON: String = "",
-        pieceName: String = ""
+        pieceName: String = "",
+        parentSessionID: UUID? = nil,
+        launchSource: String? = nil,
+        toolVersion: Int? = nil
     ) {
         self.id = id
         self.date = date
@@ -48,6 +54,9 @@ final class RunThroughModel {
         self.usedMetronome = usedMetronome
         self.markerJSON = markerJSON
         self.pieceName = pieceName
+        self.parentSessionID = parentSessionID
+        self.launchSource = launchSource
+        self.toolVersion = toolVersion
     }
 }
 

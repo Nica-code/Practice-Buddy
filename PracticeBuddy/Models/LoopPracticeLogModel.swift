@@ -15,6 +15,9 @@ final class LoopPracticeLogModel {
     var tagsRaw: String
     var tempoLadderEnabled: Bool
     var ladderCleanLoopsRequired: Int
+    var parentSessionID: UUID?
+    var launchSource: String?
+    var toolVersion: Int?
 
     init(
         id: UUID = UUID(),
@@ -28,7 +31,10 @@ final class LoopPracticeLogModel {
         targetLoops: Int,
         tagsRaw: String,
         tempoLadderEnabled: Bool = false,
-        ladderCleanLoopsRequired: Int = 0
+        ladderCleanLoopsRequired: Int = 0,
+        parentSessionID: UUID? = nil,
+        launchSource: String? = nil,
+        toolVersion: Int? = nil
     ) {
         self.id = id
         self.date = date
@@ -42,5 +48,8 @@ final class LoopPracticeLogModel {
         self.tagsRaw = tagsRaw
         self.tempoLadderEnabled = tempoLadderEnabled
         self.ladderCleanLoopsRequired = max(0, ladderCleanLoopsRequired)
+        self.parentSessionID = parentSessionID
+        self.launchSource = launchSource
+        self.toolVersion = toolVersion
     }
 }

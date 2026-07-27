@@ -11,6 +11,9 @@ final class RhythmAccuracyTakeModel {
     var grooveScore: Int
     var usedMetronome: Bool
     var detailJSON: String
+    var parentSessionID: UUID?
+    var launchSource: String?
+    var toolVersion: Int?
 
     init(
         id: UUID = UUID(),
@@ -20,7 +23,10 @@ final class RhythmAccuracyTakeModel {
         averageOffsetMs: Double,
         grooveScore: Int,
         usedMetronome: Bool,
-        detailJSON: String
+        detailJSON: String,
+        parentSessionID: UUID? = nil,
+        launchSource: String? = nil,
+        toolVersion: Int? = nil
     ) {
         self.id = id
         self.date = date
@@ -30,6 +36,8 @@ final class RhythmAccuracyTakeModel {
         self.grooveScore = min(max(grooveScore, 0), 100)
         self.usedMetronome = usedMetronome
         self.detailJSON = detailJSON
+        self.parentSessionID = parentSessionID
+        self.launchSource = launchSource
+        self.toolVersion = toolVersion
     }
 }
-
