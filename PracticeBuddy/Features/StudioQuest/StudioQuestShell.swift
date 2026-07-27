@@ -376,15 +376,17 @@ struct StudioQuestPracticeDock: View {
             HStack(spacing: 10) {
                 dockIcon
 
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: isCompactTodayDock ? 0 : 1) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if !isCompactTodayDock {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 4)
@@ -404,7 +406,7 @@ struct StudioQuestPracticeDock: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .padding(.horizontal, 10)
-            .frame(height: 58)
+            .frame(height: isCompactTodayDock ? 50 : 58)
             .modifier(StudioQuestDockMaterial())
             .overlay {
                 RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.dock, style: .continuous)
@@ -429,7 +431,10 @@ struct StudioQuestPracticeDock: View {
     }
 
     private var title: String {
-        switch coordinator.state {
+        if isCompactTodayDock {
+            return "Quick start"
+        }
+        return switch coordinator.state {
         case .idle: "Start practice"
         case .planned(let title, _): title
         case .running(_, let task, _): task
@@ -472,6 +477,12 @@ struct StudioQuestPracticeDock: View {
         }
     }
 
+    private var isCompactTodayDock: Bool {
+        guard router.selectedDestination == .today else { return false }
+        if case .idle = coordinator.state { return true }
+        return false
+    }
+
     private func route(for toolID: PracticeToolID) -> AppRoute {
         switch toolID {
         case .metronome: .metronome
@@ -505,8 +516,9 @@ struct StudioQuestTodayView: View {
         StudioQuestScrollPage {
             VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
                 header
-                goalHero
-                suggestedSession
+                nextPracticeHero
+                dailyGoalSummary
+                smartCoachSuggestion
                 nextQuest
                 recentSession
                 communityPulse
@@ -540,61 +552,87 @@ struct StudioQuestTodayView: View {
         }
     }
 
-    private var goalHero: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 7)
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                StudioQuestTokens.ColorRole.cobalt,
-                                StudioQuestTokens.ColorRole.violet
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(StudioQuestTokens.Motion.gentle, value: progress)
-                VStack(spacing: 0) {
-                    Text("Daily goal")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("\(store.totalTodaySeconds / 60)")
-                        .font(.system(size: 48, weight: .medium, design: .monospaced))
-                        .contentTransition(.numericText())
-                    Text("/ \(goalMinutes) min")
+    private var nextPracticeHero: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "music.note")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(StudioQuestTokens.ColorRole.cobalt, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    StudioQuestEyebrow("Next practice")
+                    Text(suggestedPreset.task)
+                        .font(StudioQuestTokens.Typography.sectionTitle)
+                    Text("\(suggestedPreset.durationMinutes) min · \(suggestedPreset.verified ? "Verification on" : "Standard timing")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-            }
-            .frame(width: 144, height: 144)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Daily practice goal")
-            .accessibilityValue("\(store.totalTodaySeconds / 60) of \(goalMinutes) minutes")
 
-            statusPill
+                Spacer(minLength: 0)
+            }
 
             Button {
                 coordinator.quickStart()
             } label: {
-                Label(coordinator.elapsedSeconds > 0 ? "Resume practice" : "Start practice", systemImage: "play.fill")
+                Label(
+                    coordinator.elapsedSeconds > 0 ? "Resume practice" : "Start practice",
+                    systemImage: "play.fill"
+                )
             }
             .buttonStyle(StudioQuestPrimaryButtonStyle())
+            .accessibilityIdentifier("today.startPractice")
 
             NavigationLink(value: AppRoute.practiceSetup(preset: suggestedPreset)) {
                 Text("Set up a session")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("today.setupPractice")
         }
         .padding(StudioQuestTokens.Spacing.md)
         .frame(maxWidth: .infinity)
         .studioQuestSurface(.lifted)
+    }
+
+    private var dailyGoalSummary: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        StudioQuestTokens.ColorRole.cobalt,
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(StudioQuestTokens.Motion.gentle, value: progress)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .contentTransition(.numericText())
+            }
+            .frame(width: 62, height: 62)
+
+            VStack(alignment: .leading, spacing: 4) {
+                StudioQuestEyebrow("Daily goal")
+                Text("\(store.totalTodaySeconds / 60) of \(goalMinutes) minutes")
+                    .font(StudioQuestTokens.Typography.cardTitle)
+                    .contentTransition(.numericText())
+                statusPill
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(StudioQuestTokens.Spacing.md)
+        .studioQuestSurface()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Daily practice goal")
+        .accessibilityValue("\(store.totalTodaySeconds / 60) of \(goalMinutes) minutes")
     }
 
     /// A single honest line about where the musician stands, rather than the
@@ -622,33 +660,35 @@ struct StudioQuestTodayView: View {
             .background(tint.opacity(0.12), in: Capsule())
     }
 
-    private var suggestedSession: some View {
+    private var smartCoachSuggestion: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Suggested for you")
-            NavigationLink(value: AppRoute.practiceSetup(preset: nil)) {
+            sectionLabel("Smart Coach")
+            NavigationLink(value: AppRoute.smartCoach) {
                 HStack(spacing: 12) {
-                    Image(systemName: "pianokeys")
+                    Image(systemName: "wand.and.stars")
                         .font(.title3)
-                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                         .frame(width: 44, height: 44)
-                        .background(StudioQuestTokens.ColorRole.cobalt.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                        .background(StudioQuestTokens.ColorRole.violet.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(suggestedPreset.task)
+                        Text("Build today’s focused plan")
                             .font(.headline)
-                        Text("\(suggestedPreset.durationMinutes) min · \(suggestedPreset.verified ? "Verification on" : "Standard timing")")
+                        Text("A practical next step from your recent sessions")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    Image(systemName: "chevron.right")
+                    Spacer(minLength: 8)
+                    Image(systemName: "arrow.up.right")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                 }
                 .foregroundStyle(.primary)
                 .padding(StudioQuestTokens.Spacing.md)
+                .contentShape(RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
                 .studioQuestSurface()
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("today.smartCoach")
         }
     }
 

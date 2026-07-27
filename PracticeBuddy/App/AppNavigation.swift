@@ -434,7 +434,7 @@ struct AppLaunchConfiguration: Equatable {
         case "avatar":
             RouteRequest(destination: .you, route: .avatarStudio(section: .customize), opensRoomEditor: false)
         case "shop":
-            RouteRequest(destination: .today, route: .shop, opensRoomEditor: false)
+            RouteRequest(destination: .you, route: .shop, opensRoomEditor: false)
         case "communityFriends":
             RouteRequest(destination: .community, route: .communityFriends, opensRoomEditor: false)
         case "warmUp":

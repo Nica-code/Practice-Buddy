@@ -314,9 +314,8 @@ struct StudioQuestDockMaterial: ViewModifier {
     }
 }
 
-/// Puts the practice tools on the Studio Quest canvas. Their own layout is
-/// still Form/List-based; this is what makes them share the shell's background
-/// and accent rather than the system grouped style.
+/// Applies the Studio Quest canvas and accent to utility views that manage
+/// their own scrolling, including the compact Metronome and Tuner tools.
 struct StudioQuestToolChrome: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 

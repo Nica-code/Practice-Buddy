@@ -77,12 +77,30 @@ struct StudioQuestQuestView: View {
     }
 
     private var sectionPicker: some View {
-        Picker("Quest section", selection: $section) {
+        HStack(spacing: 24) {
             ForEach(QuestSection.allCases) { item in
-                Text(item.rawValue).tag(item)
+                Button {
+                    withAnimation(StudioQuestTokens.Motion.quick) {
+                        section = item
+                    }
+                } label: {
+                    VStack(spacing: 8) {
+                        Text(item.rawValue)
+                            .font(.subheadline.weight(section == item ? .semibold : .regular))
+                            .foregroundStyle(section == item ? .primary : .secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                        Capsule()
+                            .fill(section == item ? StudioQuestTokens.ColorRole.cobalt : .clear)
+                            .frame(height: 3)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(section == item ? .isSelected : [])
             }
         }
-        .pickerStyle(.segmented)
         .accessibilityLabel("Quest section")
     }
 
@@ -480,7 +498,7 @@ struct StudioQuestYouView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let heroHeight = proxy.size.height * 0.52
+            let heroHeight = min(max(proxy.size.height * 0.42, 300), 420)
             let margin = StudioQuestTokens.Spacing.pageMargin(for: proxy.size.width)
 
             ZStack(alignment: .top) {
@@ -757,8 +775,6 @@ struct StudioQuestYouView: View {
             Divider()
             profileLink("Avatar Studio", systemImage: "lamp.floor.fill", route: .avatarStudio(section: .customize))
             Divider()
-            profileLink("Shop", systemImage: "bag", route: .shop)
-            Divider()
             profileLink("PractiQuest Pro", systemImage: "sparkles", route: .pro(source: .you))
             Divider()
             profileLink("Settings", systemImage: "gearshape", route: .settings(section: nil))
@@ -782,6 +798,7 @@ struct StudioQuestYouView: View {
             }
             .foregroundStyle(.primary)
             .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

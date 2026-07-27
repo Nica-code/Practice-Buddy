@@ -17,6 +17,9 @@ struct StudioQuestCommunityFeedView: View {
                 if let status = community.statusMessage {
                     StudioQuestInlineStatus(text: status, kind: .warning)
                 }
+                if !showsAccountGate {
+                    connectionsSummary
+                }
                 feedContent
             }
             .padding(.top, StudioQuestTokens.Spacing.sm)
@@ -24,7 +27,10 @@ struct StudioQuestCommunityFeedView: View {
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { await community.refresh() }
         .task(id: firebase.currentUserID) {
-            await community.configure(uid: firebase.currentUserID, isAnonymous: firebase.isAnonymousUser)
+            await community.configure(
+                uid: fixtureUID ?? firebase.currentUserID,
+                isAnonymous: showsAccountGate
+            )
         }
         .sheet(isPresented: $signInPresented) { AccountSetupView() }
     }
@@ -37,9 +43,6 @@ struct StudioQuestCommunityFeedView: View {
                 headerAction("magnifyingglass", label: "Search musicians") {
                     requireAccount { router.navigate(to: .peopleSearch(query: nil), in: .community) }
                 }
-                headerAction("person.2", label: "Connections") {
-                    requireAccount { router.navigate(to: .communityConnections(section: .friends), in: .community) }
-                }
                 headerAction("bubble.left.and.bubble.right", label: "Messages") {
                     requireAccount { router.navigate(to: .communityMessages(friendUID: nil, threadID: nil), in: .community) }
                 }
@@ -47,9 +50,64 @@ struct StudioQuestCommunityFeedView: View {
         }
     }
 
+    private var connectionsSummary: some View {
+        Button {
+            router.navigate(to: .communityConnections(section: .friends), in: .community)
+        } label: {
+            HStack(spacing: 12) {
+                HStack(spacing: -8) {
+                    ForEach(Array(buddies.buddies.prefix(3))) { buddy in
+                        PBAvatarView(
+                            avatarID: buddy.avatarID,
+                            displayName: buddy.displayName,
+                            profilePhotoURL: buddy.profilePhotoURL,
+                            size: 34
+                        )
+                        .overlay(
+                            Circle().stroke(
+                                StudioQuestTokens.ColorRole.surface(colorScheme),
+                                lineWidth: 2
+                            )
+                        )
+                    }
+                }
+                .frame(minWidth: buddies.buddies.isEmpty ? 0 : 70, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Your circle")
+                        .font(.subheadline.weight(.semibold))
+                    Text(connectionSummaryText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+            }
+            .foregroundStyle(.primary)
+            .padding(StudioQuestTokens.Spacing.md)
+            .contentShape(RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
+            .studioQuestSurface()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("community.connections")
+        .accessibilityHint("Opens friends, follows, and requests")
+    }
+
+    private var connectionSummaryText: String {
+        let friendCount = buddies.buddies.count
+        let requestCount = buddies.incomingInvites.count
+        if requestCount > 0 {
+            return "\(friendCount) friend\(friendCount == 1 ? "" : "s") · \(requestCount) request\(requestCount == 1 ? "" : "s")"
+        }
+        return "\(friendCount) friend\(friendCount == 1 ? "" : "s")"
+    }
+
     @ViewBuilder
     private var feedContent: some View {
-        if firebase.isAnonymousUser {
+        if showsAccountGate {
             StudioQuestSection {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Practice privately, then join your community.", systemImage: "lock.fill")
@@ -182,11 +240,29 @@ struct StudioQuestCommunityFeedView: View {
     }
 
     private func requireAccount(_ action: @escaping () -> Void) {
-        if firebase.isAnonymousUser {
+        if showsAccountGate {
             signInPresented = true
         } else {
             action()
         }
+    }
+
+    private var showsAccountGate: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--qa-community-populated") {
+            return false
+        }
+        #endif
+        return firebase.isAnonymousUser
+    }
+
+    private var fixtureUID: String? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--qa-community-populated") {
+            return "fixture-adult"
+        }
+        #endif
+        return nil
     }
 }
 

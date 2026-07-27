@@ -100,7 +100,7 @@ final class StudioQuestNavigationUITests: XCTestCase {
 
     func testYouDestinationLinksOpenTheNewV2Screens() {
         let app = launch(destination: 3)
-        for destination in ["Goals", "History", "Avatar Studio", "Shop", "Settings"] {
+        for destination in ["Goals", "History", "Avatar Studio", "Settings"] {
             // Re-enter You from the tab bar each time. Returning by gesture can
             // leave the pop mid-flight, and the tab's scroll offset survives, so
             // driving from a known state is what keeps this deterministic.
@@ -122,6 +122,28 @@ final class StudioQuestNavigationUITests: XCTestCase {
             )
             goBack(in: app)
         }
+    }
+
+    func testTodayEditorialHierarchyRoutesToPracticeAndSmartCoach() {
+        let app = launch(destination: 0)
+
+        XCTAssertTrue(app.buttons["today.startPractice"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["today.setupPractice"].exists)
+        XCTAssertTrue(
+            reveal(app.buttons["today.smartCoach"], in: app),
+            "Smart Coach should remain reachable above the Practice Dock"
+        )
+        app.buttons["today.smartCoach"].tap()
+        XCTAssertTrue(app.staticTexts["Smart Coach"].waitForExistence(timeout: 6))
+    }
+
+    func testCommunityFeedFixtureAndConnectionsSummaryAreDeterministic() {
+        let app = launch(destination: 2)
+
+        XCTAssertTrue(app.staticTexts["Breakthrough"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["community.connections"].exists)
+        app.buttons["community.connections"].tap()
+        XCTAssertTrue(app.staticTexts["Connections"].waitForExistence(timeout: 6))
     }
 
     func testAllSecondaryRoutesAreReachableWithoutLegacyJumpTokens() {

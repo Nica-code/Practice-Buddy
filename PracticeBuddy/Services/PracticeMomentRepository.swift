@@ -226,6 +226,14 @@ final class CommunityCoordinator: ObservableObject {
     }
 
     func configure(uid: String?, isAnonymous: Bool) async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--qa-community-populated") {
+            configuredUID = "fixture-adult"
+            moments = Self.fixtureMoments
+            statusMessage = nil
+            return
+        }
+        #endif
         configuredUID = isAnonymous ? nil : uid
         guard let uid = configuredUID else {
             moments = []
@@ -235,11 +243,25 @@ final class CommunityCoordinator: ObservableObject {
     }
 
     func refresh() async {
+        #if DEBUG
+        if configuredUID == "fixture-adult" {
+            moments = Self.fixtureMoments
+            return
+        }
+        #endif
         guard let uid = configuredUID else { return }
         await refresh(uid: uid)
     }
 
     func react(to moment: PracticeMoment, kind: MomentReactionKind) async {
+        #if DEBUG
+        if configuredUID == "fixture-adult" {
+            if let index = moments.firstIndex(where: { $0.id == moment.id }) {
+                moments[index].reactions[kind, default: 0] += 1
+            }
+            return
+        }
+        #endif
         do {
             try await repository.react(momentID: moment.id, kind: kind)
             if let index = moments.firstIndex(where: { $0.id == moment.id }) {
@@ -288,4 +310,55 @@ final class CommunityCoordinator: ObservableObject {
             statusMessage = "We couldn’t refresh Moments. Pull to try again."
         }
     }
+
+    #if DEBUG
+    private static var fixtureMoments: [PracticeMoment] {
+        let now = Date()
+        var aya = AvatarLoadout.starter(for: "avatar_note")
+        aya.roomID = "room_daylight_studio"
+        aya.instrumentID = "instrument_violin"
+        var mateo = AvatarLoadout.starter(for: "avatar_guitar")
+        mateo.roomID = "room_creative_loft"
+        mateo.instrumentID = "instrument_guitar"
+
+        return [
+            PracticeMoment(
+                id: "fixture-moment-aya",
+                authorUID: "fixture-aya",
+                displayName: "Aya Chen",
+                handle: "ayaplays",
+                profilePhotoURL: "",
+                instrument: "Violin",
+                durationBucket: "45–60 min",
+                practiceCategory: "Technique",
+                isVerified: true,
+                tag: .breakthrough,
+                audience: .friends,
+                avatarLoadout: aya,
+                createdAt: now.addingTimeInterval(-1_800),
+                expiresAt: now.addingTimeInterval(82_800),
+                moderationState: .active,
+                reactions: [.bravo: 4, .inspired: 2]
+            ),
+            PracticeMoment(
+                id: "fixture-moment-mateo",
+                authorUID: "fixture-mateo",
+                displayName: "Mateo Silva",
+                handle: "mateosilva",
+                profilePhotoURL: "",
+                instrument: "Guitar",
+                durationBucket: "20–30 min",
+                practiceCategory: "Run-through",
+                isVerified: false,
+                tag: .performancePrep,
+                audience: .friends,
+                avatarLoadout: mateo,
+                createdAt: now.addingTimeInterval(-7_200),
+                expiresAt: now.addingTimeInterval(79_200),
+                moderationState: .active,
+                reactions: [.strongWork: 3, .practiceTogether: 1]
+            )
+        ]
+    }
+    #endif
 }
