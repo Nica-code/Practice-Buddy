@@ -459,6 +459,21 @@ exports.friendInviteByCodeV2 = onCall(
     },
 );
 
+exports.friendActionV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const action = String(request.data?.action || "");
+        const output = await applyFriendAction(auth.uid, action, request.data || {});
+        return {ok: true, ...output};
+      } catch (error) {
+        logger.warn("friendActionV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
 exports.practiceMomentCreateV2 = onCall(
     {enforceAppCheck: true, maxInstances: 5},
     async (request) => {
@@ -1814,6 +1829,10 @@ async function createFriendInviteByCode(fromUID, code) {
   const target = await db.collection("users").where("friendCode", "==", code).limit(1).get();
   if (target.empty) throw new Error("No musician found for that code.");
   const targetUID = target.docs[0].id;
+  return createFriendInvite(fromUID, targetUID);
+}
+
+async function createFriendInvite(fromUID, targetUID) {
   if (targetUID === fromUID) throw new Error("You cannot invite yourself.");
   const inviteRef = db.collection("invites").doc();
   await db.runTransaction(async (txn) => {
@@ -1846,6 +1865,116 @@ async function createFriendInviteByCode(fromUID, code) {
     });
   });
   return {inviteID: inviteRef.id, targetUID};
+}
+
+async function applyFriendAction(uid, action, input) {
+  await socialActor(uid);
+  const allowed = new Set(["invite", "accept", "decline", "cancel", "remove"]);
+  if (!allowed.has(action)) throw new Error("That friend action is unavailable.");
+
+  if (action === "invite") {
+    const targetUID = validateDocumentID(input.targetUID, "Musician");
+    return {...await createFriendInvite(uid, targetUID), status: "pending"};
+  }
+
+  if (action === "remove") {
+    const targetUID = validateDocumentID(input.targetUID, "Musician");
+    if (targetUID === uid) throw new Error("Choose another musician.");
+
+    const myBuddyRef = db.collection("friendships").doc(uid).collection("buddies").doc(targetUID);
+    const theirBuddyRef = db.collection("friendships").doc(targetUID).collection("buddies").doc(uid);
+    const [myBuddy, theirBuddy, outbound, inbound] = await Promise.all([
+      myBuddyRef.get(),
+      theirBuddyRef.get(),
+      db.collection("invites")
+          .where("fromUid", "==", uid)
+          .where("toUid", "==", targetUID)
+          .where("status", "==", "pending")
+          .get(),
+      db.collection("invites")
+          .where("fromUid", "==", targetUID)
+          .where("toUid", "==", uid)
+          .where("status", "==", "pending")
+          .get(),
+    ]);
+    if (!myBuddy.exists && !theirBuddy.exists) {
+      throw new Error("That friendship is no longer available.");
+    }
+
+    const batch = db.batch();
+    batch.delete(myBuddyRef);
+    batch.delete(theirBuddyRef);
+    for (const invite of [...outbound.docs, ...inbound.docs]) {
+      batch.update(invite.ref, {
+        status: "declined",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    return {status: "removed", targetUID};
+  }
+
+  const inviteID = validateDocumentID(input.inviteID, "Friend request");
+  const inviteRef = db.collection("invites").doc(inviteID);
+
+  return db.runTransaction(async (txn) => {
+    const inviteSnap = await txn.get(inviteRef);
+    if (!inviteSnap.exists) throw new Error("That friend request is no longer available.");
+    const invite = inviteSnap.data() || {};
+    if (invite.status !== "pending") throw new Error("That friend request is no longer pending.");
+
+    const fromUID = validateDocumentID(invite.fromUid, "Sender");
+    const toUID = validateDocumentID(invite.toUid, "Recipient");
+    if (action === "cancel" && uid !== fromUID) {
+      throw new Error("Only the sender can cancel this friend request.");
+    }
+    if ((action === "accept" || action === "decline") && uid !== toUID) {
+      throw new Error("Only the recipient can respond to this friend request.");
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    if (action === "decline" || action === "cancel") {
+      txn.update(inviteRef, {status: "declined", updatedAt: now});
+      return {status: action === "cancel" ? "canceled" : "declined", inviteID};
+    }
+
+    const fromRef = db.collection("users").doc(fromUID);
+    const toRef = db.collection("users").doc(toUID);
+    const [fromSnap, toSnap] = await Promise.all([
+      txn.get(fromRef),
+      txn.get(toRef),
+    ]);
+    const from = fromSnap.data() || {};
+    const to = toSnap.data() || {};
+    if (!fromSnap.exists || !toSnap.exists) {
+      throw new Error("One of these profiles is no longer available.");
+    }
+
+    txn.update(inviteRef, {status: "accepted", updatedAt: now});
+    txn.set(
+        db.collection("friendships").doc(toUID).collection("buddies").doc(fromUID),
+        friendProjection(fromUID, from, now),
+        {merge: true},
+    );
+    txn.set(
+        db.collection("friendships").doc(fromUID).collection("buddies").doc(toUID),
+        friendProjection(toUID, to, now),
+        {merge: true},
+    );
+    return {status: "accepted", inviteID, targetUID: fromUID};
+  });
+}
+
+function friendProjection(uid, user, sinceAt) {
+  return {
+    buddyUid: uid,
+    displayName: String(user.displayName || "Musician").slice(0, 30),
+    friendCode: String(user.friendCode || "").slice(0, 32),
+    avatarID: String(user.avatarID || "avatar_note").slice(0, 64),
+    profilePhotoURL: String(user.profilePhotoURL || "").slice(0, 2048),
+    publicLevel: clampInt(user.publicLevel, 1, 1000000, 1),
+    sinceAt,
+  };
 }
 
 function publicProjectionForUser(user) {

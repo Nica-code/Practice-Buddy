@@ -132,6 +132,33 @@ describe("PractiQuest Firestore security rules", () => {
     }));
   });
 
+  it("limits legacy invite and friendship compatibility writes to participants", async () => {
+    await seed(async (firestore) => {
+      await setDoc(doc(firestore, "invites/invite-alice-bob"), {
+        fromUid: "alice",
+        toUid: "bob",
+        status: "pending",
+      });
+      await setDoc(doc(firestore, "friendships/alice/buddies/bob"), {
+        buddyUid: "bob",
+      });
+    });
+
+    await assertSucceeds(getDoc(doc(firestoreFor("alice"), "invites/invite-alice-bob")));
+    await assertSucceeds(getDoc(doc(firestoreFor("bob"), "invites/invite-alice-bob")));
+    await assertFails(getDoc(doc(firestoreFor("mallory"), "invites/invite-alice-bob")));
+    await assertFails(setDoc(doc(firestoreFor("mallory"), "invites/forged"), {
+      fromUid: "alice",
+      toUid: "bob",
+      status: "pending",
+    }));
+    await assertFails(setDoc(
+        doc(firestoreFor("mallory"), "friendships/alice/buddies/bob"),
+        {buddyUid: "bob", displayName: "Forged"},
+        {merge: true},
+    ));
+  });
+
   it("rejects non-friend, self-pair, and impersonated chat writes", async () => {
     const alice = firestoreFor("alice");
     await assertFails(setDoc(doc(alice, "friendChats/alice__mallory"), {

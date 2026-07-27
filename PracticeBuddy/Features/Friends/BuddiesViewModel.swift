@@ -236,7 +236,7 @@ final class BuddiesViewModel: ObservableObject {
 
     func cancelOutgoingInvite(_ invite: BuddyInvite) async {
         do {
-            try await repository.declineInvite(invite)
+            try await repository.cancelInvite(invite)
             statusMessage = "Request canceled."
         } catch {
             statusMessage = error.localizedDescription

@@ -356,9 +356,6 @@ final class FirebaseBuddiesRepository {
     func sendInvite(from myProfile: FirebaseUserProfile, friendCode rawCode: String) async throws -> String {
         let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !code.isEmpty else { throw FirebaseBuddiesError.invalidFriendCode }
-        guard Auth.auth().currentUser != nil else {
-            throw FirebaseBuddiesError.server("Friend requests are unavailable in this build.")
-        }
         let payload = try await callable.call("friendInviteByCodeV2", data: ["friendCode": code])
         guard payload["ok"] as? Bool == true,
               let targetUID = payload["targetUID"] as? String,
@@ -374,13 +371,13 @@ final class FirebaseBuddiesRepository {
         guard !cleanedUID.isEmpty else { throw FirebaseBuddiesError.missingInviteTarget }
         guard cleanedUID != myProfile.uid else { throw FirebaseBuddiesError.cannotInviteSelf }
 
-        let targetDoc = try await db.collection(usersCollection).document(cleanedUID).getDocument()
-        guard targetDoc.exists else { throw FirebaseBuddiesError.userNotFound }
-        guard let targetProfile = parseUserProfile(uid: cleanedUID, data: targetDoc.data()) else {
-            throw FirebaseBuddiesError.missingInviteTarget
+        let payload = try await callFriendAction(
+            "invite",
+            data: ["targetUID": cleanedUID]
+        )
+        guard payload["targetUID"] as? String == cleanedUID else {
+            throw FirebaseBuddiesError.server("Couldn’t send the friend request.")
         }
-
-        try await createPendingInvite(from: myProfile, to: targetProfile)
     }
 
     func fetchUserProfile(uid: String) async throws -> FirebaseUserProfile {
@@ -550,39 +547,11 @@ final class FirebaseBuddiesRepository {
     }
 
     func removeBuddy(myUID: String, buddyUID: String) async throws {
-        let meBuddyRef = db.collection(friendshipsCollection)
-            .document(myUID)
-            .collection("buddies")
-            .document(buddyUID)
-        let themBuddyRef = db.collection(friendshipsCollection)
-            .document(buddyUID)
-            .collection("buddies")
-            .document(myUID)
-
-        let batch = db.batch()
-        batch.deleteDocument(meBuddyRef)
-        batch.deleteDocument(themBuddyRef)
-
-        let outboundInvites = try await db.collection(invitesCollection)
-            .whereField("fromUid", isEqualTo: myUID)
-            .whereField("toUid", isEqualTo: buddyUID)
-            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
-            .getDocuments()
-
-        let inboundInvites = try await db.collection(invitesCollection)
-            .whereField("fromUid", isEqualTo: buddyUID)
-            .whereField("toUid", isEqualTo: myUID)
-            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
-            .getDocuments()
-
-        for doc in outboundInvites.documents {
-            batch.deleteDocument(doc.reference)
+        let cleanedUID = buddyUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedUID.isEmpty, cleanedUID != myUID else {
+            throw FirebaseBuddiesError.missingInviteTarget
         }
-        for doc in inboundInvites.documents {
-            batch.deleteDocument(doc.reference)
-        }
-
-        try await batch.commit()
+        _ = try await callFriendAction("remove", data: ["targetUID": cleanedUID])
     }
 
     func updatePracticeTotalMinutes(uid: String, minutes: Int) async throws {
@@ -612,49 +581,18 @@ final class FirebaseBuddiesRepository {
     }
 
     func acceptInvite(_ invite: BuddyInvite, myUID: String) async throws {
-        let now = FieldValue.serverTimestamp()
-        let inviteRef = db.collection(invitesCollection).document(invite.id)
-        let meBuddyRef = db.collection(friendshipsCollection)
-            .document(myUID)
-            .collection("buddies")
-            .document(invite.fromUid)
-        let themBuddyRef = db.collection(friendshipsCollection)
-            .document(invite.fromUid)
-            .collection("buddies")
-            .document(myUID)
-
-        let batch = db.batch()
-        batch.updateData([
-            "status": BuddyInviteStatus.accepted.rawValue,
-            "updatedAt": now
-        ], forDocument: inviteRef)
-        batch.setData([
-            "buddyUid": invite.fromUid,
-            "displayName": invite.fromDisplayName,
-            "friendCode": invite.fromFriendCode,
-            "avatarID": "avatar_note",
-            "profilePhotoURL": "",
-            "publicLevel": 1,
-            "sinceAt": now
-        ], forDocument: meBuddyRef, merge: true)
-        batch.setData([
-            "buddyUid": myUID,
-            "displayName": invite.toDisplayName,
-            "friendCode": invite.toFriendCode,
-            "avatarID": "avatar_note",
-            "profilePhotoURL": "",
-            "publicLevel": 1,
-            "sinceAt": now
-        ], forDocument: themBuddyRef, merge: true)
-
-        try await batch.commit()
+        guard invite.toUid == myUID else {
+            throw FirebaseBuddiesError.server("That friend request is no longer available.")
+        }
+        _ = try await callFriendAction("accept", data: ["inviteID": invite.id])
     }
 
     func declineInvite(_ invite: BuddyInvite) async throws {
-        try await db.collection(invitesCollection).document(invite.id).updateData([
-            "status": BuddyInviteStatus.declined.rawValue,
-            "updatedAt": FieldValue.serverTimestamp()
-        ])
+        _ = try await callFriendAction("decline", data: ["inviteID": invite.id])
+    }
+
+    func cancelInvite(_ invite: BuddyInvite) async throws {
+        _ = try await callFriendAction("cancel", data: ["inviteID": invite.id])
     }
 
     // MARK: - Friend Chat
@@ -796,50 +734,19 @@ final class FirebaseBuddiesRepository {
         )
     }
 
-    private func createPendingInvite(from myProfile: FirebaseUserProfile, to targetProfile: FirebaseUserProfile) async throws {
-        let myUID = myProfile.uid
-        let targetUID = targetProfile.uid
-
-        let buddyDoc = try await db.collection(friendshipsCollection)
-            .document(myUID)
-            .collection("buddies")
-            .document(targetUID)
-            .getDocument()
-        if buddyDoc.exists {
-            throw FirebaseBuddiesError.alreadyBuddies
+    private func callFriendAction(
+        _ action: String,
+        data: [String: Any]
+    ) async throws -> [String: Any] {
+        var payload = data
+        payload["action"] = action
+        let response = try await callable.call("friendActionV2", data: payload)
+        guard response["ok"] as? Bool == true else {
+            throw FirebaseBuddiesError.server(
+                response["error"] as? String ?? "That friend action could not be completed."
+            )
         }
-
-        let outboundPending = try await db.collection(invitesCollection)
-            .whereField("fromUid", isEqualTo: myUID)
-            .whereField("toUid", isEqualTo: targetUID)
-            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
-            .limit(to: 1)
-            .getDocuments()
-        if !outboundPending.documents.isEmpty {
-            throw FirebaseBuddiesError.inviteAlreadySent
-        }
-
-        let inboundPending = try await db.collection(invitesCollection)
-            .whereField("fromUid", isEqualTo: targetUID)
-            .whereField("toUid", isEqualTo: myUID)
-            .whereField("status", isEqualTo: BuddyInviteStatus.pending.rawValue)
-            .limit(to: 1)
-            .getDocuments()
-        if !inboundPending.documents.isEmpty {
-            throw FirebaseBuddiesError.inviteAlreadyReceived
-        }
-
-        try await db.collection(invitesCollection).document().setData([
-            "fromUid": myUID,
-            "toUid": targetUID,
-            "fromDisplayName": myProfile.displayName,
-            "fromFriendCode": myProfile.friendCode,
-            "toDisplayName": targetProfile.displayName,
-            "toFriendCode": targetProfile.friendCode,
-            "status": BuddyInviteStatus.pending.rawValue,
-            "createdAt": FieldValue.serverTimestamp(),
-            "updatedAt": FieldValue.serverTimestamp()
-        ], merge: false)
+        return response
     }
 
     private func parseUserProfile(uid: String, data: [String: Any]?) -> FirebaseUserProfile? {

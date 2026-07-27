@@ -1000,6 +1000,75 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(transport.calls.first?.name, "socialRelationshipV2")
     }
 
+    func testFriendMutationsUseTheAppCheckCallableSurface() async throws {
+        let transport = SocialCallableTransportStub(responses: [
+            "friendInviteByCodeV2": ["ok": true, "targetUID": "musician-42"],
+            "friendActionV2": ["ok": true, "targetUID": "musician-42"]
+        ])
+        let repository = FirebaseBuddiesRepository(callable: transport)
+        let profile = FirebaseUserProfile(
+            uid: "musician-me",
+            displayName: "Julian Marco",
+            friendCode: "JULI-2048",
+            nameEditUsed: false,
+            avatarID: "avatar_note",
+            profilePhotoURL: "",
+            bio: "",
+            instrument: "Violin",
+            publicLevel: 18
+        )
+        let incoming = BuddyInvite(
+            id: "invite-incoming",
+            fromUid: "musician-42",
+            toUid: "musician-me",
+            fromDisplayName: "Aya Chen",
+            fromFriendCode: "AYAC-2345",
+            toDisplayName: "Julian Marco",
+            toFriendCode: "JULI-2048",
+            status: .pending,
+            createdAt: .now
+        )
+        let outgoing = BuddyInvite(
+            id: "invite-outgoing",
+            fromUid: "musician-me",
+            toUid: "musician-42",
+            fromDisplayName: "Julian Marco",
+            fromFriendCode: "JULI-2048",
+            toDisplayName: "Aya Chen",
+            toFriendCode: "AYAC-2345",
+            status: .pending,
+            createdAt: .now
+        )
+
+        let target = try await repository.sendInvite(from: profile, friendCode: "ayac-2345")
+        try await repository.sendInvite(from: profile, to: "musician-42")
+        try await repository.acceptInvite(incoming, myUID: profile.uid)
+        try await repository.declineInvite(incoming)
+        try await repository.cancelInvite(outgoing)
+        try await repository.removeBuddy(myUID: profile.uid, buddyUID: "musician-42")
+
+        XCTAssertEqual(target, "musician-42")
+        XCTAssertEqual(
+            transport.calls.map(\.name),
+            [
+                "friendInviteByCodeV2",
+                "friendActionV2",
+                "friendActionV2",
+                "friendActionV2",
+                "friendActionV2",
+                "friendActionV2"
+            ]
+        )
+        XCTAssertEqual(transport.calls[0].data["friendCode"] as? String, "AYAC-2345")
+        XCTAssertEqual(transport.calls[1].data["action"] as? String, "invite")
+        XCTAssertEqual(transport.calls[1].data["targetUID"] as? String, "musician-42")
+        XCTAssertEqual(transport.calls[2].data["action"] as? String, "accept")
+        XCTAssertEqual(transport.calls[2].data["inviteID"] as? String, "invite-incoming")
+        XCTAssertEqual(transport.calls[3].data["action"] as? String, "decline")
+        XCTAssertEqual(transport.calls[4].data["action"] as? String, "cancel")
+        XCTAssertEqual(transport.calls[5].data["action"] as? String, "remove")
+    }
+
     func testDeterministicPracticeFixtureReplacesPriorQASaves() throws {
         let schema = Schema([
             PracticeSessionModel.self,
