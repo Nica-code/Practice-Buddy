@@ -9,7 +9,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
 
 - Exact simulator command:
   `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
-- Unit tests: 58/58 passed.
+- Unit tests: 59/59 passed.
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
@@ -156,7 +156,14 @@ Key safeguards include:
   identity.
 - Legacy `syncEntitlements` rejects client-submitted paid product IDs and never
   persists paid access from them.
-- The new Pro SKU still needs to be created in App Store Connect.
+- App Store Connect contains:
+  - approved monthly Ad-Free subscription
+    `com.alexmalaimare.practicebuddy.adfree.monthly`;
+  - approved lifetime Pro purchase `practicebuddy.pro.lifetime`;
+  - an existing `PractiQuest Ad-Free` subscription group.
+- Both legacy products are recognized as Pro from verified StoreKit
+  transactions. The new monthly Pro SKU still needs final creation and
+  configuration in App Store Connect.
 
 ### Assets, localization, and visual evidence
 
@@ -211,10 +218,11 @@ External/operational work still required:
 8. Update App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
 
-App Store Connect is not authenticated in the current browser session, so no
-subscription product or TestFlight upload has been created. The connected
-physical iPhone is currently reported offline by Xcode and has not been used to
-clear any device checklist item.
+App Store Connect is authenticated. The new Pro creation form is prepared for
+`com.alexmalaimare.practiquest.pro.monthly`, but no product has been created or
+submitted without the required action-time confirmation. No TestFlight upload
+has occurred. The connected physical iPhone is currently reported offline by
+Xcode and has not been used to clear any device checklist item.
 
 ## Release archive audit
 
@@ -230,6 +238,11 @@ The filesystem-synchronized app target initially copied seven repository
 Markdown documents into the bundle. They are now explicit target-membership
 exceptions in `PracticeBuddy.xcodeproj/project.pbxproj`. A clean archive/export
 was repeated, and the resulting IPA contains no `.md` resources.
+
+App Store Connect and the public App Store listing confirm the live PractiQuest
+Apple ID is `6759354312`. The previously configured `6744359618` was incorrect.
+The app fallback and Hosting invite page now use the published ID and have a
+unit regression assertion.
 
 ## Current Firebase rollout status
 

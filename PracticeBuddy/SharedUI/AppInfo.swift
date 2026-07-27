@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 enum AppInfo {
-    static let appStoreAppleID = "6744359618"
+    static let appStoreAppleID = "6759354312"
 
     static var appName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String

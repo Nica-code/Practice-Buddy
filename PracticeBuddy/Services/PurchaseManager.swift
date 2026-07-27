@@ -78,10 +78,16 @@ final class PBTrialEntitlementRepository {
 @MainActor
 final class PurchaseManager: ObservableObject {
     static let adFreeMonthlyProductID = "com.alexmalaimare.practicebuddy.adfree.monthly"
+    static let legacyProLifetimeProductID = "practicebuddy.pro.lifetime"
     static let proMonthlyProductID = "com.alexmalaimare.practiquest.pro.monthly"
-    // The legacy Ad-Free SKU remains an equivalent Pro entitlement so existing
-    // subscribers are grandfathered without an account or receipt migration.
-    static let adFreeSubscriptionProductIDs = [proMonthlyProductID, adFreeMonthlyProductID]
+    // Both approved legacy products remain equivalent Pro entitlements so
+    // existing monthly and lifetime customers are grandfathered from verified
+    // StoreKit transactions without an account or receipt migration.
+    static let adFreeSubscriptionProductIDs = [
+        proMonthlyProductID,
+        adFreeMonthlyProductID,
+        legacyProLifetimeProductID
+    ]
     static let proSubscriptionProductIDs = adFreeSubscriptionProductIDs
     static let subscriptionActiveKey = "pb.pro.subscriptionActive"
     static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"

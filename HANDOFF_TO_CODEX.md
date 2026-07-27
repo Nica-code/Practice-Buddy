@@ -15,7 +15,7 @@ Firebase deployed from this branch: **Partially — see rollout state below**
 
 The latest exact run passed:
 
-- 58/58 unit tests
+- 59/59 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
@@ -156,7 +156,7 @@ The clean build-31 release artifacts are:
 The first export exposed a filesystem-synchronized-target packaging defect:
 seven repository Markdown files were copied into the app bundle. The app-target
 membership exceptions now exclude them. A fresh signed generic build, archive,
-export, and 88-test suite all passed, and the clean IPA contains no `.md` files.
+export, and 89-test suite all passed, and the clean IPA contains no `.md` files.
 Do not remove those membership exceptions as “unused.”
 
 Firebase Console inspection confirmed:
@@ -172,8 +172,17 @@ Do not describe DeviceCheck fallback as operational or enable broader product
 enforcement until the credential is registered and valid TestFlight/device
 traffic appears in metrics.
 
-App Store Connect is awaiting user sign-in. The connected iPhone is currently
-offline in Xcode, so no physical-device checklist item is verified.
+App Store Connect is authenticated. The existing account contains an approved
+monthly Ad-Free subscription and an approved `practicebuddy.pro.lifetime`
+non-consumable. Both are now recognized as Pro from verified StoreKit
+transactions. The new Pro monthly creation dialog is filled but not submitted;
+creating it requires action-time user confirmation. The connected iPhone is
+currently offline in Xcode, so no physical-device checklist item is verified.
+
+The public PractiQuest App Store ID is `6759354312`. The prior in-app and Hosting
+value `6744359618` was wrong. The app and invite fallback are corrected and
+covered by a unit assertion; redeploy Hosting before considering invite sharing
+release-ready.
 
 ## Landmines
 

@@ -46,7 +46,10 @@ The Storage rules were already current; Firebase compiled and re-released them.
 - AASA routes:
   - `/invite?code=????-????`
   - `/join-studio?code=*`
-- Invite fallback contains the App Store ID `6744359618`.
+- The initial invite fallback contained the incorrect App Store ID
+  `6744359618`. App Store Connect and the public listing both confirm the
+  PractiQuest record is `6759354312`; a corrective Hosting deployment is
+  required before the invite fallback is release-ready.
 - Invite fallback validates the `XXXX-XXXX` code and hides the app-open action
   for malformed codes.
 

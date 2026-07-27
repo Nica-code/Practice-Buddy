@@ -48,7 +48,7 @@ xcodebuild test \
   -parallel-testing-enabled NO
 ```
 
-Expected: 58 unit and 30 UI tests.
+Expected: 59 unit and 30 UI tests.
 
 Run a signed generic-device build:
 
@@ -129,7 +129,7 @@ Verify over HTTPS:
 - [ ] both use `Content-Type: application/json`;
 - [ ] `/invite?code=AB12-CD34` renders the PractiQuest invite fallback;
 - [ ] invalid code hides the Open PractiQuest action;
-- [ ] App Store action targets ID `6744359618`.
+- [ ] App Store action targets ID `6759354312`.
 
 ## 6. Firestore privacy cutover gate
 

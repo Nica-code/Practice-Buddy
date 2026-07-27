@@ -1367,7 +1367,7 @@ struct StudioQuestProView: View {
                 if let status = purchaseManager.syncStatus, !status.isEmpty {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Existing Ad-Free subscribers are automatically recognized as Pro.")
+                Text("Existing Ad-Free subscribers and Pro Lifetime customers are automatically recognized as Pro.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

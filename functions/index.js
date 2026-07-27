@@ -25,6 +25,7 @@ const SERVER_TRIAL_DAYS = 7;
 const PRO_SUBSCRIPTION_PRODUCT_IDS = new Set([
   "com.alexmalaimare.practiquest.pro.monthly",
   "com.alexmalaimare.practicebuddy.adfree.monthly",
+  "practicebuddy.pro.lifetime",
 ]);
 
 const ROUTE_PLAY_DUEL = "play_duel";

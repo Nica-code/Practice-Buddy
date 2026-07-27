@@ -69,6 +69,15 @@ final class StudioQuestFoundationTests: XCTestCase {
         )
     }
 
+    func testAppStoreLinkUsesThePublishedPractiQuestRecord() throws {
+        let url = try XCTUnwrap(
+            URL(string: "https://apps.apple.com/app/id\(AppInfo.appStoreAppleID)")
+        )
+
+        XCTAssertEqual(AppInfo.appStoreAppleID, "6759354312")
+        XCTAssertEqual(url.path, "/app/id6759354312")
+    }
+
     func testLaunchConfigurationUsesPersistedDestinationWithoutQAOverrides() throws {
         let suiteName = "StudioQuestFoundationTests.launch.persisted.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1028,6 +1037,17 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(
             PBEntitlementAccessPolicy.tier(
                 activeProductIDs: [PurchaseManager.proMonthlyProductID],
+                trialEndsAt: nil,
+                hasServerAllAccess: false,
+                hasLocalMasterAccess: false,
+                simulatesFreeMode: false,
+                now: now
+            ),
+            .pro
+        )
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [PurchaseManager.legacyProLifetimeProductID],
                 trialEndsAt: nil,
                 hasServerAllAccess: false,
                 hasLocalMasterAccess: false,

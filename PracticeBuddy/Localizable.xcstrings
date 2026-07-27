@@ -3521,18 +3521,18 @@
         }
       }
     },
-    "Existing Ad-Free subscribers are automatically recognized as Pro.": {
+    "Existing Ad-Free subscribers and Pro Lifetime customers are automatically recognized as Pro.": {
       "localizations": {
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기존 Ad-Free 가입자는 자동으로 Pro로 인식됩니다."
+            "value": "기존 Ad-Free 가입자 및 Pro 평생 고객은 자동으로 Pro로 인식됩니다."
           }
         },
         "ro": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abonații existenți fără anunțuri sunt recunoscuți automat ca Pro."
+            "value": "Abonații existenți fără anunțuri și clienții Pro Lifetime sunt recunoscuți automat ca Pro."
           }
         }
       }
