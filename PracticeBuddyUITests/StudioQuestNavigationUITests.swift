@@ -387,4 +387,48 @@ final class StudioQuestNavigationUITests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["Try again"].exists)
     }
+
+    func testMetronomeRuntimeStopsThroughItsFullPrimarySurface() {
+        let app = launch(
+            route: "metronome",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let toggle = app.buttons["metronome.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(toggle.label.localizedCaseInsensitiveContains("Stop metronome"))
+        toggle.tap()
+        XCTAssertTrue(
+            app.buttons["metronome.toggle"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(
+            app.buttons["metronome.toggle"].label
+                .localizedCaseInsensitiveContains("Start metronome")
+        )
+    }
+
+    func testTunerRuntimeStopsListeningAndKeepsControlsReachable() {
+        let app = launch(
+            route: "tuner",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "dark",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let toggle = app.buttons["tuner.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(toggle.label.localizedCaseInsensitiveContains("Stop listening"))
+        toggle.tap()
+        XCTAssertTrue(app.buttons["tuner.reference"].exists)
+        XCTAssertTrue(
+            app.buttons["tuner.toggle"].label
+                .localizedCaseInsensitiveContains("Start tuner")
+        )
+    }
 }

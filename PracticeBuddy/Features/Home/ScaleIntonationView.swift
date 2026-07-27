@@ -511,6 +511,7 @@ struct ScaleIntonationView: View {
             }
         }
 
+        tuner.setReferenceFrequency(Double(referenceHz))
         tuner.startListening()
         guard tuner.isListening else {
             cleanupAfterFailedStart()
@@ -806,7 +807,13 @@ struct ScaleIntonationView: View {
                 .intonation,
                 requirements: .playback
             )
-            tuner.startReferenceTone(frequency: Double(referenceHz))
+            if !tuner.startReferenceTone(frequency: Double(referenceHz)) {
+                coordinator.audioSession.release(.intonation)
+                showStatus(
+                    tuner.statusMessage ?? "Reference tone could not start.",
+                    kind: .error
+                )
+            }
         } catch {
             showStatus(
                 (error as? LocalizedError)?.errorDescription ?? "Reference tone could not start.",

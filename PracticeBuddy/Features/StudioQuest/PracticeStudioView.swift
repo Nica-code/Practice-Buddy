@@ -825,6 +825,7 @@ struct StudioQuestMetronomeToolView: View {
 private struct StudioQuestMetronomeToolContent: View {
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.studioQuestQAToolState) private var qaToolState
     @AppStorage("pb.tools.metronome.bpm") private var bpm = 80
     @AppStorage("pb.tools.metronome.beatsPerBar") private var beatsPerBar = 4
     @AppStorage("pb.tools.metronome.subdivision") private var subdivisionRaw = MetronomeEngine.Subdivision.none.rawValue
@@ -832,6 +833,7 @@ private struct StudioQuestMetronomeToolContent: View {
     @State private var statusMessage: String?
     @State private var statusKind: StudioQuestInlineStatus.Kind = .information
     @State private var replaceConfirmationPresented = false
+    @State private var didApplyQAState = false
 
     private var engine: MetronomeEngine { coordinator.metronome }
     private var isContextual: Bool {
@@ -913,6 +915,7 @@ private struct StudioQuestMetronomeToolContent: View {
                     Label(engine.isRunning ? "Stop metronome" : "Start metronome", systemImage: engine.isRunning ? "stop.fill" : "play.fill")
                 }
                 .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("metronome.toggle")
 
                 if coordinator.activeToolID == .metronome,
                    !isContextual,
@@ -923,6 +926,7 @@ private struct StudioQuestMetronomeToolContent: View {
                         coordinator.requestFinish()
                     }
                     .buttonStyle(StudioQuestSecondaryButtonStyle())
+                    .accessibilityIdentifier("metronome.finish")
                 }
 
                 if let statusMessage {
@@ -946,6 +950,12 @@ private struct StudioQuestMetronomeToolContent: View {
         .onChange(of: beatsPerBar) { _, _ in applyConfiguration() }
         .onChange(of: subdivisionRaw) { _, _ in applyConfiguration() }
         .onChange(of: soundRaw) { _, _ in applyConfiguration() }
+        .onChange(of: coordinator.audioSession.lastEvent) { _, event in
+            handleAudioEvent(event)
+        }
+        .task {
+            applyQAStateIfNeeded()
+        }
         .confirmationDialog(
             "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
             isPresented: $replaceConfirmationPresented,
@@ -1008,6 +1018,19 @@ private struct StudioQuestMetronomeToolContent: View {
             return
         }
 
+        engine.setBPM(bpm)
+        let started = engine.start(
+            beatsPerBar: beatsPerBar,
+            subdivision: MetronomeEngine.Subdivision(rawValue: subdivisionRaw) ?? .none,
+            soundStyle: MetronomeEngine.SoundStyle(rawValue: soundRaw) ?? .click
+        )
+        guard started else {
+            coordinator.audioSession.release(.metronome)
+            statusMessage = engine.statusMessage ?? "The metronome could not start."
+            statusKind = .error
+            return
+        }
+
         if coordinator.activeToolID == nil {
             if coordinator.hasActivePractice {
                 coordinator.attachTool(.metronome)
@@ -1024,12 +1047,6 @@ private struct StudioQuestMetronomeToolContent: View {
             coordinator.resume()
         }
         coordinator.startToolActivity()
-        engine.setBPM(bpm)
-        engine.start(
-            beatsPerBar: beatsPerBar,
-            subdivision: MetronomeEngine.Subdivision(rawValue: subdivisionRaw) ?? .none,
-            soundStyle: MetronomeEngine.SoundStyle(rawValue: soundRaw) ?? .click
-        )
         statusMessage = "Metronome running."
         statusKind = .success
     }
@@ -1061,6 +1078,66 @@ private struct StudioQuestMetronomeToolContent: View {
         coordinator.audioSession.release(owner)
         return true
     }
+
+    private func handleAudioEvent(_ event: PracticeAudioEvent?) {
+        switch event {
+        case .interrupted(.metronome):
+            engine.stop()
+            coordinator.pauseToolActivity()
+            if !isContextual { coordinator.pause() }
+            statusMessage = "The metronome paused for an audio interruption. Start it again when you are ready."
+            statusKind = .warning
+        case .routeChanged:
+            guard coordinator.audioSession.owner == .metronome,
+                  engine.isRunning else { return }
+            if engine.restartPlaybackGraphIfRunning() {
+                statusMessage = "Metronome moved to the new audio route."
+                statusKind = .information
+            } else {
+                coordinator.audioSession.release(.metronome)
+                coordinator.pauseToolActivity()
+                if !isContextual { coordinator.pause() }
+                statusMessage = engine.statusMessage ?? "The metronome stopped after the audio route changed."
+                statusKind = .error
+            }
+        default:
+            break
+        }
+    }
+
+    #if DEBUG
+    private func applyQAStateIfNeeded() {
+        guard !didApplyQAState, let qaToolState else { return }
+        didApplyQAState = true
+        guard qaToolState != .setup else { return }
+        if coordinator.activeToolID == nil {
+            _ = coordinator.beginFocusedTool(
+                .metronome,
+                title: "Metronome practice",
+                durationMinutes: 10,
+                source: .qa
+            )
+        }
+        if [.running, .recovered].contains(qaToolState) {
+            engine.applyStudioQuestFixture(isRunning: true, bpm: bpm)
+            coordinator.startToolActivity()
+            statusMessage = qaToolState == .recovered
+                ? "Recovered metronome practice."
+                : "Metronome running."
+            statusKind = qaToolState == .recovered ? .information : .success
+        } else if qaToolState == .paused {
+            engine.applyStudioQuestFixture(isRunning: false, bpm: bpm)
+            coordinator.pauseToolActivity()
+            coordinator.pause()
+            statusMessage = "Metronome paused."
+        } else if qaToolState == .saveError {
+            statusMessage = "The practice result could not be saved. Try again."
+            statusKind = .error
+        }
+    }
+    #else
+    private func applyQAStateIfNeeded() {}
+    #endif
 }
 
 struct StudioQuestTunerToolView: View {
@@ -1071,11 +1148,13 @@ struct StudioQuestTunerToolView: View {
 
 private struct StudioQuestTunerToolContent: View {
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
+    @Environment(\.studioQuestQAToolState) private var qaToolState
     @AppStorage("pb.tools.tuner.referenceHz") private var referenceHz = 440
     @State private var statusMessage: String?
     @State private var statusKind: StudioQuestInlineStatus.Kind = .information
     @State private var replaceConfirmationPresented = false
     @State private var pendingAudioAction: PendingAudioAction?
+    @State private var didApplyQAState = false
 
     private enum PendingAudioAction {
         case listening
@@ -1129,6 +1208,7 @@ private struct StudioQuestTunerToolContent: View {
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .accessibilityIdentifier("tuner.reference")
                     }
                 }
 
@@ -1147,6 +1227,7 @@ private struct StudioQuestTunerToolContent: View {
                     Label(engine.isListening ? "Stop listening" : "Start tuner", systemImage: engine.isListening ? "stop.fill" : "mic.fill")
                 }
                 .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("tuner.toggle")
 
                 if coordinator.activeToolID == .tuner,
                    !isContextual,
@@ -1157,6 +1238,7 @@ private struct StudioQuestTunerToolContent: View {
                         coordinator.requestFinish()
                     }
                     .buttonStyle(StudioQuestSecondaryButtonStyle())
+                    .accessibilityIdentifier("tuner.finish")
                 }
 
                 if let statusMessage {
@@ -1168,9 +1250,17 @@ private struct StudioQuestTunerToolContent: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: referenceHz) { _, value in
+            engine.setReferenceFrequency(Double(value))
             if engine.isReferenceTonePlaying {
                 engine.startReferenceTone(frequency: Double(value))
             }
+        }
+        .onChange(of: coordinator.audioSession.lastEvent) { _, event in
+            handleAudioEvent(event)
+        }
+        .task {
+            engine.setReferenceFrequency(Double(referenceHz))
+            applyQAStateIfNeeded()
         }
         .confirmationDialog(
             "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
@@ -1252,23 +1342,23 @@ private struct StudioQuestTunerToolContent: View {
 
         switch action {
         case .listening:
-            engine.startListening()
-            if engine.isListening {
+            let started = engine.startListening()
+            if started {
                 activateToolRuntime()
             }
-            statusMessage = engine.isListening
+            statusMessage = started
                 ? "Listening for pitch."
                 : (engine.statusMessage ?? "The tuner could not start listening.")
-            statusKind = engine.isListening ? .success : .error
+            statusKind = started ? .success : .error
         case .referenceTone:
-            engine.startReferenceTone(frequency: Double(referenceHz))
-            if engine.isReferenceTonePlaying {
+            let started = engine.startReferenceTone(frequency: Double(referenceHz))
+            if started {
                 activateToolRuntime()
             }
-            statusMessage = engine.isReferenceTonePlaying
+            statusMessage = started
                 ? "Playing reference tone."
                 : (engine.statusMessage ?? "The reference tone could not start.")
-            statusKind = engine.isReferenceTonePlaying ? .success : .error
+            statusKind = started ? .success : .error
         }
         if !engine.isListening, !engine.isReferenceTonePlaying {
             coordinator.audioSession.release(.tuner)
@@ -1326,6 +1416,64 @@ private struct StudioQuestTunerToolContent: View {
         coordinator.audioSession.release(owner)
         return true
     }
+
+    private func handleAudioEvent(_ event: PracticeAudioEvent?) {
+        switch event {
+        case .interrupted(.tuner):
+            stopTuner()
+            coordinator.pauseToolActivity()
+            if !isContextual { coordinator.pause() }
+            statusMessage = "The tuner stopped for an audio interruption. Start it again when you are ready."
+            statusKind = .warning
+        case .routeChanged:
+            guard coordinator.audioSession.owner == .tuner,
+                  engine.isListening || engine.isReferenceTonePlaying else { return }
+            stopTuner()
+            coordinator.pauseToolActivity()
+            if !isContextual { coordinator.pause() }
+            statusMessage = "The audio route changed. Restart the tuner so it can calibrate to the new input."
+            statusKind = .warning
+        default:
+            break
+        }
+    }
+
+    #if DEBUG
+    private func applyQAStateIfNeeded() {
+        guard !didApplyQAState, let qaToolState else { return }
+        didApplyQAState = true
+        guard qaToolState != .setup else { return }
+        if coordinator.activeToolID == nil {
+            _ = coordinator.beginFocusedTool(
+                .tuner,
+                title: "Tuner practice",
+                durationMinutes: 10,
+                source: .qa
+            )
+        }
+        if [.running, .recovered].contains(qaToolState) {
+            engine.applyStudioQuestFixture(isListening: true)
+            coordinator.startToolActivity()
+            statusMessage = qaToolState == .recovered
+                ? "Recovered tuner practice."
+                : "Listening for pitch."
+            statusKind = qaToolState == .recovered ? .information : .success
+        } else if qaToolState == .paused {
+            engine.applyStudioQuestFixture(isListening: false)
+            coordinator.pauseToolActivity()
+            coordinator.pause()
+            statusMessage = "Tuner paused."
+        } else if qaToolState == .permissionDenied {
+            statusMessage = "Microphone access is off. Enable it in Settings to use the tuner."
+            statusKind = .error
+        } else if qaToolState == .saveError {
+            statusMessage = "The practice result could not be saved. Try again."
+            statusKind = .error
+        }
+    }
+    #else
+    private func applyQAStateIfNeeded() {}
+    #endif
 }
 
 struct PracticeReflectionView: View {

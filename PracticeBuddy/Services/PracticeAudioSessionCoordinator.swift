@@ -167,6 +167,17 @@ final class PracticeAudioSessionCoordinator: ObservableObject {
         owner == nil || owner == requestedOwner
     }
 
+    #if DEBUG
+    func applyStudioQuestFixture(
+        owner: PracticeAudioOwner?,
+        requirements: PracticeAudioRequirement = []
+    ) {
+        self.owner = owner
+        self.requirements = owner == nil ? [] : requirements
+        lastEvent = owner.map(PracticeAudioEvent.activated)
+    }
+    #endif
+
     private func configureSession(for requirements: PracticeAudioRequirement) throws {
         let needsInput = requirements.contains(.microphone)
             || requirements.contains(.recording)

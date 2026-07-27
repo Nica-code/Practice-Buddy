@@ -679,6 +679,39 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(1.8)), 1)
     }
 
+    func testDiscardingPracticeReleasesMetronomeTunerAndAudioOwnership() throws {
+        let suiteName = "StudioQuestFoundationTests.audio.cleanup.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        _ = coordinator.beginFocusedTool(
+            .tuner,
+            title: "Tuner practice",
+            durationMinutes: 10,
+            source: .qa
+        )
+        coordinator.metronome.applyStudioQuestFixture(isRunning: true)
+        coordinator.tuner.applyStudioQuestFixture(isListening: true)
+        coordinator.audioSession.applyStudioQuestFixture(
+            owner: .tuner,
+            requirements: .microphone
+        )
+
+        coordinator.discard()
+
+        XCTAssertFalse(coordinator.metronome.isRunning)
+        XCTAssertFalse(coordinator.tuner.isListening)
+        XCTAssertFalse(coordinator.tuner.isReferenceTonePlaying)
+        XCTAssertNil(coordinator.audioSession.owner)
+    }
+
+    func testMetronomeConfigurationClampsUnsupportedValues() {
+        XCTAssertEqual(MetronomeEngine.clampBeatsPerBar(2), 2)
+        XCTAssertEqual(MetronomeEngine.clampBeatsPerBar(6), 6)
+        XCTAssertEqual(MetronomeEngine.clampBeatsPerBar(5), 4)
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

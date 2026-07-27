@@ -120,6 +120,7 @@ final class MetronomeEngine: ObservableObject {
     @Published private(set) var currentBeat: Int = 0
     @Published private(set) var currentSubdivision: Int = 0
     @Published private(set) var pulseToken: Int = 0
+    @Published private(set) var statusMessage: String?
 
     private(set) var bpm: Int = 80
 
@@ -166,7 +167,12 @@ final class MetronomeEngine: ObservableObject {
         bpm = min(max(newBPM, 40), 220)
     }
 
-    func start(beatsPerBar: Int, subdivision: Subdivision, soundStyle: SoundStyle) {
+    @discardableResult
+    func start(
+        beatsPerBar: Int,
+        subdivision: Subdivision,
+        soundStyle: SoundStyle
+    ) -> Bool {
         self.beatsPerBar = Self.clampBeatsPerBar(beatsPerBar)
         self.subdivision = subdivision
         self.soundStyle = soundStyle
@@ -174,9 +180,15 @@ final class MetronomeEngine: ObservableObject {
         if managesAudioSession {
             setAudioSessionIfNeeded()
         }
-        setupAudioIfNeeded()
+        guard setupAudioIfNeeded() else {
+            stop()
+            return false
+        }
         rebuildBuffersIfPossible()
-        scheduleLoopPlaybackIfPossible()
+        guard scheduleLoopPlaybackIfPossible() else {
+            stop()
+            return false
+        }
 
         stepIndex = 0
         isRunning = true
@@ -185,6 +197,8 @@ final class MetronomeEngine: ObservableObject {
         pulseToken += 1
 
         startTicker()
+        statusMessage = nil
+        return true
     }
 
     func stop() {
@@ -204,7 +218,10 @@ final class MetronomeEngine: ObservableObject {
         rebuildBuffersIfPossible()
 
         guard isRunning else { return }
-        scheduleLoopPlaybackIfPossible()
+        guard scheduleLoopPlaybackIfPossible() else {
+            stop()
+            return
+        }
         startTicker()
     }
 
@@ -248,24 +265,33 @@ final class MetronomeEngine: ObservableObject {
         }
     }
 
-    private func setupAudioIfNeeded() {
-        guard !didSetupAudio else { return }
-        didSetupAudio = true
+    private func setupAudioIfNeeded() -> Bool {
+        if !didSetupAudio {
+            let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            guard mixerFormat.sampleRate > 0,
+                  mixerFormat.channelCount > 0,
+                  let playerFormat = AVAudioFormat(
+                      standardFormatWithSampleRate: mixerFormat.sampleRate,
+                      channels: mixerFormat.channelCount
+                  ) else {
+                statusMessage = "The current audio route is unavailable."
+                return false
+            }
 
-        engine.attach(player)
-        let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-        let playerFormat = AVAudioFormat(
-            standardFormatWithSampleRate: mixerFormat.sampleRate,
-            channels: mixerFormat.channelCount
-        )
-        renderFormat = playerFormat
-        engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
+            engine.attach(player)
+            renderFormat = playerFormat
+            engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
+            didSetupAudio = true
+        }
 
         do {
-            try engine.start()
-            player.play()
+            if !engine.isRunning {
+                try engine.start()
+            }
+            return true
         } catch {
-            // Non-fatal; metronome UI can still operate.
+            statusMessage = "The metronome audio engine could not start."
+            return false
         }
     }
 
@@ -290,11 +316,19 @@ final class MetronomeEngine: ObservableObject {
         loopBuffer = makeLoopBuffer(format: format)
     }
 
-    private func scheduleLoopPlaybackIfPossible() {
-        guard let loopBuffer else { return }
+    private func scheduleLoopPlaybackIfPossible() -> Bool {
+        guard let loopBuffer else {
+            statusMessage = "The metronome sound could not be prepared."
+            return false
+        }
 
         if !engine.isRunning {
-            try? engine.start()
+            do {
+                try engine.start()
+            } catch {
+                statusMessage = "The metronome audio engine could not restart."
+                return false
+            }
         }
 
         player.stop()
@@ -302,6 +336,7 @@ final class MetronomeEngine: ObservableObject {
         if !player.isPlaying {
             player.play()
         }
+        return true
     }
 
     private func makeLoopBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
@@ -437,7 +472,7 @@ final class MetronomeEngine: ObservableObject {
             shouldResumeAfterInterruption = false
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw ?? 0)
             if options.contains(.shouldResume) {
-                restartPlaybackGraphIfRunning()
+                _ = restartPlaybackGraphIfRunning()
             }
         @unknown default:
             break
@@ -453,20 +488,38 @@ final class MetronomeEngine: ObservableObject {
 
         switch reason {
         case .oldDeviceUnavailable, .newDeviceAvailable, .categoryChange, .override:
-            restartPlaybackGraphIfRunning()
+            _ = restartPlaybackGraphIfRunning()
         default:
             break
         }
     }
 
-    private func restartPlaybackGraphIfRunning() {
-        guard isRunning else { return }
+    @discardableResult
+    func restartPlaybackGraphIfRunning() -> Bool {
+        guard isRunning else { return true }
         setAudioSessionIfNeeded()
-        setupAudioIfNeeded()
+        guard setupAudioIfNeeded() else {
+            stop()
+            return false
+        }
         rebuildBuffersIfPossible()
-        scheduleLoopPlaybackIfPossible()
+        guard scheduleLoopPlaybackIfPossible() else {
+            stop()
+            return false
+        }
         startTicker()
+        return true
     }
+
+    #if DEBUG
+    func applyStudioQuestFixture(isRunning: Bool, bpm: Int = 96) {
+        setBPM(bpm)
+        self.isRunning = isRunning
+        currentBeat = isRunning ? 2 : 0
+        currentSubdivision = isRunning ? 1 : 0
+        if isRunning { pulseToken += 1 }
+    }
+    #endif
 }
 
 @MainActor

@@ -26,6 +26,7 @@ final class TunerEngine: ObservableObject {
     private var toneFrequency: Double = 440
     private var sampleCounter = 0
     private let managesAudioSession: Bool
+    private var referenceFrequency = 440.0
 
     init(managesAudioSession: Bool = true) {
         self.managesAudioSession = managesAudioSession
@@ -39,14 +40,24 @@ final class TunerEngine: ObservableObject {
         }
     }
 
-    func startReferenceTone(frequency: Double) {
+    func setReferenceFrequency(_ frequency: Double) {
+        referenceFrequency = min(max(frequency, 415), 466)
+    }
+
+    @discardableResult
+    func startReferenceTone(frequency: Double) -> Bool {
         toneFrequency = frequency
+        setReferenceFrequency(frequency)
         if managesAudioSession {
             configureAudioSession()
         }
 
         if toneNode == nil {
             let format = toneEngine.outputNode.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                statusMessage = "The current audio route cannot play a reference tone."
+                return false
+            }
             toneNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
                 guard let self else { return noErr }
                 let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -79,8 +90,10 @@ final class TunerEngine: ObservableObject {
             }
             isReferenceTonePlaying = true
             statusMessage = "Playing A tone."
+            return true
         } catch {
             statusMessage = L10n.f("Reference tone failed: %@", error.localizedDescription)
+            return false
         }
     }
 
@@ -114,7 +127,8 @@ final class TunerEngine: ObservableObject {
         }
     }
 
-    func startListening() {
+    @discardableResult
+    func startListening() -> Bool {
         if managesAudioSession {
             configureAudioSession()
         }
@@ -122,6 +136,11 @@ final class TunerEngine: ObservableObject {
         do {
             let input = inputEngine.inputNode
             let format = input.inputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                statusMessage = "The current audio input is unavailable."
+                isListening = false
+                return false
+            }
 
             input.removeTap(onBus: 0)
             input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
@@ -134,9 +153,11 @@ final class TunerEngine: ObservableObject {
             isListening = true
             permissionState = .granted
             statusMessage = "Listening…"
+            return true
         } catch {
             statusMessage = L10n.f("Tuner failed to start: %@", error.localizedDescription)
             isListening = false
+            return false
         }
     }
 
@@ -144,6 +165,10 @@ final class TunerEngine: ObservableObject {
         inputEngine.inputNode.removeTap(onBus: 0)
         inputEngine.stop()
         isListening = false
+        detectedFrequency = nil
+        detectedNoteName = "--"
+        detectedCents = 0
+        inputLevel = 0
     }
 
     func toggleListening() {
@@ -279,9 +304,9 @@ final class TunerEngine: ObservableObject {
     }
 
     private func noteAndCents(for frequency: Double) -> (name: String, cents: Double) {
-        let midi = 69.0 + 12.0 * log2(frequency / 440.0)
+        let midi = 69.0 + 12.0 * log2(frequency / referenceFrequency)
         let nearest = round(midi)
-        let nearestFreq = 440.0 * pow(2.0, (nearest - 69.0) / 12.0)
+        let nearestFreq = referenceFrequency * pow(2.0, (nearest - 69.0) / 12.0)
         let cents = 1200.0 * log2(frequency / nearestFreq)
 
         let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -291,4 +316,19 @@ final class TunerEngine: ObservableObject {
 
         return (name, cents)
     }
+
+    #if DEBUG
+    func applyStudioQuestFixture(
+        isListening: Bool,
+        noteName: String = "A4",
+        cents: Double = 3
+    ) {
+        self.isListening = isListening
+        detectedFrequency = isListening ? referenceFrequency : nil
+        detectedNoteName = isListening ? noteName : "--"
+        detectedCents = isListening ? cents : 0
+        inputLevel = isListening ? 0.02 : 0
+        permissionState = isListening ? .granted : .unknown
+    }
+    #endif
 }

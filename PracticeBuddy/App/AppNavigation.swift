@@ -439,6 +439,10 @@ struct AppLaunchConfiguration: Equatable {
             RouteRequest(destination: .community, route: .communityFriends, opensRoomEditor: false)
         case "warmUp":
             RouteRequest(destination: .today, route: .warmUp, opensRoomEditor: false)
+        case "metronome":
+            RouteRequest(destination: .today, route: .metronome, opensRoomEditor: false)
+        case "tuner":
+            RouteRequest(destination: .today, route: .tuner, opensRoomEditor: false)
         case "rhythm":
             RouteRequest(destination: .today, route: .rhythm, opensRoomEditor: false)
         case "intonation":
