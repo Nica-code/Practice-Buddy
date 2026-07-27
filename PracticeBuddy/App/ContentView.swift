@@ -94,6 +94,7 @@ struct ContentView: View {
                     .zIndex(2000)
             }
         }
+        .environment(\.studioQuestQAToolState, launchConfiguration.toolState)
         .onAppear {
             if !firebase.isAnonymousUser, firebase.currentUserID != nil {
                 v2OnboardingCompleted = true
@@ -291,6 +292,9 @@ struct ContentView: View {
     private func applyInitialPracticeStateIfNeeded() {
         guard !didHandleQALaunch else { return }
         didHandleQALaunch = true
+        if launchConfiguration.isQA {
+            practiceCoordinator.resetForDeterministicQA()
+        }
 
         switch launchConfiguration.practiceState {
         case .idle:

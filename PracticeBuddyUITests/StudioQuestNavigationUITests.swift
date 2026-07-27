@@ -194,4 +194,31 @@ final class StudioQuestNavigationUITests: XCTestCase {
             "Settings controls were not reachable at the largest accessibility text size"
         )
     }
+
+    func testSmartLoopDeterministicRuntimeCanPauseResumeAndReachAResult() {
+        let app = launch(
+            route: "smartLoop",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        XCTAssertTrue(
+            app.buttons["smartloop.pause"].waitForExistence(timeout: 8),
+            "Smart Loop running fixture did not load"
+        )
+        XCTAssertTrue(app.buttons["smartloop.finish"].exists)
+
+        app.buttons["smartloop.pause"].tap()
+        XCTAssertTrue(app.buttons["smartloop.pause"].waitForExistence(timeout: 4))
+        app.buttons["smartloop.pause"].tap()
+
+        app.buttons["smartloop.finish"].tap()
+        XCTAssertTrue(
+            app.buttons["smartloop.save"].waitForExistence(timeout: 6),
+            "Finishing Smart Loop did not produce a savable result"
+        )
+    }
 }

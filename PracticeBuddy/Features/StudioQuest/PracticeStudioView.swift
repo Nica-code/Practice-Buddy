@@ -467,14 +467,26 @@ struct PracticeToolsDrawer: View {
 }
 
 struct PracticeLibraryView: View {
+    private enum Scope: String, CaseIterable, Identifiable {
+        case all = "All"
+        case favorites = "Favorites"
+        case recent = "Recent"
+
+        var id: String { rawValue }
+    }
+
     var contextualOnly = false
     @State private var query = ""
+    @State private var scope: Scope = .all
+    @State private var unavailableMessage: String?
     @AppStorage("practiquest.library.favorites") private var favoritesRaw = ""
+    @AppStorage("practiquest.library.recents") private var recentsRaw = ""
 
     private let items: [PracticeLibraryItem] = [
-        .init(id: "metronome", title: "Metronome", subtitle: "Keep a steady pulse without leaving the session.", systemImage: "metronome", category: .timing, tags: ["tempo", "pulse", "bpm"], route: .metronome, supportsActiveSession: true),
-        .init(id: "tuner", title: "Tuner", subtitle: "Check pitch or play a reference tone.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "reference", "intonation"], route: .tuner, supportsActiveSession: true),
-        .init(id: "smart-loop", title: "Smart Loop", subtitle: "Repeat hard passages with intention.", systemImage: "repeat", category: .timing, tags: ["repeat", "tempo"], route: .smartLoop, supportsActiveSession: true),
+        .init(id: "smart-coach", title: "Smart Coach", subtitle: "Turn recent practice into a focused plan.", systemImage: "wand.and.stars", category: .planning, tags: ["plan", "adaptive", "history"], route: .smartCoach, supportsActiveSession: false, toolID: .smartCoach, capabilities: [.producesResult]),
+        .init(id: "metronome", title: "Metronome", subtitle: "Keep a steady pulse without leaving the session.", systemImage: "metronome", category: .timing, tags: ["tempo", "pulse", "bpm"], route: .metronome, supportsActiveSession: true, toolID: .metronome, capabilities: [.playback, .supportsActiveSession]),
+        .init(id: "tuner", title: "Tuner", subtitle: "Check pitch or play a reference tone.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "reference", "intonation"], route: .tuner, supportsActiveSession: true, toolID: .tuner, capabilities: [.microphone, .playback, .supportsActiveSession]),
+        .init(id: "smart-loop", title: "Smart Loop", subtitle: "Repeat hard passages with intention.", systemImage: "repeat", category: .timing, tags: ["repeat", "tempo"], route: .smartLoop, supportsActiveSession: true, toolID: .smartLoop, capabilities: [.timed, .playback, .producesResult, .supportsActiveSession, .supportsRecovery]),
         .init(
             id: "warm-up",
             title: "Warm-up Generator",
@@ -487,72 +499,225 @@ struct PracticeLibraryView: View {
             toolID: .warmUp,
             capabilities: [.timed, .producesResult, .supportsActiveSession, .supportsRecovery]
         ),
-        .init(id: "per", title: "Plan · Execute · Reflect", subtitle: "Turn an intention into a useful session.", systemImage: "checklist", category: .planning, tags: ["plan", "reflect"], route: .planExecuteReflect, supportsActiveSession: true),
-        .init(id: "rhythm", title: "Rhythm", subtitle: "Measure pulse and timing accuracy.", systemImage: "waveform.path", category: .listening, tags: ["rhythm", "accuracy"], route: .rhythm, supportsActiveSession: true),
-        .init(id: "intonation", title: "Intonation", subtitle: "Practice pitch with visual feedback.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "scales"], route: .intonation, supportsActiveSession: true),
-        .init(id: "run-through", title: "Run-through", subtitle: "Perform without stopping, then review.", systemImage: "record.circle", category: .performance, tags: ["performance", "record"], route: .runThrough, supportsActiveSession: true)
+        .init(id: "per", title: "Plan · Execute · Reflect", subtitle: "Turn an intention into a useful session.", systemImage: "checklist", category: .planning, tags: ["plan", "reflect"], route: .planExecuteReflect, supportsActiveSession: true, toolID: .planExecuteReflect, capabilities: [.timed, .producesResult, .supportsActiveSession, .supportsRecovery]),
+        .init(id: "rhythm", title: "Rhythm Accuracy", subtitle: "Measure pulse and timing accuracy.", systemImage: "waveform.path", category: .listening, tags: ["rhythm", "accuracy"], route: .rhythm, supportsActiveSession: true, toolID: .rhythm, capabilities: [.timed, .microphone, .producesResult, .supportsActiveSession, .supportsRecovery]),
+        .init(id: "intonation", title: "Intonation", subtitle: "Practice pitch with visual feedback.", systemImage: "tuningfork", category: .listening, tags: ["pitch", "scales"], route: .intonation, supportsActiveSession: true, toolID: .intonation, capabilities: [.timed, .microphone, .playback, .producesResult, .supportsActiveSession, .supportsRecovery]),
+        .init(id: "run-through", title: "Run-through", subtitle: "Perform without stopping, then review.", systemImage: "record.circle", category: .performance, tags: ["performance", "record"], route: .runThrough, supportsActiveSession: true, toolID: .runThrough, capabilities: [.timed, .microphone, .recording, .producesResult, .supportsActiveSession, .supportsRecovery])
     ]
 
     private var filteredItems: [PracticeLibraryItem] {
         items.filter { item in
-            (!contextualOnly || item.supportsActiveSession)
+            let matchesScope: Bool = switch scope {
+            case .all: true
+            case .favorites: isFavorite(item.id)
+            case .recent: recentDates[item.id] != nil
+            }
+            return matchesScope
             && (query.isEmpty
                 || item.title.localizedCaseInsensitiveContains(query)
                 || item.subtitle.localizedCaseInsensitiveContains(query)
                 || item.tags.contains { $0.localizedCaseInsensitiveContains(query) })
         }
+        .sorted { lhs, rhs in
+            if lhs.id == "smart-coach" { return true }
+            if rhs.id == "smart-coach" { return false }
+            let lhsRecent = recentDates[lhs.id] ?? .distantPast
+            let rhsRecent = recentDates[rhs.id] ?? .distantPast
+            if lhsRecent != rhsRecent { return lhsRecent > rhsRecent }
+            if lhs.category != rhs.category { return lhs.category.rawValue < rhs.category.rawValue }
+            return lhs.title < rhs.title
+        }
+    }
+
+    private var recentDates: [String: Date] {
+        Dictionary(
+            uniqueKeysWithValues: recentsRaw.split(separator: ";").compactMap { entry in
+                let parts = entry.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2,
+                      let interval = TimeInterval(parts[1]) else { return nil }
+                return (String(parts[0]), Date(timeIntervalSince1970: interval))
+            }
+        )
     }
 
     var body: some View {
         StudioQuestScrollPage(showsIndicators: true) {
-            LazyVStack(spacing: 10) {
-                ForEach(filteredItems) { item in
-                    StudioQuestRowSurface {
-                        HStack(spacing: 14) {
-                            NavigationLink(value: item.route) {
-                                HStack(spacing: 14) {
-                                    Image(systemName: item.systemImage)
-                                        .font(.headline)
-                                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
-                                        .frame(width: 42, height: 42)
-                                        .background(StudioQuestTokens.ColorRole.cobalt.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(item.title)
-                                            .font(.headline)
-                                        Text(item.subtitle)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(
-                                TapGesture().onEnded {
-                                    PracticeAnalytics.record(.toolOpened(item.id))
-                                }
-                            )
-                            Spacer()
-                            Button {
-                                toggleFavorite(item.id)
-                            } label: {
-                                Image(systemName: isFavorite(item.id) ? "star.fill" : "star")
-                                    .foregroundStyle(isFavorite(item.id) ? StudioQuestTokens.ColorRole.gold : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(isFavorite(item.id) ? "Remove from favorites" : "Add to favorites")
+            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                StudioQuestToolHero(
+                    title: contextualOnly ? "Practice tools" : "Practice Library",
+                    subtitle: contextualOnly
+                        ? "Choose a tool to use without leaving this session."
+                        : "Focused utilities for planning, listening, timing, and performance.",
+                    systemImage: "books.vertical.fill"
+                )
+
+                StudioQuestFlowLayout {
+                    ForEach(Scope.allCases) { option in
+                        StudioQuestChoiceChip(
+                            title: LocalizedStringKey(option.rawValue),
+                            isSelected: scope == option
+                        ) {
+                            scope = option
+                        }
+                        .accessibilityIdentifier("library.scope.\(option.rawValue.lowercased())")
+                    }
+                }
+
+                if filteredItems.isEmpty {
+                    StudioQuestEmptyState(
+                        title: scope == .favorites ? "No favorite tools yet" : "No tools found",
+                        message: scope == .favorites
+                            ? "Use the star on a tool to keep it close."
+                            : "Try another search or show all tools.",
+                        systemImage: scope == .favorites ? "star" : "magnifyingglass",
+                        actionTitle: "Show all tools"
+                    ) {
+                        query = ""
+                        scope = .all
+                    }
+                } else {
+                    LazyVStack(spacing: StudioQuestTokens.Spacing.sm) {
+                        ForEach(filteredItems) { item in
+                            libraryRow(item)
                         }
                     }
                 }
+
+                if let unavailableMessage {
+                    StudioQuestInlineStatus(text: unavailableMessage, kind: .warning)
+                }
             }
-            .padding(.top, 12)
+            .padding(.top, StudioQuestTokens.Spacing.md)
         }
-        .navigationTitle(contextualOnly ? "Practice tools" : "Practice Library")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Search tools")
+    }
+
+    private func libraryRow(_ item: PracticeLibraryItem) -> some View {
+        let available = !contextualOnly || item.supportsActiveSession
+        return HStack(spacing: 0) {
+            Group {
+                if available {
+                    NavigationLink(value: item.route) {
+                        libraryLabel(item, available: true)
+                    }
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            markRecent(item.id)
+                            PracticeAnalytics.record(.toolOpened(item.id))
+                        }
+                    )
+                } else {
+                    Button {
+                        explainUnavailable(item)
+                    } label: {
+                        libraryLabel(item, available: false)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("library.tool.\(item.id)")
+            .accessibilityHint(
+                available
+                    ? "Opens \(item.title)"
+                    : "Explains why this tool is unavailable"
+            )
+
+            Button {
+                toggleFavorite(item.id)
+            } label: {
+                Image(systemName: isFavorite(item.id) ? "star.fill" : "star")
+                    .font(.headline)
+                    .foregroundStyle(
+                        isFavorite(item.id)
+                            ? StudioQuestTokens.ColorRole.gold
+                            : Color.secondary
+                    )
+                    .frame(width: 54, height: 76)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                isFavorite(item.id)
+                    ? "Remove \(item.title) from favorites"
+                    : "Add \(item.title) to favorites"
+            )
+        }
+        .studioQuestSurface()
+        .opacity(available ? 1 : 0.72)
+    }
+
+    private func libraryLabel(
+        _ item: PracticeLibraryItem,
+        available: Bool
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: item.systemImage)
+                .font(.headline)
+                .foregroundStyle(
+                    available
+                        ? StudioQuestTokens.ColorRole.cobalt
+                        : Color.secondary
+                )
+                .frame(width: 44, height: 44)
+                .background(
+                    (available
+                        ? StudioQuestTokens.ColorRole.cobalt
+                        : Color.secondary).opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(StudioQuestTokens.Typography.cardTitle)
+                    if item.id == "smart-coach" {
+                        Text("Coach")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(StudioQuestTokens.ColorRole.violet)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                StudioQuestTokens.ColorRole.violet.opacity(0.10),
+                                in: Capsule()
+                            )
+                    }
+                }
+                Text(
+                    available
+                        ? item.subtitle
+                        : "Available outside the active session"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Text(item.category.rawValue)
+                    if item.supportsActiveSession {
+                        Label("Session-ready", systemImage: "link")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: available ? "chevron.right" : "lock.fill")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.leading, 14)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .contentShape(Rectangle())
+        .foregroundStyle(.primary)
     }
 
     private func isFavorite(_ id: String) -> Bool {
         Set(favoritesRaw.split(separator: ",").map(String.init)).contains(id)
+    }
+
+    private func explainUnavailable(_ item: PracticeLibraryItem) {
+        unavailableMessage = "\(item.title) starts its own practice structure. Finish the current session, then open it from the full Practice Library."
     }
 
     private func toggleFavorite(_ id: String) {
@@ -563,6 +728,16 @@ struct PracticeLibraryView: View {
             values.insert(id)
         }
         favoritesRaw = values.sorted().joined(separator: ",")
+    }
+
+    private func markRecent(_ id: String) {
+        var values = recentDates
+        values[id] = .now
+        recentsRaw = values
+            .sorted { $0.value > $1.value }
+            .prefix(8)
+            .map { "\($0.key)=\($0.value.timeIntervalSince1970)" }
+            .joined(separator: ";")
     }
 }
 
@@ -642,20 +817,26 @@ private struct PracticeStudioCheckInOverlay: View {
 }
 
 struct StudioQuestMetronomeToolView: View {
-    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
-
     var body: some View {
-        StudioQuestMetronomeToolContent(engine: coordinator.metronome)
+        StudioQuestMetronomeToolContent()
     }
 }
 
 private struct StudioQuestMetronomeToolContent: View {
-    @ObservedObject var engine: MetronomeEngine
+    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("pb.tools.metronome.bpm") private var bpm = 80
     @AppStorage("pb.tools.metronome.beatsPerBar") private var beatsPerBar = 4
     @AppStorage("pb.tools.metronome.subdivision") private var subdivisionRaw = MetronomeEngine.Subdivision.none.rawValue
     @AppStorage("pb.tools.metronome.soundStyle") private var soundRaw = MetronomeEngine.SoundStyle.click.rawValue
+    @State private var statusMessage: String?
+    @State private var statusKind: StudioQuestInlineStatus.Kind = .information
+    @State private var replaceConfirmationPresented = false
+
+    private var engine: MetronomeEngine { coordinator.metronome }
+    private var isContextual: Bool {
+        coordinator.toolLaunchContext?.parentSessionID != nil
+    }
 
     var body: some View {
         StudioQuestScrollPage {
@@ -724,19 +905,29 @@ private struct StudioQuestMetronomeToolContent: View {
 
                 Button {
                     if engine.isRunning {
-                        engine.stop()
+                        stopMetronome()
                     } else {
-                        engine.setBPM(bpm)
-                        engine.start(
-                            beatsPerBar: beatsPerBar,
-                            subdivision: MetronomeEngine.Subdivision(rawValue: subdivisionRaw) ?? .none,
-                            soundStyle: MetronomeEngine.SoundStyle(rawValue: soundRaw) ?? .click
-                        )
+                        requestStart()
                     }
                 } label: {
                     Label(engine.isRunning ? "Stop metronome" : "Start metronome", systemImage: engine.isRunning ? "stop.fill" : "play.fill")
                 }
                 .buttonStyle(StudioQuestPrimaryButtonStyle())
+
+                if coordinator.activeToolID == .metronome,
+                   !isContextual,
+                   coordinator.elapsedSeconds > 0 {
+                    Button("Finish practice and reflect") {
+                        stopMetronome()
+                        coordinator.studioPresented = true
+                        coordinator.requestFinish()
+                    }
+                    .buttonStyle(StudioQuestSecondaryButtonStyle())
+                }
+
+                if let statusMessage {
+                    StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                }
             }
             .padding(.top, 20)
         }
@@ -755,6 +946,29 @@ private struct StudioQuestMetronomeToolContent: View {
         .onChange(of: beatsPerBar) { _, _ in applyConfiguration() }
         .onChange(of: subdivisionRaw) { _, _ in applyConfiguration() }
         .onChange(of: soundRaw) { _, _ in applyConfiguration() }
+        .confirmationDialog(
+            "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
+            isPresented: $replaceConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Replace and start") {
+                Task { await startMetronome(replacingAudio: true) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Only one audio utility can run at a time.")
+        }
+        .onDisappear {
+            engine.stop()
+            coordinator.audioSession.release(.metronome)
+            guard coordinator.activeToolID == .metronome else { return }
+            if isContextual {
+                coordinator.detachTool()
+            } else {
+                coordinator.pauseToolActivity()
+                coordinator.pause()
+            }
+        }
     }
 
     private func applyConfiguration() {
@@ -764,19 +978,114 @@ private struct StudioQuestMetronomeToolContent: View {
             soundStyle: MetronomeEngine.SoundStyle(rawValue: soundRaw) ?? .click
         )
     }
+
+    private func requestStart() {
+        if let activeTool = coordinator.activeToolID, activeTool != .metronome {
+            statusMessage = "Finish or close \(activeTool.title) before starting the metronome."
+            statusKind = .warning
+            return
+        }
+        if let owner = coordinator.audioSession.owner, owner != .metronome {
+            replaceConfirmationPresented = true
+            return
+        }
+        Task { await startMetronome(replacingAudio: false) }
+    }
+
+    private func startMetronome(replacingAudio: Bool) async {
+        if let owner = coordinator.audioSession.owner, owner != .metronome {
+            guard replacingAudio, replaceAudioOwner(owner) else { return }
+        }
+        do {
+            try await coordinator.audioSession.claim(
+                .metronome,
+                requirements: .playback
+            )
+        } catch {
+            statusMessage = (error as? LocalizedError)?.errorDescription
+                ?? "The metronome could not start."
+            statusKind = .error
+            return
+        }
+
+        if coordinator.activeToolID == nil {
+            if coordinator.hasActivePractice {
+                coordinator.attachTool(.metronome)
+                if !coordinator.isRunning { coordinator.resume() }
+            } else {
+                coordinator.beginFocusedTool(
+                    .metronome,
+                    title: "Metronome practice",
+                    durationMinutes: 10,
+                    source: .library
+                )
+            }
+        } else if !coordinator.isRunning {
+            coordinator.resume()
+        }
+        coordinator.startToolActivity()
+        engine.setBPM(bpm)
+        engine.start(
+            beatsPerBar: beatsPerBar,
+            subdivision: MetronomeEngine.Subdivision(rawValue: subdivisionRaw) ?? .none,
+            soundStyle: MetronomeEngine.SoundStyle(rawValue: soundRaw) ?? .click
+        )
+        statusMessage = "Metronome running."
+        statusKind = .success
+    }
+
+    private func stopMetronome() {
+        engine.stop()
+        coordinator.audioSession.release(.metronome)
+        guard coordinator.activeToolID == .metronome else { return }
+        coordinator.pauseToolActivity()
+        if !isContextual {
+            coordinator.pause()
+        }
+        statusMessage = "Metronome stopped."
+        statusKind = .information
+    }
+
+    private func replaceAudioOwner(_ owner: PracticeAudioOwner) -> Bool {
+        switch owner {
+        case .tuner:
+            coordinator.tuner.stopListening()
+            coordinator.tuner.stopReferenceTone()
+        case .smartLoop, .metronome:
+            coordinator.metronome.stop()
+        default:
+            statusMessage = "\(owner.displayName) cannot be replaced safely. Close it first."
+            statusKind = .warning
+            return false
+        }
+        coordinator.audioSession.release(owner)
+        return true
+    }
 }
 
 struct StudioQuestTunerToolView: View {
-    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
-
     var body: some View {
-        StudioQuestTunerToolContent(engine: coordinator.tuner)
+        StudioQuestTunerToolContent()
     }
 }
 
 private struct StudioQuestTunerToolContent: View {
-    @ObservedObject var engine: TunerEngine
+    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @AppStorage("pb.tools.tuner.referenceHz") private var referenceHz = 440
+    @State private var statusMessage: String?
+    @State private var statusKind: StudioQuestInlineStatus.Kind = .information
+    @State private var replaceConfirmationPresented = false
+    @State private var pendingAudioAction: PendingAudioAction?
+
+    private enum PendingAudioAction {
+        case listening
+        case referenceTone
+    }
+
+    private var engine: TunerEngine { coordinator.tuner }
+    private var isContextual: Bool {
+        coordinator.toolLaunchContext?.parentSessionID != nil
+    }
 
     var body: some View {
         StudioQuestScrollPage {
@@ -806,7 +1115,12 @@ private struct StudioQuestTunerToolContent: View {
                         }
 
                         Button {
-                            engine.toggleReferenceTone(frequency: Double(referenceHz))
+                            if engine.isReferenceTonePlaying {
+                                engine.stopReferenceTone()
+                                releaseAudioIfIdle()
+                            } else {
+                                requestAudio(for: .referenceTone)
+                            }
                         } label: {
                             Label(
                                 engine.isReferenceTonePlaying ? "Stop reference tone" : "Play reference tone",
@@ -823,11 +1137,31 @@ private struct StudioQuestTunerToolContent: View {
                 }
 
                 Button {
-                    engine.toggleListening()
+                    if engine.isListening {
+                        engine.stopListening()
+                        releaseAudioIfIdle()
+                    } else {
+                        requestAudio(for: .listening)
+                    }
                 } label: {
                     Label(engine.isListening ? "Stop listening" : "Start tuner", systemImage: engine.isListening ? "stop.fill" : "mic.fill")
                 }
                 .buttonStyle(StudioQuestPrimaryButtonStyle())
+
+                if coordinator.activeToolID == .tuner,
+                   !isContextual,
+                   coordinator.elapsedSeconds > 0 {
+                    Button("Finish practice and reflect") {
+                        stopTuner()
+                        coordinator.studioPresented = true
+                        coordinator.requestFinish()
+                    }
+                    .buttonStyle(StudioQuestSecondaryButtonStyle())
+                }
+
+                if let statusMessage {
+                    StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                }
             }
             .padding(.top, 20)
         }
@@ -838,6 +1172,32 @@ private struct StudioQuestTunerToolContent: View {
                 engine.startReferenceTone(frequency: Double(value))
             }
         }
+        .confirmationDialog(
+            "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
+            isPresented: $replaceConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Replace and continue") {
+                if let pendingAudioAction {
+                    Task { await startAudio(pendingAudioAction, replacingAudio: true) }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingAudioAction = nil
+            }
+        } message: {
+            Text("Only one microphone or playback utility can run at a time.")
+        }
+        .onDisappear {
+            stopTuner()
+            guard coordinator.activeToolID == .tuner else { return }
+            if isContextual {
+                coordinator.detachTool()
+            } else {
+                coordinator.pauseToolActivity()
+                coordinator.pause()
+            }
+        }
     }
 
     private var centsLabel: String {
@@ -845,6 +1205,126 @@ private struct StudioQuestTunerToolContent: View {
         let cents = Int(engine.detectedCents.rounded())
         if abs(cents) <= 1 { return "In tune" }
         return cents < 0 ? "\(abs(cents)) cents flat" : "\(cents) cents sharp"
+    }
+
+    private func requestAudio(for action: PendingAudioAction) {
+        if let activeTool = coordinator.activeToolID, activeTool != .tuner {
+            statusMessage = "Finish or close \(activeTool.title) before starting the tuner."
+            statusKind = .warning
+            return
+        }
+        pendingAudioAction = action
+        if let owner = coordinator.audioSession.owner, owner != .tuner {
+            replaceConfirmationPresented = true
+            return
+        }
+        Task { await startAudio(action, replacingAudio: false) }
+    }
+
+    private func startAudio(
+        _ action: PendingAudioAction,
+        replacingAudio: Bool
+    ) async {
+        if let owner = coordinator.audioSession.owner, owner != .tuner {
+            guard replacingAudio, replaceAudioOwner(owner) else { return }
+        }
+
+        var requirements: PracticeAudioRequirement = []
+        if action == .listening || engine.isListening {
+            requirements.insert(.microphone)
+        }
+        if action == .referenceTone || engine.isReferenceTonePlaying {
+            requirements.insert(.playback)
+        }
+
+        do {
+            try await coordinator.audioSession.claim(
+                .tuner,
+                requirements: requirements
+            )
+        } catch {
+            statusMessage = (error as? LocalizedError)?.errorDescription
+                ?? "The tuner could not start."
+            statusKind = .error
+            pendingAudioAction = nil
+            return
+        }
+
+        switch action {
+        case .listening:
+            engine.startListening()
+            if engine.isListening {
+                activateToolRuntime()
+            }
+            statusMessage = engine.isListening
+                ? "Listening for pitch."
+                : (engine.statusMessage ?? "The tuner could not start listening.")
+            statusKind = engine.isListening ? .success : .error
+        case .referenceTone:
+            engine.startReferenceTone(frequency: Double(referenceHz))
+            if engine.isReferenceTonePlaying {
+                activateToolRuntime()
+            }
+            statusMessage = engine.isReferenceTonePlaying
+                ? "Playing reference tone."
+                : (engine.statusMessage ?? "The reference tone could not start.")
+            statusKind = engine.isReferenceTonePlaying ? .success : .error
+        }
+        if !engine.isListening, !engine.isReferenceTonePlaying {
+            coordinator.audioSession.release(.tuner)
+        }
+        pendingAudioAction = nil
+    }
+
+    private func activateToolRuntime() {
+        if coordinator.activeToolID == nil {
+            if coordinator.hasActivePractice {
+                coordinator.attachTool(.tuner)
+                if !coordinator.isRunning { coordinator.resume() }
+            } else {
+                coordinator.beginFocusedTool(
+                    .tuner,
+                    title: "Tuner practice",
+                    durationMinutes: 10,
+                    source: .library
+                )
+            }
+        } else if !coordinator.isRunning {
+            coordinator.resume()
+        }
+        coordinator.startToolActivity()
+    }
+
+    private func releaseAudioIfIdle() {
+        guard !engine.isListening, !engine.isReferenceTonePlaying else { return }
+        coordinator.audioSession.release(.tuner)
+        guard coordinator.activeToolID == .tuner else { return }
+        coordinator.pauseToolActivity()
+        if !isContextual {
+            coordinator.pause()
+        }
+    }
+
+    private func stopTuner() {
+        engine.stopListening()
+        engine.stopReferenceTone()
+        coordinator.audioSession.release(.tuner)
+    }
+
+    private func replaceAudioOwner(_ owner: PracticeAudioOwner) -> Bool {
+        switch owner {
+        case .metronome, .smartLoop:
+            coordinator.metronome.stop()
+        case .tuner:
+            coordinator.tuner.stopListening()
+            coordinator.tuner.stopReferenceTone()
+        default:
+            statusMessage = "\(owner.displayName) cannot be replaced safely. Close it first."
+            statusKind = .warning
+            return false
+        }
+        coordinator.audioSession.release(owner)
+        return true
     }
 }
 

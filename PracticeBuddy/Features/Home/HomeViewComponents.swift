@@ -140,9 +140,13 @@ final class MetronomeEngine: ObservableObject {
     private var shouldResumeAfterInterruption = false
     private var interruptionObserver: NSObjectProtocol?
     private var routeChangeObserver: NSObjectProtocol?
+    private let managesAudioSession: Bool
 
-    init() {
-        installAudioSessionObservers()
+    init(managesAudioSession: Bool = true) {
+        self.managesAudioSession = managesAudioSession
+        if managesAudioSession {
+            installAudioSessionObservers()
+        }
     }
 
     deinit {
@@ -167,7 +171,9 @@ final class MetronomeEngine: ObservableObject {
         self.subdivision = subdivision
         self.soundStyle = soundStyle
 
-        setAudioSessionIfNeeded()
+        if managesAudioSession {
+            setAudioSessionIfNeeded()
+        }
         setupAudioIfNeeded()
         rebuildBuffersIfPossible()
         scheduleLoopPlaybackIfPossible()

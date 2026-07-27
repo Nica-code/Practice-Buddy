@@ -82,8 +82,8 @@ final class PracticeSessionCoordinator: ObservableObject {
 
     let appShield = PracticeAppShieldManager()
     let checkInManager = PracticeCheckInManager()
-    let metronome = MetronomeEngine()
-    let tuner = TunerEngine()
+    let metronome = MetronomeEngine(managesAudioSession: false)
+    let tuner = TunerEngine(managesAudioSession: false)
     let audioSession = PracticeAudioSessionCoordinator()
 
     private let defaults: UserDefaults
@@ -414,6 +414,7 @@ final class PracticeSessionCoordinator: ObservableObject {
     /// Starts a standalone practice tool through the same timer, persistence,
     /// verification, and Dock runtime as Practice Studio. Contextual tools use
     /// `attachTool` instead so the parent session clock remains untouched.
+    @discardableResult
     func beginFocusedTool(
         _ toolID: PracticeToolID,
         title: String? = nil,
@@ -422,7 +423,13 @@ final class PracticeSessionCoordinator: ObservableObject {
         source: PracticeLaunchSource = .library,
         questID: String? = nil,
         smartCoachPlanID: String? = nil
-    ) {
+    ) -> Bool {
+        guard !hasActivePractice, activeToolID == nil else {
+            reportToolError(
+                "Another practice activity is already open. Finish it or attach this tool to that session."
+            )
+            return false
+        }
         let sessionID = UUID()
         let toolContext = PracticeToolLaunchContext(
             toolID: toolID,
@@ -462,6 +469,7 @@ final class PracticeSessionCoordinator: ObservableObject {
         persistActivityIdentity()
         resume()
         PracticeAnalytics.record(.practiceStarted(source: source.rawValue))
+        return true
     }
 
     @discardableResult
@@ -469,7 +477,16 @@ final class PracticeSessionCoordinator: ObservableObject {
         _ toolID: PracticeToolID,
         source: PracticeLaunchSource = .activeSession,
         questID: String? = nil
-    ) -> PracticeToolLaunchContext {
+    ) -> PracticeToolLaunchContext? {
+        if let activeToolID {
+            guard activeToolID == toolID else {
+                reportToolError(
+                    "\(activeToolID.title) is already active. Finish or close it before opening \(toolID.title)."
+                )
+                return nil
+            }
+            return toolLaunchContext
+        }
         let context = PracticeToolLaunchContext(
             toolID: toolID,
             source: source,
@@ -539,7 +556,6 @@ final class PracticeSessionCoordinator: ObservableObject {
             state.accumulatedSeconds = result.durationSeconds
             state.phase = .completed
             state.phaseStartedAt = nil
-            state.recoveryPayloadJSON = nil
             toolActivityState = state
         }
         persistActivityIdentity()
@@ -677,6 +693,17 @@ final class PracticeSessionCoordinator: ObservableObject {
         reflectionPresented = false
         studioPresented = false
     }
+
+    #if DEBUG
+    func resetForDeterministicQA() {
+        PracticeLiveActivityManager.shared.end()
+        stopAllTools()
+        reset(keepLastSetup: true)
+        reflectionPresented = false
+        studioPresented = false
+        momentPrompt = nil
+    }
+    #endif
 
     func configureVerificationIfNeeded() async {
         guard isVerified, distractionBlockEnabled else { return }

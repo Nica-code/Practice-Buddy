@@ -68,6 +68,7 @@ struct WarmUpGeneratorView: View {
     @State private var pendingResult: PracticeToolResult?
     @State private var completedDuration = 0
     @State private var didFinish = false
+    @State private var saveFailed = false
 
     private var ownsRuntime: Bool {
         coordinator.activeToolID == .warmUp
@@ -330,12 +331,16 @@ struct WarmUpGeneratorView: View {
                 )
             }
 
-            Button("Done") {
-                coordinator.detachTool()
-                dismiss()
+            Button(saveFailed ? "Try saving again" : "Done") {
+                if saveFailed, let pendingResult {
+                    saveStandaloneResult(pendingResult)
+                } else {
+                    coordinator.detachTool()
+                    dismiss()
+                }
             }
             .buttonStyle(StudioQuestPrimaryButtonStyle())
-            .accessibilityIdentifier("warmup.done")
+            .accessibilityIdentifier(saveFailed ? "warmup.retrySave" : "warmup.done")
         }
     }
 
@@ -421,6 +426,7 @@ struct WarmUpGeneratorView: View {
         pendingResult = nil
         completedDuration = 0
         didFinish = false
+        saveFailed = false
         if announce {
             showStatus("Your warm-up is ready.", kind: .success)
         }
@@ -440,7 +446,7 @@ struct WarmUpGeneratorView: View {
         }
 
         if !ownsRuntime {
-            if coordinator.isRunning || coordinator.elapsedSeconds > 0 {
+            if coordinator.hasActivePractice {
                 coordinator.attachTool(.warmUp)
                 if !coordinator.isRunning {
                     coordinator.resume()
@@ -564,9 +570,11 @@ struct WarmUpGeneratorView: View {
             coordinator.completeAfterSave(savedSessionID: savedID)
             pendingResult = nil
             didFinish = true
+            saveFailed = false
             showStatus("Warm-up saved.", kind: .success)
         } else {
             didFinish = true
+            saveFailed = true
             showStatus(
                 "The warm-up could not be saved. Your result is still here—try again.",
                 kind: .error
@@ -587,8 +595,17 @@ struct WarmUpGeneratorView: View {
         generatedSteps = state.steps
         stepIndex = min(max(0, state.stepIndex), max(0, state.steps.count - 1))
         stepStartedAtElapsed = state.stepStartedAtElapsed
+        if let result = coordinator.latestToolResult,
+           result.toolID == .warmUp {
+            pendingResult = result
+            completedDuration = result.durationSeconds
+            didFinish = true
+            saveFailed = coordinator.toolLaunchContext?.parentSessionID == nil
+        }
         showStatus(
-            coordinator.toolActivityState?.phase == .running
+            didFinish
+                ? "Warm-up result ready to save."
+                : coordinator.toolActivityState?.phase == .running
                 ? "Warm-up restored."
                 : "Warm-up ready to resume.",
             kind: .information

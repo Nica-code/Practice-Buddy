@@ -25,6 +25,11 @@ final class TunerEngine: ObservableObject {
     private var tonePhase: Double = 0
     private var toneFrequency: Double = 440
     private var sampleCounter = 0
+    private let managesAudioSession: Bool
+
+    init(managesAudioSession: Bool = true) {
+        self.managesAudioSession = managesAudioSession
+    }
 
     func toggleReferenceTone(frequency: Double) {
         if isReferenceTonePlaying {
@@ -36,7 +41,9 @@ final class TunerEngine: ObservableObject {
 
     func startReferenceTone(frequency: Double) {
         toneFrequency = frequency
-        configureAudioSession()
+        if managesAudioSession {
+            configureAudioSession()
+        }
 
         if toneNode == nil {
             let format = toneEngine.outputNode.outputFormat(forBus: 0)
@@ -108,7 +115,9 @@ final class TunerEngine: ObservableObject {
     }
 
     func startListening() {
-        configureAudioSession()
+        if managesAudioSession {
+            configureAudioSession()
+        }
 
         do {
             let input = inputEngine.inputNode

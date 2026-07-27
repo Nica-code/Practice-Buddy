@@ -132,7 +132,10 @@ final class SessionStore: ObservableObject {
     /// tool-specific adapters during their rebuild; the canonical result is
     /// retained here so History never loses attribution.
     @discardableResult
-    func savePracticeCompletion(_ payload: PracticeSavePayload) -> Bool {
+    func savePracticeCompletion(
+        _ payload: PracticeSavePayload,
+        insertSpecializedResult: ((ModelContext) throws -> Void)? = nil
+    ) -> Bool {
         guard let modelContext else {
             PBLog.sessionStore.error("savePracticeCompletion failed: modelContext is nil")
             return false
@@ -176,6 +179,11 @@ final class SessionStore: ObservableObject {
         modelContext.insert(session)
 
         do {
+            try insertSpecializedResultIfNeeded(
+                payload.toolResult,
+                context: modelContext
+            )
+            try insertSpecializedResult?(modelContext)
             try modelContext.save()
             lastSavedSessionID = session.id
             reload()
@@ -197,6 +205,52 @@ final class SessionStore: ObservableObject {
                 message: "Your practice session couldn't be saved. Nothing was awarded. Please try again."
             )
             return false
+        }
+    }
+
+    private func insertSpecializedResultIfNeeded(
+        _ result: PracticeToolResult?,
+        context: ModelContext
+    ) throws {
+        guard let result else { return }
+        switch result.toolID {
+        case .smartLoop:
+            guard let data = result.payloadJSON.data(using: .utf8) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let payload = try JSONDecoder().decode(
+                SmartLoopResultPayload.self,
+                from: data
+            )
+            context.insert(
+                LoopPracticeLogModel(
+                    id: result.id,
+                    date: payload.completedAt,
+                    loopsCompleted: payload.loopsCompleted,
+                    totalWorkSeconds: payload.totalWorkSeconds,
+                    loopDurationSeconds: payload.settings.loopDurationSeconds,
+                    restSeconds: payload.settings.restDurationSeconds,
+                    tempoStartBPM: payload.settings.metronomeEnabled
+                        ? payload.settings.startingTempoBPM
+                        : 0,
+                    tempoEndBPM: payload.settings.metronomeEnabled
+                        ? payload.endingTempoBPM
+                        : 0,
+                    targetLoops: payload.settings.runsUntilStopped
+                        ? 0
+                        : payload.settings.targetLoops,
+                    tagsRaw: payload.tags.joined(separator: ","),
+                    tempoLadderEnabled: payload.settings.tempoLadderEnabled,
+                    ladderCleanLoopsRequired: payload.settings.tempoLadderEnabled
+                        ? payload.settings.cleanLoopsRequired
+                        : 0,
+                    parentSessionID: payload.parentSessionID,
+                    launchSource: payload.launchSource.rawValue,
+                    toolVersion: payload.toolVersion
+                )
+            )
+        default:
+            break
         }
     }
 

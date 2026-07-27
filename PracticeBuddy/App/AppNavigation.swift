@@ -37,6 +37,27 @@ enum AppDestination: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum StudioQuestQAToolState: String, Equatable {
+    case setup
+    case running
+    case paused
+    case completed
+    case permissionDenied
+    case saveError
+    case recovered
+}
+
+private struct StudioQuestQAToolStateKey: EnvironmentKey {
+    static let defaultValue: StudioQuestQAToolState? = nil
+}
+
+extension EnvironmentValues {
+    var studioQuestQAToolState: StudioQuestQAToolState? {
+        get { self[StudioQuestQAToolStateKey.self] }
+        set { self[StudioQuestQAToolStateKey.self] = newValue }
+    }
+}
+
 indirect enum AppRoute: Hashable {
     case practiceStudio
     case practiceSetup(preset: PracticePreset?)
@@ -303,6 +324,7 @@ struct AppLaunchConfiguration: Equatable {
     let fixtureSet: FixtureSet
     let appearance: Appearance?
     let qaState: String?
+    let toolState: StudioQuestQAToolState?
     let practiceState: PracticeState
     let roomEditorPresented: Bool
     let isQA: Bool
@@ -344,6 +366,7 @@ struct AppLaunchConfiguration: Equatable {
             fixtureSet = .none
             appearance = nil
             qaState = nil
+            toolState = nil
             practiceState = .idle
             roomEditorPresented = false
             isQA = false
@@ -364,6 +387,8 @@ struct AppLaunchConfiguration: Equatable {
         appearance = Self.value(after: "--qa-appearance", in: arguments)
             .flatMap(Appearance.init(rawValue:))
         qaState = Self.value(after: "--qa-state", in: arguments)
+        toolState = Self.value(after: "--qa-tool-state", in: arguments)
+            .flatMap(StudioQuestQAToolState.init(rawValue:))
         practiceState = Self.value(after: "--qa-practice-state", in: arguments)
             .flatMap(PracticeState.init(rawValue:))
             ?? (arguments.contains("--qa-open-studio") ? .running : .idle)

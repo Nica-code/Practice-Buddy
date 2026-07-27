@@ -1,17 +1,6 @@
 import SwiftUI
-import SwiftData
-import Combine
 
 struct SmartLoopTimerView: View {
-    private enum Phase: String {
-        case idle
-        case work
-        case rest
-        case pausedWork
-        case pausedRest
-        case finished
-    }
-
     enum LoopTag: String, CaseIterable, Identifiable {
         case intonation
         case rhythm
@@ -25,6 +14,13 @@ struct SmartLoopTimerView: View {
     private struct LoopPreset: Codable, Identifiable {
         let id: UUID
         let name: String
+        let settings: SmartLoopSettings
+        let tags: [String]
+    }
+
+    private struct LegacyLoopPreset: Codable {
+        let id: UUID
+        let name: String
         let loopDuration: Int
         let restDuration: Int
         let targetLoops: Int
@@ -36,589 +32,990 @@ struct SmartLoopTimerView: View {
         let tempoLadderEnabled: Bool?
         let tempoLadderCleanLoops: Int?
         let tags: [String]
+
+        var migrated: LoopPreset {
+            LoopPreset(
+                id: id,
+                name: name,
+                settings: SmartLoopSettings(
+                    loopDurationSeconds: loopDuration,
+                    restDurationSeconds: restDuration,
+                    targetLoops: targetLoops,
+                    runsUntilStopped: false,
+                    metronomeEnabled: metronomeEnabled,
+                    startingTempoBPM: tempoStart,
+                    autoIncreaseEnabled: autoIncreaseEnabled,
+                    autoIncreaseEvery: autoIncreaseEvery,
+                    tempoIncreaseBPM: autoIncreaseBy,
+                    tempoLadderEnabled: tempoLadderEnabled ?? false,
+                    cleanLoopsRequired: tempoLadderCleanLoops ?? 3
+                ),
+                tags: tags
+            )
+        }
     }
 
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.studioQuestQAToolState) private var qaToolState
+    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var purchaseManager: PurchaseManager
 
-    @AppStorage("pb.loop.duration") private var loopDuration: Int = 45
-    @AppStorage("pb.loop.rest") private var restDuration: Int = 20
-    @AppStorage("pb.loop.targetLoops") private var targetLoops: Int = 8
-    @AppStorage("pb.loop.untilStop") private var untilStop: Bool = false
-    @AppStorage("pb.loop.metroEnabled") private var metronomeEnabled: Bool = true
-    @AppStorage("pb.loop.metroStartBPM") private var tempoStartBPM: Int = 72
-    @AppStorage("pb.loop.metroAutoEnabled") private var autoIncreaseEnabled: Bool = false
-    @AppStorage("pb.loop.metroAutoEvery") private var autoIncreaseEvery: Int = 2
-    @AppStorage("pb.loop.metroAutoBy") private var autoIncreaseBy: Int = 2
-    @AppStorage("pb.loop.tempoLadderEnabled") private var tempoLadderEnabled: Bool = false
-    @AppStorage("pb.loop.tempoLadderCleanLoops") private var tempoLadderCleanLoops: Int = 3
-    @AppStorage("pb.loop.presets.json") private var presetsRaw: String = ""
+    @AppStorage("pb.loop.duration") private var loopDuration = 45
+    @AppStorage("pb.loop.rest") private var restDuration = 20
+    @AppStorage("pb.loop.targetLoops") private var targetLoops = 8
+    @AppStorage("pb.loop.untilStop") private var untilStop = false
+    @AppStorage("pb.loop.metroEnabled") private var metronomeEnabled = true
+    @AppStorage("pb.loop.metroStartBPM") private var tempoStartBPM = 72
+    @AppStorage("pb.loop.metroAutoEnabled") private var autoIncreaseEnabled = false
+    @AppStorage("pb.loop.metroAutoEvery") private var autoIncreaseEvery = 2
+    @AppStorage("pb.loop.metroAutoBy") private var autoIncreaseBy = 2
+    @AppStorage("pb.loop.tempoLadderEnabled") private var tempoLadderEnabled = false
+    @AppStorage("pb.loop.tempoLadderCleanLoops") private var tempoLadderCleanLoops = 3
+    @AppStorage("pb.loop.presets.json") private var presetsRaw = ""
 
     @State private var selectedTags: Set<String> = []
-    @State private var phase: Phase = .idle
-    @State private var remainingSeconds: Int = 0
-    @State private var loopsCompleted: Int = 0
-    @State private var totalWorkSeconds: Int = 0
-    @State private var currentTempoBPM: Int = 72
-    @State private var runFinishedAt: Date?
-    @State private var showSavedPresetSheet: Bool = false
-    @State private var newPresetName: String = ""
+    @State private var runState: SmartLoopRunState?
     @State private var statusMessage: String?
-    @State private var saveToSessionHistory: Bool = true
-    @State private var cleanLoopsAtCurrentTempo: Int = 0
-    @State private var timerCancellable: AnyCancellable?
-    @StateObject private var metronome = MetronomeEngine()
+    @State private var statusKind: StudioQuestInlineStatus.Kind = .information
+    @State private var replaceAudioConfirmationPresented = false
+    @State private var presetNamePromptPresented = false
+    @State private var proPresented = false
+    @State private var newPresetName = ""
+    @State private var pendingResult: PracticeToolResult?
+    @State private var completedRun: SmartLoopRunState?
+    @State private var didFinish = false
+    @State private var didApplyQAState = false
 
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var hasResult: Bool { phase == .finished && loopsCompleted > 0 }
-    private var targetLoopValue: Int { max(1, targetLoops) }
+    private var settings: SmartLoopSettings {
+        SmartLoopSettings(
+            loopDurationSeconds: loopDuration,
+            restDurationSeconds: restDuration,
+            targetLoops: targetLoops,
+            runsUntilStopped: untilStop,
+            metronomeEnabled: metronomeEnabled,
+            startingTempoBPM: tempoStartBPM,
+            autoIncreaseEnabled: autoIncreaseEnabled,
+            autoIncreaseEvery: autoIncreaseEvery,
+            tempoIncreaseBPM: autoIncreaseBy,
+            tempoLadderEnabled: tempoLadderEnabled,
+            cleanLoopsRequired: tempoLadderCleanLoops
+        )
+    }
+
+    private var ownsRuntime: Bool {
+        coordinator.activeToolID == .smartLoop
+    }
+
+    private var isContextual: Bool {
+        coordinator.toolLaunchContext?.parentSessionID != nil
+    }
 
     private var decodedPresets: [LoopPreset] {
-        guard let data = presetsRaw.data(using: .utf8),
-              let presets = try? JSONDecoder().decode([LoopPreset].self, from: data) else {
+        guard let data = presetsRaw.data(using: .utf8) else {
             return []
         }
-        return presets
+        if let value = try? JSONDecoder().decode([LoopPreset].self, from: data) {
+            return value
+        }
+        return (try? JSONDecoder().decode([LegacyLoopPreset].self, from: data))?
+            .map(\.migrated)
+            ?? []
+    }
+
+    private var visibleState: SmartLoopRunState? {
+        runState ?? completedRun
     }
 
     var body: some View {
-        Form {
-            Section("Loop Setup") {
-                Stepper(L10n.f("Loop duration: %@ sec", "\(loopDuration)"), value: $loopDuration, in: 10...600, step: 5)
-                    .font(type.body)
-                Stepper(L10n.f("Rest: %@ sec", "\(restDuration)"), value: $restDuration, in: 0...180, step: 5)
-                    .font(type.body)
-
-                Toggle("Run until stop", isOn: $untilStop)
-                    .font(type.body)
-                if !untilStop {
-                    Stepper(L10n.f("Target loops: %@", "\(targetLoopValue)"), value: $targetLoops, in: 1...200)
-                        .font(type.body)
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Metronome Integration") {
-                Toggle("Use metronome during work", isOn: $metronomeEnabled)
-                    .font(type.body)
-
-                if metronomeEnabled {
-                    Stepper(L10n.f("Start tempo: %@ BPM", "\(tempoStartBPM)"), value: $tempoStartBPM, in: 40...220)
-                        .font(type.body)
-
-                    Toggle("Auto increase tempo", isOn: $autoIncreaseEnabled)
-                        .font(type.body)
-
-                    if autoIncreaseEnabled {
-                        Stepper(L10n.f("Every %@ loop(s)", "\(autoIncreaseEvery)"), value: $autoIncreaseEvery, in: 1...20)
-                            .font(type.body)
-                        Stepper(L10n.f("Increase by %@ BPM", "\(autoIncreaseBy)"), value: $autoIncreaseBy, in: 1...10)
-                            .font(type.body)
-                    }
-
-                    Toggle("Tempo Ladder (clean loops)", isOn: $tempoLadderEnabled)
-                        .font(type.body)
-                    if tempoLadderEnabled {
-                        Stepper(L10n.f("Clean loops to climb: %@", "\(tempoLadderCleanLoops)"), value: $tempoLadderCleanLoops, in: 1...10)
-                            .font(type.body)
-                        Text(L10n.f("Tap “Mark Loop Clean” during run-through. Tempo increases after %@ clean loops.", "\(tempoLadderCleanLoops)"))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Quick Tags") {
-                FlowRow(spacing: 8) {
-                    ForEach(LoopTag.allCases) { tag in
-                        SmartLoopTagChip(
-                            tag: tag,
-                            isSelected: selectedTags.contains(tag.rawValue),
-                            palette: palette,
-                            type: type
-                        ) {
-                            if selectedTags.contains(tag.rawValue) {
-                                selectedTags.remove(tag.rawValue)
-                            } else {
-                                selectedTags.insert(tag.rawValue)
-                            }
-                        }
-                    }
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Presets") {
-                Button("Save Current As Preset") {
-                    newPresetName = ""
-                    showSavedPresetSheet = true
-                }
-                .font(type.button)
-
-                if decodedPresets.isEmpty {
-                    Text("No saved presets yet.")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                } else {
-                    ForEach(decodedPresets) { preset in
-                        Button {
-                            applyPreset(preset)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(preset.name)
-                                    .font(type.body)
-                                    .foregroundStyle(palette.textPrimary)
-                                Text(L10n.f("%@s loop • %@s rest • %@ loops", "\(preset.loopDuration)", "\(preset.restDuration)", "\(preset.targetLoops)"))
-                                    .font(type.footnote)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Run") {
-                HStack {
-                    Text("Phase")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(LocalizedStringKey(phaseTitle))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-
-                HStack {
-                    Text("Remaining")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(DurationFormatter.string(from: max(0, remainingSeconds)))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-
-                HStack {
-                    Text("Loops completed")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text("\(loopsCompleted)")
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-
-                HStack {
-                    Text("Work time")
-                        .font(type.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Spacer()
-                    Text(DurationFormatter.string(from: totalWorkSeconds))
-                        .font(type.number)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-
-                if metronomeEnabled {
-                    HStack {
-                        Text("Current tempo")
-                            .font(type.body)
-                            .foregroundStyle(palette.textPrimary)
-                        Spacer()
-                        Text(L10n.f("%@ BPM", "\(currentTempoBPM)"))
-                            .font(type.number)
-                            .foregroundStyle(palette.textSecondary)
-                            .monospacedDigit()
-                    }
-                    if tempoLadderEnabled {
-                        HStack {
-                            Text("Clean loops")
-                                .font(type.body)
-                                .foregroundStyle(palette.textPrimary)
-                            Spacer()
-                            Text(L10n.f("%@/%@", "\(cleanLoopsAtCurrentTempo)", "\(tempoLadderCleanLoops)"))
-                                .font(type.number)
-                                .foregroundStyle(palette.textSecondary)
-                                .monospacedDigit()
-                        }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button(String(localized: String.LocalizationValue(primaryActionTitle))) {
-                        primaryAction()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .font(type.button)
-
-                    Button("Stop") {
-                        stopRun()
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.button)
-                    .disabled(phase == .idle)
-                }
-
-                if phase == .work && metronomeEnabled && tempoLadderEnabled {
-                    Button("Mark Loop Clean") {
-                        markCleanLoop()
-                    }
-                    .buttonStyle(.bordered)
-                    .font(type.button)
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            if hasResult {
-                Section("Summary") {
-                    Text(summaryText)
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-
-                    Toggle("Also save into session history", isOn: $saveToSessionHistory)
-                        .font(type.body)
-
-                    Button("Save Loop Log") {
-                        saveResult()
-                    }
-                    .font(type.button)
-                    .buttonStyle(.borderedProminent)
-                }
-                .listRowBackground(palette.surface)
+        StudioQuestToolPage(
+            title: "Smart Loop",
+            subtitle: "Alternate focused repetitions and deliberate rests, with a tempo ladder that rewards clean work.",
+            systemImage: "repeat"
+        ) {
+            if let runState, runState.phase != .idle, runState.phase != .finished {
+                livePanel(runState)
+            } else if let result = completedRun ?? runState,
+                      result.phase == .finished {
+                resultPanel(result)
+            } else {
+                setupPanel
+                tagsPanel
+                presetsPanel
             }
 
-            if let statusMessage, !statusMessage.isEmpty {
-                Section {
-                    Text(LocalizedStringKey(statusMessage))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
+            if let statusMessage {
+                StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                    .accessibilityIdentifier("smartloop.status")
             }
         }
-        .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            currentTempoBPM = tempoStartBPM
-            sanitizeInputs()
+        .task {
+            apply(settings)
+            restoreIfNeeded()
+            applyQAStateIfNeeded()
+        }
+        .onChange(of: coordinator.elapsedSeconds) {
+            advanceRun()
         }
         .onDisappear {
-            stopTicker()
-            metronome.stop()
+            preserveOnExit()
         }
-        .sheet(isPresented: $showSavedPresetSheet) {
+        .confirmationDialog(
+            "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
+            isPresented: $replaceAudioConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Replace and start") {
+                Task { await startRun(replacingAudio: true) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("PractiQuest allows one audio utility at a time so timing and recordings stay reliable.")
+        }
+        .alert("Save loop preset", isPresented: $presetNamePromptPresented) {
+            TextField("Preset name", text: $newPresetName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                savePreset()
+            }
+            .disabled(newPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Keep this loop, rest, tempo, and tag setup for another session.")
+        }
+        .sheet(isPresented: $proPresented) {
             NavigationStack {
-                Form {
-                    Section("Preset Name") {
-                        TextField("Example: Shift Ladder", text: $newPresetName)
-                    }
-                }
-                .navigationTitle("Save Preset")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showSavedPresetSheet = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            savePreset()
-                            showSavedPresetSheet = false
-                        }
-                        .disabled(newPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
+                StudioQuestProView()
             }
         }
     }
 
-    private var phaseTitle: String {
-        switch phase {
-        case .idle: return "Ready"
-        case .work: return "Work"
-        case .rest: return "Rest"
-        case .pausedWork, .pausedRest: return "Paused"
-        case .finished: return "Finished"
+    private var setupPanel: some View {
+        StudioQuestToolSetupPanel {
+            settingStepper(
+                title: "Loop",
+                value: $loopDuration,
+                range: 10...600,
+                step: 5,
+                formattedValue: "\(loopDuration) sec"
+            )
+            settingStepper(
+                title: "Rest",
+                value: $restDuration,
+                range: 0...180,
+                step: 5,
+                formattedValue: "\(restDuration) sec"
+            )
+
+            Toggle("Run until I stop", isOn: $untilStop)
+            if !untilStop {
+                settingStepper(
+                    title: "Target",
+                    value: $targetLoops,
+                    range: 1...200,
+                    step: 1,
+                    formattedValue: "\(targetLoops) loops"
+                )
+            }
+
+            Divider()
+
+            Toggle("Metronome during work", isOn: $metronomeEnabled)
+            if metronomeEnabled {
+                settingStepper(
+                    title: "Starting tempo",
+                    value: $tempoStartBPM,
+                    range: 40...220,
+                    step: 1,
+                    formattedValue: "\(tempoStartBPM) BPM"
+                )
+
+                DisclosureGroup("Tempo progression") {
+                    VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.md) {
+                        Toggle("Increase automatically", isOn: $autoIncreaseEnabled)
+                            .onChange(of: autoIncreaseEnabled) { _, enabled in
+                                if enabled { tempoLadderEnabled = false }
+                            }
+                        if autoIncreaseEnabled {
+                            settingStepper(
+                                title: "Advance every",
+                                value: $autoIncreaseEvery,
+                                range: 1...20,
+                                step: 1,
+                                formattedValue: "\(autoIncreaseEvery) loops"
+                            )
+                        }
+
+                        Toggle("Advance after clean loops", isOn: $tempoLadderEnabled)
+                            .onChange(of: tempoLadderEnabled) { _, enabled in
+                                if enabled { autoIncreaseEnabled = false }
+                            }
+                        if tempoLadderEnabled {
+                            settingStepper(
+                                title: "Clean loops needed",
+                                value: $tempoLadderCleanLoops,
+                                range: 1...10,
+                                step: 1,
+                                formattedValue: "\(tempoLadderCleanLoops)"
+                            )
+                        }
+
+                        settingStepper(
+                            title: "Tempo increase",
+                            value: $autoIncreaseBy,
+                            range: 1...10,
+                            step: 1,
+                            formattedValue: "+\(autoIncreaseBy) BPM"
+                        )
+                    }
+                    .padding(.top, StudioQuestTokens.Spacing.sm)
+                }
+            }
+
+            Button {
+                requestStart()
+            } label: {
+                Label(
+                    coordinator.hasActivePractice ? "Start in current session" : "Start Smart Loop",
+                    systemImage: "play.fill"
+                )
+            }
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
+            .accessibilityIdentifier("smartloop.start")
         }
     }
 
-    private var primaryActionTitle: String {
-        switch phase {
-        case .idle, .finished:
-            return "Start"
-        case .work, .rest:
-            return "Pause"
-        case .pausedWork, .pausedRest:
-            return "Resume"
+    private var tagsPanel: some View {
+        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.md) {
+            StudioQuestEyebrow("Focus tags")
+            StudioQuestFlowLayout {
+                ForEach(LoopTag.allCases) { tag in
+                    StudioQuestChoiceChip(
+                        title: LocalizedStringKey(tag.title),
+                        isSelected: selectedTags.contains(tag.rawValue)
+                    ) {
+                        if selectedTags.contains(tag.rawValue) {
+                            selectedTags.remove(tag.rawValue)
+                        } else {
+                            selectedTags.insert(tag.rawValue)
+                        }
+                    }
+                    .accessibilityIdentifier("smartloop.tag.\(tag.rawValue)")
+                }
+            }
+        }
+        .padding(StudioQuestTokens.Spacing.md)
+        .studioQuestSurface()
+    }
+
+    private var presetsPanel: some View {
+        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.md) {
+            HStack {
+                StudioQuestEyebrow("Presets")
+                Spacer()
+                Button {
+                    requestPresetSave()
+                } label: {
+                    Label("Save preset", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+            }
+
+            if decodedPresets.isEmpty {
+                Text("No saved presets yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(decodedPresets) { preset in
+                    StudioQuestInteractiveSurface {
+                        applyPreset(preset)
+                    } content: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(preset.name)
+                                    .font(StudioQuestTokens.Typography.cardTitle)
+                                Text(
+                                    "\(preset.settings.loopDurationSeconds)s loop · \(preset.settings.restDurationSeconds)s rest"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.down.circle")
+                                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        }
+                        .padding(StudioQuestTokens.Spacing.md)
+                        .studioQuestSurface(.flat)
+                    }
+                }
+            }
+        }
+        .padding(StudioQuestTokens.Spacing.md)
+        .studioQuestSurface()
+    }
+
+    private func livePanel(_ state: SmartLoopRunState) -> some View {
+        StudioQuestToolLivePanel(
+            eyebrow: state.phase.isPaused ? "Paused" : "Now"
+        ) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(phaseTitle(state.phase))
+                    .font(StudioQuestTokens.Typography.heroTitle)
+                    .tracking(-0.5)
+                Spacer()
+                Text(DurationFormatter.string(from: state.remainingSeconds()))
+                    .font(StudioQuestTokens.Typography.timer)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.62)
+            }
+
+            StudioQuestProgressVisualization(
+                progress: state.settings.runsUntilStopped
+                    ? 0
+                    : Double(state.loopsCompleted) / Double(state.settings.targetLoops),
+                accessibilityLabel: "Loop target progress"
+            )
+
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                StudioQuestMetric(
+                    title: "Loops",
+                    value: state.settings.runsUntilStopped
+                        ? "\(state.loopsCompleted)"
+                        : "\(state.loopsCompleted) / \(state.settings.targetLoops)"
+                )
+                StudioQuestMetric(
+                    title: "Work time",
+                    value: DurationFormatter.string(from: state.totalWorkSeconds()),
+                    tint: StudioQuestTokens.ColorRole.violet
+                )
+                if state.settings.metronomeEnabled {
+                    StudioQuestMetric(
+                        title: "Tempo",
+                        value: "\(state.currentTempoBPM)",
+                        detail: "BPM",
+                        tint: StudioQuestTokens.ColorRole.mint
+                    )
+                }
+            }
+
+            if state.settings.tempoLadderEnabled {
+                VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.sm) {
+                    HStack {
+                        Text("Clean-loop ladder")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(
+                            "\(state.cleanLoopsAtCurrentTempo) / \(state.settings.cleanLoopsRequired)"
+                        )
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        markLastLoopClean()
+                    } label: {
+                        Label("Mark last completed loop clean", systemImage: "checkmark.seal")
+                    }
+                    .buttonStyle(StudioQuestSecondaryButtonStyle())
+                    .disabled(state.markableCompletedCycle == nil)
+                    .accessibilityIdentifier("smartloop.clean")
+                }
+            }
+
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                Button {
+                    togglePause()
+                } label: {
+                    Label(
+                        state.phase.isRunning ? "Pause" : "Resume",
+                        systemImage: state.phase.isRunning ? "pause.fill" : "play.fill"
+                    )
+                }
+                .buttonStyle(StudioQuestSecondaryButtonStyle())
+                .accessibilityIdentifier("smartloop.pause")
+
+                Button {
+                    finishRun()
+                } label: {
+                    Label("Finish", systemImage: "stop.fill")
+                }
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("smartloop.finish")
+            }
         }
     }
 
-    private var summaryText: String {
-        let tags = selectedTags.sorted().joined(separator: ", ")
-        let tempo = metronomeEnabled ? L10n.f("%@→%@ BPM", "\(tempoStartBPM)", "\(currentTempoBPM)") : String(localized: "Metronome off")
-        let ladder = tempoLadderEnabled ? L10n.f("Tempo ladder on (%@ clean loops)", "\(tempoLadderCleanLoops)") : String(localized: "Tempo ladder off")
-        return L10n.f(
-            "Loops: %@, Work: %@, Tempo: %@, %@, Tags: %@",
-            "\(loopsCompleted)",
-            DurationFormatter.string(from: totalWorkSeconds),
-            tempo,
-            ladder,
-            tags.isEmpty ? String(localized: "none") : tags
-        )
-    }
+    private func resultPanel(_ state: SmartLoopRunState) -> some View {
+        StudioQuestToolResultPanel {
+            Label("Loop work complete", systemImage: "checkmark.seal.fill")
+                .font(StudioQuestTokens.Typography.sectionTitle)
+                .foregroundStyle(StudioQuestTokens.ColorRole.mint)
 
-    private func primaryAction() {
-        switch phase {
-        case .idle, .finished:
-            startRun()
-        case .work, .rest:
-            pauseRun()
-        case .pausedWork, .pausedRest:
-            resumeRun()
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                StudioQuestMetric(title: "Loops", value: "\(state.loopsCompleted)")
+                StudioQuestMetric(
+                    title: "Work",
+                    value: DurationFormatter.string(from: state.totalWorkSeconds()),
+                    tint: StudioQuestTokens.ColorRole.violet
+                )
+                if state.settings.metronomeEnabled {
+                    StudioQuestMetric(
+                        title: "Tempo",
+                        value: "\(state.settings.startingTempoBPM)–\(state.currentTempoBPM)",
+                        detail: "BPM",
+                        tint: StudioQuestTokens.ColorRole.mint
+                    )
+                }
+            }
+
+            Text(summaryText(state))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if didFinish {
+                Button("Done") {
+                    coordinator.detachTool()
+                    dismiss()
+                }
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("smartloop.done")
+            } else {
+                Button {
+                    saveResult(state)
+                } label: {
+                    Label(
+                        isContextual ? "Add to active session" : "Save loop session",
+                        systemImage: "checkmark"
+                    )
+                }
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("smartloop.save")
+            }
         }
     }
 
-    private func sanitizeInputs() {
-        loopDuration = min(max(loopDuration, 10), 600)
-        restDuration = min(max(restDuration, 0), 180)
-        targetLoops = min(max(targetLoops, 1), 200)
-        tempoStartBPM = min(max(tempoStartBPM, 40), 220)
-        autoIncreaseEvery = min(max(autoIncreaseEvery, 1), 20)
-        autoIncreaseBy = min(max(autoIncreaseBy, 1), 10)
-        tempoLadderCleanLoops = min(max(tempoLadderCleanLoops, 1), 10)
-    }
-
-    private func startRun() {
-        sanitizeInputs()
-        statusMessage = nil
-        loopsCompleted = 0
-        totalWorkSeconds = 0
-        runFinishedAt = nil
-        currentTempoBPM = tempoStartBPM
-        cleanLoopsAtCurrentTempo = 0
-        startWorkPhase()
-    }
-
-    private func startWorkPhase() {
-        phase = .work
-        remainingSeconds = loopDuration
-        if metronomeEnabled {
-            metronome.setBPM(currentTempoBPM)
-            metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
+    private func settingStepper(
+        title: LocalizedStringKey,
+        value: Binding<Int>,
+        range: ClosedRange<Int>,
+        step: Int,
+        formattedValue: String
+    ) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(formattedValue)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Stepper("", value: value, in: range, step: step)
+                .labelsHidden()
+                .accessibilityLabel(title)
+                .accessibilityValue(formattedValue)
         }
-        startTicker()
+        .frame(minHeight: 44)
     }
 
-    private func startRestPhase() {
-        metronome.stop()
-        if restDuration == 0 {
-            startWorkPhase()
+    private func requestStart() {
+        if let activeTool = coordinator.activeToolID, activeTool != .smartLoop {
+            showStatus(
+                "Finish or close \(activeTool.title) before starting Smart Loop.",
+                kind: .warning
+            )
             return
         }
-        phase = .rest
-        remainingSeconds = restDuration
-        startTicker()
-    }
-
-    private func pauseRun() {
-        stopTicker()
-        metronome.stop()
-        if phase == .work {
-            phase = .pausedWork
-        } else if phase == .rest {
-            phase = .pausedRest
+        if metronomeEnabled,
+           let owner = coordinator.audioSession.owner,
+           owner != .smartLoop {
+            replaceAudioConfirmationPresented = true
+            return
         }
+        Task { await startRun(replacingAudio: false) }
     }
 
-    private func resumeRun() {
-        if phase == .pausedWork {
-            phase = .work
-            if metronomeEnabled {
-                metronome.setBPM(currentTempoBPM)
-                metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
+    private func startRun(replacingAudio: Bool) async {
+        if metronomeEnabled {
+            guard await claimAudio(replacing: replacingAudio) else { return }
+        }
+
+        if !ownsRuntime {
+            if coordinator.hasActivePractice {
+                coordinator.attachTool(.smartLoop)
+                if !coordinator.isRunning {
+                    coordinator.resume()
+                }
+            } else {
+                let expectedSeconds = untilStop
+                    ? max(60, loopDuration)
+                    : (loopDuration + restDuration) * max(1, targetLoops)
+                coordinator.beginFocusedTool(
+                    .smartLoop,
+                    title: "Smart Loop",
+                    durationMinutes: max(1, Int(ceil(Double(expectedSeconds) / 60))),
+                    source: .library
+                )
             }
-            startTicker()
-        } else if phase == .pausedRest {
-            phase = .rest
-            startTicker()
+        }
+
+        var state = SmartLoopRunState(settings: settings)
+        let events = state.start()
+        runState = state
+        completedRun = nil
+        pendingResult = nil
+        didFinish = false
+        coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        handle(events, state: state)
+        showStatus("Smart Loop started.", kind: .information)
+    }
+
+    private func togglePause() {
+        guard var state = runState else { return }
+        if state.phase.isRunning {
+            state.pause()
+            runState = state
+            stopMetronome()
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            if !isContextual {
+                coordinator.pause()
+            }
+        } else if state.phase.isPaused {
+            Task {
+                if state.phase == .pausedWork, state.settings.metronomeEnabled {
+                    guard await claimAudio(replacing: false) else { return }
+                }
+                var resumed = state
+                let events = resumed.resume()
+                runState = resumed
+                if !isContextual {
+                    coordinator.resume()
+                }
+                coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(resumed))
+                handle(events, state: resumed)
+            }
         }
     }
 
-    private func stopRun() {
-        stopTicker()
-        metronome.stop()
-        if loopsCompleted > 0 || totalWorkSeconds > 0 {
-            phase = .finished
-            runFinishedAt = Date()
+    private func advanceRun() {
+        guard var state = runState, state.phase.isRunning else { return }
+        let events = state.advance()
+        guard state != runState else { return }
+        runState = state
+        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        handle(events, state: state)
+        if state.phase == .finished {
+            completeRun(state)
+        }
+    }
+
+    private func finishRun() {
+        guard var state = runState else { return }
+        let events = state.stop()
+        runState = state
+        stopMetronome()
+        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !isContextual {
+            coordinator.pause()
+        }
+        handle(events, state: state)
+        if state.phase == .finished {
+            completeRun(state)
         } else {
-            phase = .idle
+            runState = nil
+            coordinator.detachTool()
+            showStatus("No loop result was created.", kind: .warning)
         }
     }
 
-    private func startTicker() {
-        stopTicker()
-        timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
-            .autoconnect()
-            .sink { _ in
-                tick()
-            }
-    }
-
-    private func stopTicker() {
-        timerCancellable?.cancel()
-        timerCancellable = nil
-    }
-
-    private func tick() {
-        switch phase {
-        case .work:
-            totalWorkSeconds += 1
-            remainingSeconds -= 1
-            if remainingSeconds <= 0 {
-                loopsCompleted += 1
-                if !tempoLadderEnabled && autoIncreaseEnabled && metronomeEnabled && loopsCompleted > 0 && loopsCompleted % autoIncreaseEvery == 0 {
-                    currentTempoBPM = min(220, currentTempoBPM + autoIncreaseBy)
-                }
-                if !untilStop && loopsCompleted >= targetLoopValue {
-                    stopRun()
-                } else {
-                    startRestPhase()
-                }
-            }
-        case .rest:
-            remainingSeconds -= 1
-            if remainingSeconds <= 0 {
-                startWorkPhase()
-            }
-        default:
-            break
+    private func completeRun(_ state: SmartLoopRunState) {
+        stopMetronome()
+        completedRun = state
+        runState = state
+        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !isContextual {
+            coordinator.pause()
         }
     }
 
-    private func saveResult() {
-        guard hasResult else { return }
-        let tags = selectedTags.sorted().joined(separator: ",")
-        let log = LoopPracticeLogModel(
-            date: runFinishedAt ?? Date(),
-            loopsCompleted: loopsCompleted,
-            totalWorkSeconds: totalWorkSeconds,
-            loopDurationSeconds: loopDuration,
-            restSeconds: restDuration,
-            tempoStartBPM: metronomeEnabled ? tempoStartBPM : 0,
-            tempoEndBPM: metronomeEnabled ? currentTempoBPM : 0,
-            targetLoops: untilStop ? 0 : targetLoopValue,
-            tagsRaw: tags,
-            tempoLadderEnabled: tempoLadderEnabled,
-            ladderCleanLoopsRequired: tempoLadderEnabled ? tempoLadderCleanLoops : 0
+    private func markLastLoopClean() {
+        guard var state = runState else { return }
+        let events = state.markLastCompletedLoopClean()
+        guard state != runState else {
+            showStatus("That completed loop has already been marked.", kind: .warning)
+            return
+        }
+        runState = state
+        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        handle(events, state: state)
+    }
+
+    private func handle(_ events: [SmartLoopEvent], state: SmartLoopRunState) {
+        for event in events {
+            switch event {
+            case .enteredWork:
+                if state.settings.metronomeEnabled {
+                    ensureMetronome(tempo: state.currentTempoBPM)
+                }
+            case .enteredRest, .finished:
+                stopMetronome()
+            case .tempoChanged(let tempo):
+                if state.phase == .work {
+                    ensureMetronome(tempo: tempo)
+                }
+                showStatus("Tempo advanced to \(tempo) BPM.", kind: .success)
+            case .completedLoop:
+                break
+            }
+        }
+    }
+
+    private func saveResult(_ state: SmartLoopRunState) {
+        let resultPayload = SmartLoopResultPayload(
+            completedAt: .now,
+            loopsCompleted: state.loopsCompleted,
+            totalWorkSeconds: state.totalWorkSeconds(),
+            settings: state.settings,
+            endingTempoBPM: state.currentTempoBPM,
+            tags: selectedTags.sorted(),
+            parentSessionID: coordinator.toolLaunchContext?.parentSessionID,
+            launchSource: coordinator.toolLaunchContext?.source ?? .legacy,
+            toolVersion: 2
         )
-        modelContext.insert(log)
-        try? modelContext.save()
+        guard let data = try? JSONEncoder().encode(resultPayload),
+              let json = String(data: data, encoding: .utf8) else {
+            showStatus("The loop result could not be prepared. Please try again.", kind: .error)
+            return
+        }
+        let result = PracticeToolResult(
+            toolID: .smartLoop,
+            sessionID: coordinator.activeSessionID,
+            durationSeconds: state.totalWorkSeconds(),
+            metrics: [
+                "loops": Double(state.loopsCompleted),
+                "startingTempo": Double(state.settings.startingTempoBPM),
+                "endingTempo": Double(state.currentTempoBPM)
+            ],
+            payloadJSON: json
+        )
+        coordinator.completeTool(result)
+        pendingResult = result
 
-        if saveToSessionHistory {
-            let tagText = selectedTags.sorted().joined(separator: ", ")
-            let notes = """
-            Loop Session
-            Loops completed: \(loopsCompleted)
-            Work time: \(DurationFormatter.string(from: totalWorkSeconds))
-            Tempo: \(metronomeEnabled ? "\(tempoStartBPM)→\(currentTempoBPM) BPM" : "Metronome off")
-            Tags: \(tagText.isEmpty ? "none" : tagText)
-            """
-            store.addSession(
-                date: runFinishedAt ?? Date(),
-                durationSeconds: totalWorkSeconds,
-                notes: notes,
-                noteTitle: "Loop Session",
-                noteFocus: tagText
+        if isContextual {
+            didFinish = true
+            showStatus(
+                "Loop analytics added to your active session. They will save with your reflection.",
+                kind: .success
             )
+            return
         }
 
-        statusMessage = "Loop log saved."
-        phase = .idle
+        let notes = """
+        Smart Loop
+        Loops completed: \(state.loopsCompleted)
+        Work time: \(DurationFormatter.string(from: state.totalWorkSeconds()))
+        Tempo: \(state.settings.metronomeEnabled ? "\(state.settings.startingTempoBPM)–\(state.currentTempoBPM) BPM" : "Metronome off")
+        Tags: \(selectedTags.sorted().joined(separator: ", "))
+        """
+        let payload = PracticeSavePayload(
+            sessionID: coordinator.activeSessionID,
+            snapshot: coordinator.snapshot,
+            notes: notes,
+            noteTitle: "Smart Loop",
+            noteFocus: selectedTags.sorted().joined(separator: ", "),
+            toolResult: result
+        )
+        if store.savePracticeCompletion(payload) {
+            let savedID = coordinator.activeSessionID
+            coordinator.completeAfterSave(savedSessionID: savedID)
+            pendingResult = nil
+            didFinish = true
+            showStatus("Loop session saved.", kind: .success)
+        } else {
+            showStatus(
+                "The loop session could not be saved. Your result is still here—try again.",
+                kind: .error
+            )
+        }
     }
 
-    private func markCleanLoop() {
-        guard tempoLadderEnabled, metronomeEnabled, phase == .work else { return }
-        cleanLoopsAtCurrentTempo += 1
-        if cleanLoopsAtCurrentTempo >= tempoLadderCleanLoops {
-            cleanLoopsAtCurrentTempo = 0
-            currentTempoBPM = min(220, currentTempoBPM + max(1, autoIncreaseBy))
-            metronome.setBPM(currentTempoBPM)
-            metronome.applyUpdatedConfiguration(
-                beatsPerBar: 4,
-                subdivision: .none,
-                soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click)
-            )
-            statusMessage = L10n.f("Tempo ladder advanced to %@ BPM.", "\(currentTempoBPM)")
+    private func claimAudio(replacing: Bool) async -> Bool {
+        if let owner = coordinator.audioSession.owner, owner != .smartLoop {
+            guard replacing else {
+                replaceAudioConfirmationPresented = true
+                return false
+            }
+            switch owner {
+            case .metronome:
+                coordinator.metronome.stop()
+            case .tuner:
+                coordinator.tuner.stopListening()
+                coordinator.tuner.stopReferenceTone()
+            default:
+                showStatus(
+                    "\(owner.displayName) cannot be replaced safely. Close it first.",
+                    kind: .warning
+                )
+                return false
+            }
+            coordinator.audioSession.release(owner)
         }
+
+        do {
+            try await coordinator.audioSession.claim(
+                .smartLoop,
+                requirements: .playback
+            )
+            return true
+        } catch {
+            showStatus(
+                (error as? LocalizedError)?.errorDescription
+                    ?? "Audio could not be started.",
+                kind: .error
+            )
+            return false
+        }
+    }
+
+    private func startMetronome(tempo: Int) {
+        coordinator.metronome.setBPM(tempo)
+        coordinator.metronome.start(
+            beatsPerBar: 4,
+            subdivision: .none,
+            soundStyle: MetronomeEngine.SoundStyle(
+                rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw()
+                    ?? "click"
+            ) ?? .click
+        )
+    }
+
+    private func ensureMetronome(tempo: Int) {
+        if coordinator.audioSession.owner == .smartLoop {
+            startMetronome(tempo: tempo)
+            return
+        }
+        Task {
+            guard await claimAudio(replacing: false) else {
+                if var state = runState, state.phase.isRunning {
+                    state.pause()
+                    runState = state
+                    coordinator.pauseToolActivity(
+                        recoveryPayloadJSON: recoveryJSON(state)
+                    )
+                    if !isContextual {
+                        coordinator.pause()
+                    }
+                }
+                return
+            }
+            startMetronome(tempo: tempo)
+        }
+    }
+
+    private func stopMetronome() {
+        coordinator.metronome.stop()
+        coordinator.audioSession.release(.smartLoop)
+    }
+
+    private func restoreIfNeeded() {
+        guard coordinator.activeToolID == .smartLoop,
+              let json = coordinator.toolActivityState?.recoveryPayloadJSON,
+              let data = json.data(using: .utf8),
+              let restored = try? JSONDecoder().decode(
+                SmartLoopRunState.self,
+                from: data
+              ) else {
+            return
+        }
+        apply(restored.settings)
+        runState = restored
+        if let result = coordinator.latestToolResult,
+           result.toolID == .smartLoop {
+            pendingResult = result
+            completedRun = restored
+            didFinish = coordinator.toolLaunchContext?.parentSessionID != nil
+        }
+        advanceRun()
+        if let current = runState,
+           current.phase == .work,
+           current.settings.metronomeEnabled {
+            ensureMetronome(tempo: current.currentTempoBPM)
+        }
+        showStatus(
+            restored.phase.isPaused
+                ? "Smart Loop ready to resume."
+                : "Smart Loop restored.",
+            kind: .information
+        )
+    }
+
+    private func preserveOnExit() {
+        guard !didFinish,
+              coordinator.activeToolID == .smartLoop,
+              var state = runState,
+              state.phase.isRunning else { return }
+        state.pause()
+        runState = state
+        stopMetronome()
+        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !isContextual {
+            coordinator.pause()
+        }
+    }
+
+    #if DEBUG
+    private func applyQAStateIfNeeded() {
+        guard !didApplyQAState, let qaToolState else { return }
+        didApplyQAState = true
+        guard qaToolState != .setup else { return }
+        if qaToolState == .permissionDenied {
+            showStatus(
+                "Audio permission is unavailable in this preview state.",
+                kind: .error
+            )
+            return
+        }
+
+        metronomeEnabled = false
+        loopDuration = 10
+        restDuration = 5
+        targetLoops = 2
+        let fixtureSettings = settings
+        if !coordinator.hasActivePractice {
+            coordinator.beginFocusedTool(
+                .smartLoop,
+                title: "Smart Loop",
+                durationMinutes: 2,
+                source: .qa
+            )
+        } else if coordinator.activeToolID == nil {
+            coordinator.attachTool(.smartLoop, source: .qa)
+        }
+
+        var fixture = SmartLoopRunState(settings: fixtureSettings)
+        _ = fixture.start(at: .now.addingTimeInterval(-12))
+        _ = fixture.advance()
+        if qaToolState == .paused || qaToolState == .recovered {
+            fixture.pause()
+        } else if qaToolState == .completed || qaToolState == .saveError {
+            _ = fixture.advance(to: .now.addingTimeInterval(20))
+            if fixture.phase != .finished {
+                _ = fixture.stop()
+            }
+            completedRun = fixture
+        }
+        runState = fixture
+        if fixture.phase.isRunning {
+            coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(fixture))
+        } else {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(fixture))
+            coordinator.pause()
+        }
+        if qaToolState == .saveError {
+            showStatus(
+                "The loop session could not be saved. Your result is still here—try again.",
+                kind: .error
+            )
+        } else if qaToolState == .recovered {
+            showStatus("Smart Loop ready to resume.", kind: .information)
+        }
+    }
+    #else
+    private func applyQAStateIfNeeded() {}
+    #endif
+
+    private func requestPresetSave() {
+        guard purchaseManager.featuresUnlocked else {
+            showStatus(
+                "Saved presets are included with PractiQuest Pro. Your current loop can still be used and completed.",
+                kind: .information
+            )
+            proPresented = true
+            return
+        }
+        newPresetName = ""
+        presetNamePromptPresented = true
     }
 
     private func savePreset() {
-        guard purchaseManager.featuresUnlocked else { return }
         let name = newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-
-        var presets = decodedPresets
-        let preset = LoopPreset(
-            id: UUID(),
-            name: name,
-            loopDuration: loopDuration,
-            restDuration: restDuration,
-            targetLoops: targetLoopValue,
-            metronomeEnabled: metronomeEnabled,
-            tempoStart: tempoStartBPM,
-            autoIncreaseEnabled: autoIncreaseEnabled,
-            autoIncreaseEvery: autoIncreaseEvery,
-            autoIncreaseBy: autoIncreaseBy,
-            tempoLadderEnabled: tempoLadderEnabled,
-            tempoLadderCleanLoops: tempoLadderCleanLoops,
-            tags: selectedTags.sorted()
+        var values = decodedPresets
+        values.insert(
+            LoopPreset(
+                id: UUID(),
+                name: name,
+                settings: settings,
+                tags: selectedTags.sorted()
+            ),
+            at: 0
         )
-        presets.insert(preset, at: 0)
-        if presets.count > 30 {
-            presets = Array(presets.prefix(30))
-        }
-        if let data = try? JSONEncoder().encode(presets),
+        values = Array(values.prefix(30))
+        if let data = try? JSONEncoder().encode(values),
            let raw = String(data: data, encoding: .utf8) {
             presetsRaw = raw
-            statusMessage = "Preset saved."
+            showStatus("Preset saved.", kind: .success)
         }
     }
 
     private func applyPreset(_ preset: LoopPreset) {
-        loopDuration = preset.loopDuration
-        restDuration = preset.restDuration
-        targetLoops = max(1, preset.targetLoops)
-        untilStop = false
-        metronomeEnabled = preset.metronomeEnabled
-        tempoStartBPM = preset.tempoStart
-        autoIncreaseEnabled = preset.autoIncreaseEnabled
-        autoIncreaseEvery = preset.autoIncreaseEvery
-        autoIncreaseBy = preset.autoIncreaseBy
-        tempoLadderEnabled = preset.tempoLadderEnabled ?? false
-        tempoLadderCleanLoops = preset.tempoLadderCleanLoops ?? 3
+        apply(preset.settings)
         selectedTags = Set(preset.tags)
-        statusMessage = "Preset loaded."
+        showStatus("Preset loaded.", kind: .success)
     }
-}
 
-private struct FlowRow<Content: View>: View {
-    let spacing: CGFloat
-    @ViewBuilder let content: () -> Content
+    private func apply(_ value: SmartLoopSettings) {
+        loopDuration = value.loopDurationSeconds
+        restDuration = value.restDurationSeconds
+        targetLoops = value.targetLoops
+        untilStop = value.runsUntilStopped
+        metronomeEnabled = value.metronomeEnabled
+        tempoStartBPM = value.startingTempoBPM
+        autoIncreaseEnabled = value.autoIncreaseEnabled
+        autoIncreaseEvery = value.autoIncreaseEvery
+        autoIncreaseBy = value.tempoIncreaseBPM
+        tempoLadderEnabled = value.tempoLadderEnabled
+        tempoLadderCleanLoops = value.cleanLoopsRequired
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            content()
+    private func recoveryJSON(_ state: SmartLoopRunState) -> String? {
+        guard let data = try? JSONEncoder().encode(state) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func phaseTitle(_ phase: SmartLoopPhase) -> LocalizedStringKey {
+        switch phase {
+        case .work: "Focused loop"
+        case .rest: "Reset"
+        case .pausedWork, .pausedRest: "Paused"
+        case .idle: "Ready"
+        case .finished: "Finished"
         }
+    }
+
+    private func summaryText(_ state: SmartLoopRunState) -> String {
+        let tagText = selectedTags.isEmpty
+            ? "No focus tags"
+            : selectedTags.sorted().map(\.capitalized).joined(separator: ", ")
+        let progression: String
+        if state.settings.tempoLadderEnabled {
+            progression = "clean-loop ladder"
+        } else if state.settings.autoIncreaseEnabled {
+            progression = "automatic tempo progression"
+        } else {
+            progression = "steady tempo"
+        }
+        return "\(tagText) · \(progression)"
+    }
+
+    private func showStatus(
+        _ message: String,
+        kind: StudioQuestInlineStatus.Kind
+    ) {
+        statusMessage = message
+        statusKind = kind
     }
 }

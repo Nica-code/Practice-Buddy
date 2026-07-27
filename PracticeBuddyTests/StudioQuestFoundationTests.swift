@@ -131,11 +131,42 @@ final class StudioQuestFoundationTests: XCTestCase {
         )
         let parentID = coordinator.activeSessionID
 
-        let context = coordinator.attachTool(.tuner)
+        let context = try XCTUnwrap(coordinator.attachTool(.tuner))
 
         XCTAssertEqual(coordinator.activeSessionID, parentID)
         XCTAssertEqual(context.parentSessionID, parentID)
         XCTAssertEqual(context.source, .activeSession)
+    }
+
+    func testCoordinatorRejectsASecondToolWithoutExplicitReplacement() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.exclusive.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+        coordinator.preparePlan(
+            piece: "Violin",
+            tasks: [PracticePlanTask(title: "Scales", minutes: 5)],
+            verified: false,
+            launchContext: PracticeLaunchContext(source: .setup)
+        )
+
+        XCTAssertNotNil(coordinator.attachTool(.metronome))
+        XCTAssertNil(coordinator.attachTool(.tuner))
+        XCTAssertEqual(coordinator.activeToolID, .metronome)
+        XCTAssertNotNil(coordinator.toolErrorMessage)
+    }
+
+    func testAudioCoordinatorSerializesOwners() async throws {
+        let audio = PracticeAudioSessionCoordinator()
+        try await audio.claim(.metronome, requirements: .playback)
+        do {
+            try await audio.claim(.tuner, requirements: .playback)
+            XCTFail("A second audio owner should not be accepted")
+        } catch let error as PracticeAudioSessionError {
+            XCTAssertEqual(error, .ownedBy(.metronome))
+        }
+        audio.release(.metronome)
+        XCTAssertNil(audio.owner)
     }
 
     func testToolActivityPauseUsesTimestampElapsedAndPersistsRecovery() throws {
@@ -179,6 +210,95 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(restored.pendingQuestIDs, Set(["warm-up-warrior"]))
         restored.discard()
         XCTAssertTrue(restored.pendingQuestIDs.isEmpty)
+    }
+
+    func testSmartLoopAdvancesAcrossBackgroundBoundariesWithoutLosingTime() {
+        let start = Date(timeIntervalSince1970: 10_000)
+        var state = SmartLoopRunState(
+            settings: SmartLoopSettings(
+                loopDurationSeconds: 10,
+                restDurationSeconds: 5,
+                targetLoops: 2,
+                runsUntilStopped: false,
+                metronomeEnabled: false,
+                startingTempoBPM: 72,
+                autoIncreaseEnabled: false,
+                autoIncreaseEvery: 2,
+                tempoIncreaseBPM: 2,
+                tempoLadderEnabled: false,
+                cleanLoopsRequired: 3
+            )
+        )
+
+        _ = state.start(at: start)
+        let events = state.advance(to: start.addingTimeInterval(26))
+
+        XCTAssertEqual(state.phase, .finished)
+        XCTAssertEqual(state.loopsCompleted, 2)
+        XCTAssertEqual(state.completedWorkSeconds, 20)
+        XCTAssertTrue(events.contains(.finished))
+    }
+
+    func testSmartLoopCleanMarkCanOnlyCountOncePerCompletedInterval() {
+        let start = Date(timeIntervalSince1970: 20_000)
+        var state = SmartLoopRunState(
+            settings: SmartLoopSettings(
+                loopDurationSeconds: 10,
+                restDurationSeconds: 5,
+                targetLoops: 4,
+                runsUntilStopped: false,
+                metronomeEnabled: true,
+                startingTempoBPM: 72,
+                autoIncreaseEnabled: false,
+                autoIncreaseEvery: 2,
+                tempoIncreaseBPM: 2,
+                tempoLadderEnabled: true,
+                cleanLoopsRequired: 2
+            )
+        )
+
+        _ = state.start(at: start)
+        _ = state.advance(to: start.addingTimeInterval(10))
+        XCTAssertTrue(state.markLastCompletedLoopClean().isEmpty)
+        XCTAssertEqual(state.cleanLoopsAtCurrentTempo, 1)
+        XCTAssertTrue(state.markLastCompletedLoopClean().isEmpty)
+        XCTAssertEqual(state.cleanLoopsAtCurrentTempo, 1)
+
+        _ = state.advance(to: start.addingTimeInterval(25))
+        XCTAssertEqual(
+            state.markLastCompletedLoopClean(),
+            [.tempoChanged(74)]
+        )
+        XCTAssertEqual(state.currentTempoBPM, 74)
+        XCTAssertEqual(state.cleanLoopsAtCurrentTempo, 0)
+    }
+
+    func testSmartLoopPauseResumePreservesPhaseProgress() {
+        let start = Date(timeIntervalSince1970: 30_000)
+        var state = SmartLoopRunState(
+            settings: SmartLoopSettings(
+                loopDurationSeconds: 30,
+                restDurationSeconds: 10,
+                targetLoops: 2,
+                runsUntilStopped: false,
+                metronomeEnabled: false,
+                startingTempoBPM: 72,
+                autoIncreaseEnabled: false,
+                autoIncreaseEvery: 2,
+                tempoIncreaseBPM: 2,
+                tempoLadderEnabled: false,
+                cleanLoopsRequired: 3
+            )
+        )
+
+        _ = state.start(at: start)
+        state.pause(at: start.addingTimeInterval(12))
+        XCTAssertEqual(state.remainingSeconds(at: start.addingTimeInterval(100)), 18)
+
+        _ = state.resume(at: start.addingTimeInterval(100))
+        _ = state.advance(to: start.addingTimeInterval(118))
+        XCTAssertEqual(state.loopsCompleted, 1)
+        XCTAssertEqual(state.phase, .rest)
     }
 
     func testLegacyTabsMigrateToFourDestinationShell() {

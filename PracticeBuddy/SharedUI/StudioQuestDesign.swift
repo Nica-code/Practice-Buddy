@@ -436,6 +436,7 @@ struct StudioQuestEmptyState: View {
     let title: LocalizedStringKey
     let message: LocalizedStringKey
     let systemImage: String
+    var actionTitle: LocalizedStringKey = "Explore community"
     let action: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -446,7 +447,7 @@ struct StudioQuestEmptyState: View {
                 .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Explore community", action: action)
+            Button(actionTitle, action: action)
                 .buttonStyle(StudioQuestSecondaryButtonStyle())
                 .frame(maxWidth: 260)
         }
