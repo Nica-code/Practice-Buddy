@@ -1,82 +1,135 @@
-# PractiQuest 2.0 — Final Studio Quest Design QA
+# PractiQuest 2.0 — Studio Quest Design QA
 
-Date: 2026-07-25
+Updated: 2026-07-27
 
-## Reference and evidence
+## Comparison method
 
-- Selected visual source of truth: `Design/StudioQuest2/QA/selected-direction.png`
-- Reference-to-implementation comparison: `Design/StudioQuest2/QA/final-reference-comparison.png`
-- Rebuilt secondary destinations: `Design/StudioQuest2/QA/final-secondary-destinations.png`
-- Responsive and accessibility matrix: `Design/StudioQuest2/QA/final-responsive-matrix.png`
-- Final largest-text Community recapture: `/private/tmp/practiquest-third-pass-audit/compact-community-axxxl-final.png`
+The approved direction and implementation were placed into combined boards at
+matched device sizes. Screenshots were not graded in isolation.
 
-The selected direction and implementation screenshots were evaluated together. The final app retains the reference's quiet neutral canvas, cobalt/violet identity, warm reward accent, photographic musician world, prominent Practice Dock, and restrained chrome in both appearances.
+Reference:
 
-## Devices and states
+- `Design/StudioQuest2/QA/selected-direction.png`
 
-- iPhone 17 Pro, iOS 26.5: Today, Practice Studio, Quest, Community, You, chat, Goals, History, Profile, Settings, Duel Arena, Avatar Studio, Practice Library, and Notifications.
-- Compact iPhone: Quest, Community, Goals, and largest accessibility Dynamic Type.
-- iPhone 17 Pro Max: dark Quest and You.
-- Light and dark appearances.
-- Populated, empty, guest, loading, offline/error-capable, and exact typed-route fixtures.
+Current combined evidence:
 
-## Severity findings
+- `Design/StudioQuest2/QA/launch-quality-root-comparison.png`
+- `Design/StudioQuest2/QA/launch-quality-compact-comparison.png`
+- `Design/StudioQuest2/QA/launch-quality-promax-comparison.png`
 
-- P0: none.
-- P1: none.
-- P2: none.
+One approved correction supersedes the older reference: room artwork is empty.
+The user avatar and every optional decoration are rendered as separate runtime
+layers.
 
-## Responsive and visual findings
+## Current simulator finding
 
-- Every v2 page is constrained to the proposed device width with adaptive margins and bounded content width.
-- Quest's 2:3 artwork uses available width and normalized node coordinates; it no longer expands its parent or clips the token/XP header.
-- The Practice Dock is measured and supplied as scroll clearance, allowing final content to move above the dock and tab bar.
-- Community navigation is intentionally lower than the title. Standard text uses equal-width Friends, Messages, and Requests segments; accessibility sizes use a full-width menu.
-- Community rows remove chevrons, long dividers, and generic “Practice buddy” copy. The full surface is the hit target.
-- Chat uses a calm solid semantic background in light and dark appearances, with no distracting gradient.
-- Practice Studio has identical geometry across appearances and a genuinely light lower control surface in light mode.
-- Goals, History, Profile, Settings, Pro, Duel Arena, Avatar Studio, Library, Notifications, and conversation screens use the Studio Quest system rather than legacy Forms, Lists, glass cards, theme palettes, or font selectors.
-- Progress values are clamped to their legal ranges, including completed fixtures that exceed a target.
+Within the deterministic simulator matrix:
 
-## Interaction and functional findings
+- P0: none known.
+- P1: none known.
+- P2: none known.
 
-- Today quick start, setup, Next Quest, recent sessions, and community pulse are wired.
-- The persistent dock supports idle, planned, running, and paused states and opens the shared full-screen coordinator.
-- Practice preserves timer, tasks, verification, check-ins, shielding, background timing, Live Activity synchronization, metronome, tuner, reflection, saving, journaling, and contextual tools.
-- Every featured Quest node opens a typed detail with objective, progress, reward, status, and CTA. Warm-up, rhythm, dynamic control, and expression launch the intended real tools/session contexts.
-- Reward collection, duel quests, Duel Arena, invitations, active-match routing, results/history, leaderboard, Avatar Studio, inventory, and shop routes are connected.
-- Friends, Messages, and Requests support full-row exact routing, friend/request actions, compose/add-friend, contextual message actions, and coarse activity status.
-- Goals, History, Profile, Settings, Pro, Help, About, notification preferences, history retention, sign-out, and account-deletion confirmations are functional v2 destinations.
-- Typed routes retain friend, thread, challenge, profile, quest, session, practice-preset, and settings-section payloads while preserving an independent path per tab.
+This is not the final release sign-off. Physical-device, TestFlight, and
+deployed-backend findings remain ungraded until their checklists run.
 
-## Data, privacy, and migration findings
+## Visual system checks
 
-- Existing sessions, XP, rating, token balance, inventory, legacy avatar ID, purchases, notification preferences, and old tab selection remain readable.
-- `AvatarLoadout` is versioned, stored locally, synchronized into the existing user document, and keeps the compatibility avatar ID.
-- Coarse friend activity contains only an accepted friend's last-practice timestamp. It excludes duration, notes, pieces, audio, messages, and profile text.
-- Activity sharing can be disabled; opt-out stops publication, marks presence offline, and clears projections.
-- Presence expires after 120 seconds and rejects future timestamps.
-- Analytics dimensions are bounded and content-free.
-- The new Pro and legacy Ad-Free SKUs are both recognized by StoreKit and the Firebase entitlement allowlist.
+- Light and dark use equivalent geometry and semantic contrast.
+- No dark lower control surface leaks into light Practice Studio.
+- Content surfaces are opaque; glass/material is limited to navigation, Dock,
+  and transient controls.
+- Chat and message backgrounds are solid, not decorative gradients.
+- Quest artwork is width-bounded and cannot expand the viewport.
+- Dock height is measured and scroll pages provide final-item clearance.
+- Full visible pills/cards/rows own their hit shape.
+- Avatar Studio is only in You.
+- Duels are owned only by Duels & Leagues.
+- Profile editing is integrated into You rather than duplicated as a menu item.
+- Space Grotesk uses real bundled faces; body copy stays system-native.
+- Reachable practice tools no longer use the retired PBTheme/Form/List grammar.
 
-## Accessibility and localization findings
+## Root comparison notes
 
-- VoiceOver labels, native focus behavior, full-row targets, minimum control sizing, semantic colors, and Reduce Motion behavior are retained.
-- Compact and largest accessibility text captures show no horizontal viewport expansion.
-- Crowded controls use `ViewThatFits`, wrapping, or vertical/accessibility alternatives.
-- The String Catalog contains 1,400 keys with zero missing Korean keys, zero missing Romanian keys, and zero placeholder mismatches.
-- Pseudolocalization launch coverage is present in the UI test target.
+### Today
 
-## Engineering verification
+- One dominant practice action.
+- Daily goal, Smart Coach, Next Quest, recent session, and community pulse are
+  ordered with lower dashboard density than the original implementation.
+- Idle Dock is compact and does not compete with the hero.
 
-- Clean generic iOS Simulator app build: passed.
-- Signed iOS 26.5 simulator app build: passed.
-- Signed `build-for-testing` for app, unit, and UI targets: passed.
-- `StudioQuestFoundationTests`: 7/7 passed on an executed simulator run.
-- UI automation executed and passed the four-tab shell, typed secondary-route coverage, and accessibility/pseudolocalization coverage before the final harness corrections.
-- The final serialized UI rerun was blocked by an Xcode/CoreSimulator runner failure before connection (`DebuggerVersionStore` / install-launch worker). The corrected target still compiles, and the same flows were manually verified with deterministic fixtures and screenshots.
-- `git diff --check`: passed.
-- Xcode project plist lint: passed.
-- Asset catalog JSON and String Catalog JSON structural validation: passed.
+### Quest
 
-final result: passed
+- Journey and Duels & Leagues remain local sections without duplicate Arena
+  cards.
+- Featured nodes use one catalog and typed detail/CTA behavior.
+- Reward presentation is anchored so it does not obscure node labels.
+
+### Community
+
+- Feed is the root.
+- Search and Messages are the primary header actions.
+- Connections appears as relationship context.
+- Rows use whitespace, no chevrons/long dividers/filler copy, and full-pill
+  actions.
+
+### You
+
+- Empty room, decorations, avatar, and foreground/lighting are independent.
+- The runtime avatar occupies the intended human position.
+- Identity, activity, achievements, Avatar Studio, Goals, History, Pro, and
+  Settings remain reachable without making the hero a menu wall.
+
+## Secondary and lifecycle checks
+
+Deterministic routes cover:
+
+- Practice setup/studio/library;
+- every practice tool;
+- permission denied, recovered, save-error, and completed tool states;
+- Goals, History, session detail, profile, Settings, Pro;
+- Duel Arena, Avatar Studio, room editing, Shop;
+- feed, Connections, requests, messages, exact conversation, public profiles;
+- loading, mandatory update, localization, and accessibility text.
+
+## Automated verification
+
+Latest exact run:
+
+- `StudioQuestFoundationTests`: 57/57
+- `StudioQuestNavigationUITests`: 30/30
+- Firebase emulator/rules: 10/10
+
+The UI suite includes:
+
+- all top-level and secondary routes;
+- full friend-pill interaction;
+- featured quest nodes;
+- public relationship states;
+- every practice tool's core runtime;
+- denied permission, recovery, and failed-save fixtures;
+- room editor controls;
+- Korean/Romanian launch reachability;
+- pseudolocalization/accessibility text reachability.
+
+## Localization and accessibility
+
+- 779 extracted source keys.
+- Korean missing: 0.
+- Romanian missing: 0.
+- Dynamic layouts use wrapping, `ViewThatFits`, or accessible alternatives.
+- Important states include text/symbol information, not color alone.
+- Reduce Motion gates parallax, particles, and nonessential motion.
+- Non-drag room placement controls are present.
+
+## Remaining release evidence
+
+Before final sign-off:
+
+1. execute `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md`;
+2. deploy through `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md`;
+3. run internal and external focused TestFlight;
+4. recapture final App Store images from the deployed release configuration;
+5. close every device/TestFlight P0, P1, and P2.
+
+Simulator/source QA result: passed.
+Final release QA result: pending external gates.

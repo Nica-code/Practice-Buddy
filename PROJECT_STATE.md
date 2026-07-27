@@ -1,158 +1,200 @@
-# PractiQuest — Development State Snapshot
+# PractiQuest — Authoritative Development State
 
-**Last Updated**: 2026-07-26
-**Current App Version**: 2.0.0 (build 31) — not yet uploaded
-**Active Branch**: `codex/launch-hardening`
-**Build Status**: `BUILD SUCCEEDED` (simulator + signed `generic/platform=iOS`)
-**Tests**: 10/10 unit, 6/6 UI
+Last updated: 2026-07-27
+Release train: 2.0.0 (build 31), not uploaded
+Branch: `codex/launch-hardening`
+Internal Xcode target/scheme: `PracticeBuddy`
 
----
+## Current verification
 
-## 2026-07-26 — Studio Quest 2.0 design pass
+- Exact simulator command:
+  `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
+- Unit tests: 57/57 passed.
+- UI tests: 30/30 passed.
+- Firebase emulator/rules tests: 10/10 passed.
+- Korean and Romanian source-key coverage: complete.
+- Latest verified commits:
+  - `99e4ae6` — StoreKit and trial entitlement trust hardening.
+  - `d3bd68a` — secure musician invite links and Universal Link routing.
+- Firebase has not been deployed from this branch.
+- Physical-device and TestFlight release checks remain open.
 
-Ten commits, starting from a checkpoint of the previous session's uncommitted
-work (`f008bab`) so the whole pass is revertible. Swift LOC 39,994 → 29,449.
+## Locked product and engineering decisions
 
-### Typography — the app was rendering fake bold everywhere
-`StudioQuestTokens.Typography` called `.weight(.bold)` on `SpaceGrotesk-Regular`,
-a 400-only face with no variable axis, so CoreText synthesized every page,
-section and card title by smearing the outline. Now ships Regular / Medium /
-SemiBold / Bold instanced from the official OFL variable font, with each display
-role naming the file genuinely cut at that weight.
+- The deleted v1 interface is not a runtime fallback. Rollback is by git/release,
+  not `practiquestV2UI`.
+- PractiQuest uses one Studio Quest theme in true light and dark appearances.
+- SwiftUI only; no Rive, Lottie, Unity, Flutter, or React Native.
+- Space Grotesk uses explicit bundled faces. Never add `.weight()` to a
+  Space-Grotesk-derived font.
+- Body/control copy remains SF/system so Korean has native glyph coverage.
+- Do not delete `Features/Home/HomeViewComponents.swift`: it still owns active
+  metronome, shielding, sound-style, subdivision, and tuner-gauge symbols.
+- The studio scene order is always:
+  `empty room → placed decorations → avatar → foreground/lighting`.
+- No avatar or optional decoration may be baked into a room asset.
+- PractiQuest 2.0 contains no advertising. Ad SDKs and placement infrastructure
+  were removed.
+- Public Explore is implemented behind `publicExplore` and is off for initial
+  production.
 
-`PBFontChoice` had the same bug independently: once it resolved a custom family
-it returned `.custom(name:size:)` and dropped the requested weight, so every
-headline in the practice tools rendered at Regular.
+## What is complete in the branch
 
-Body copy stays on the system font deliberately — **Space Grotesk has no Hangul
-and the app ships Korean.**
+### Deterministic launch and navigation
 
-Bundled fonts: 1.6 MB → 352 KB (12 faces → 4).
+`AppLaunchConfiguration` is parsed before shell construction. QA destination,
+exact route, fixture set, appearance, Dynamic Type, loading/error state, and
+tool lifecycle state no longer race persisted navigation. `AppRouter` owns one
+typed path per tab and retains associated IDs for chats, profiles, Moments,
+duels, quests, sessions, presets, and Settings sections.
 
-### The v1 UI layer is gone
-Studio Quest 2.0 was already the default shell, so the entire v1 view layer was
-dead weight compiled into every build. Removed ~11,300 lines: HomeView,
-JourneyView, StudioHubView, ProfileTabView, SettingsView, ShopView,
-InventoryView, StoreView, PracticeView, HistoryView, SocialView, FriendsView,
-the onboarding tutorial and their component files, plus the `practiquestV2UI`
-flag. Also removed `StudioQuestCommunityView` (624 lines) — a superseded
-first-pass Community screen inside the *v2* layer that nothing referenced.
+Incoming links use a validated parser:
 
-**Rescued before deletion** (v2 routes to them):
-`SocialChatThreadView` and `PublicUserProfileView` now live in their own files.
+- `practicebuddy://practice`
+- `practicebuddy://add-buddy?code=AB12-CD34`
+- `https://practicebuddytracker.web.app/invite?code=AB12-CD34`
 
-**`HomeViewComponents.swift` is kept despite the name** — it holds
-`MetronomeEngine`, `PracticeAppShieldManager`, `SoundStyle`, `Subdivision` and
-`TunerNeedleGauge`, which `PracticeStudioView` and `PracticeSessionCoordinator`
-depend on. Do not delete it because it looks like v1.
+Only the trusted HTTPS host and a valid friend-code shape are accepted. Anonymous
+practice links still start practice. Friend invites are retained through account
+linking and retried afterward. Profile and Connections share a real invite URL,
+not a raw code.
 
-### Shop
-`AppRoute.avatarStudio(section: .shop)` was **never constructed anywhere**, so
-nothing could route to the shop. Now `AppRoute.shop` with a real
-`StudioQuestShopView`, reached from a `StudioQuestTokenChip` in the Today and
-Quest headers. The Shop segment was removed from Avatar Studio so exactly one
-shop exists.
+### Unified practice runtime
 
-### You tab and Studio Edit
-You opens on an edge-to-edge hero at 52% of screen height with parallax; the
-avatar renders at 66% width instead of 46%. `StudioQuestAvatarScene` gained a
-`Presentation` (`.card` / `.hero`). Studio Edit became a full-screen editor
-presented as a `fullScreenCover` — a pushed view kept the practice dock on
-screen, because the dock is a `tabViewBottomAccessory` and survives
-`.toolbar(.hidden, for: .tabBar)`.
+`PracticeSessionCoordinator` is the single source of truth for the main session
+clock, focused tools, background transitions, verification, check-ins, shielding,
+Live Activity state, launch attribution, recovery, save, and discard.
 
-### Practice tools ported via the theme layer
-The six tools reached from Quest nodes still rendered through the v1 `PBTheme`
-palette. Ported by making `PBTheme` resolve to `StudioQuestTokens` rather than
-by rewriting call sites — **no tool's layout or logic was touched**, so
-behaviour is provably unchanged. Verified by sampling the modal canvas colour of
-every tool against Today: exact match in light and dark.
+`PracticeAudioSessionCoordinator` serializes metronome, tuner, reference tone,
+microphone capture, and recording. A second incompatible timer/audio owner cannot
+start silently.
 
-This fixed a live upgrade bug: `ThemeManager` still read the saved
-`pb.settings.colorThemeID`, but the theme picker was deleted in 2.0 — anyone who
-had picked Cantabile or Concert Hall in v1 kept pink or gold practice tools
-inside a cobalt app, with no way to change it. `PBTheme.byID` now deliberately
-ignores the stored identifier.
+Standalone tools create one focused practice session. Contextual tools attach
+their result to the active parent session without creating a second clock.
+Timestamp-based phases survive backgrounding and delayed frames.
 
-### Quest content
-`StudioQuestCatalog` is now the single source of truth. Previously the list was
-inline in `StudioQuestQuestView` with a second hand-written copy of "Dynamic
-control" in Today that had already drifted in both subtitle and launched task.
-Today's "Next quest" now surfaces the first *outstanding* quest instead of
-hard-coding one that may already be complete.
+`SessionStore.savePracticeCompletion(_:)` commits the practice session and
+specialized result together. Success UI, history refresh, quest credit, and
+Moment eligibility occur only after the commit succeeds.
 
-### Other
-- Elevation scale (`StudioQuestTokens.Elevation` + `studioQuestSurface`): cast
-  shadow in light, strengthening border in dark.
-- Today/Community density restored toward the approved board; Swift Charts
-  replaced the hand-stacked capsule week bars.
-- You's weekly ring was filling by minutes while printing session count — two
-  metrics in one control. Fixed.
-- Motion pass, all gated on Reduce Motion.
+### Rebuilt practice tools
 
----
+Warm-up, Smart Loop, Plan–Execute–Reflect, Run-through, Rhythm Accuracy,
+Intonation, Metronome, and Tuner use Studio Quest pages and shared lifecycle
+components instead of the retired Form/List compatibility grammar.
 
-## Xcode / build notes
+Key safeguards include:
 
-**Always build and run the `PracticeBuddy` scheme.** The Live Activity
-extension is embedded automatically (`PracticeBuddy.app/PlugIns/`); its own
-scheme cannot launch the app.
+- one clean mark per completed Smart Loop work interval;
+- deterministic tempo ladders and visible Pro preset limits;
+- parent-clock preservation for nested guided-practice tools;
+- permission-before-count-in/recording for Run-through;
+- orphan recording cleanup on cancel/failure/discard;
+- visual/haptic Rhythm pulse by default and headphone-gated audible scoring;
+- listening-ready timing and stop-on-exit for Intonation;
+- extracted deterministic rhythm and pitch scoring tests;
+- explicit denied, no-signal, interrupted, recovered, and save-retry states.
 
-The `PracticeBuddy` scheme's Launch action had been switched into widget
-debugging mode (`askForAppToLaunch="Yes"`, `launchAutomaticallySubstyle="2"`,
-`<RemoteRunnable com.apple.springboard>`), which is what produced the "Choose an
-app to run" prompt. Restored to a normal `BuildableProductRunnable`. **Xcode
-rewrites this file while open** — if the prompt returns, fix it via Product →
-Scheme → Edit Scheme → Run → Info.
+### Root IA and product parity
 
-The shared scheme previously had no `<Testables>`, so `xcodebuild test` failed
-with "not configured for the test action". Both test targets are now wired in.
+- Today: one dominant Next Practice action, goal, Smart Coach, exact Next Quest,
+  recent session, and community pulse.
+- Quest: one Journey plus one Duels & Leagues destination. Avatar Studio is not
+  in Quest and Duel Arena is not duplicated.
+- Community: feed root, Search and Messages header actions, relationship-aware
+  profiles, full-pill friend chooser, opaque conversations, generated Moments,
+  bounded reactions, requests/follows/blocks/reports, and coarse optional
+  activity.
+- You: integrated identity, empty runtime-composed room, accessible decoration
+  editor, Avatar Studio, Goals, History, Pro, Settings, Help, and About.
+- Shop: one cosmetic-only destination; no ad or duel advantage path.
 
-Signing is healthy: team `73J84HKXBC`, automatic, bundle IDs correctly nested.
-Debug device builds resolve `aps-environment` to `development` even though the
-entitlements file says `production` — Xcode substitutes it to match the
-development profile.
+### Identity, Firebase, and security
 
----
+- Private `users/{uid}` data is separated from `publicProfiles/{uid}`.
+- Handle reservation, profile upgrade, age-band behavior, privacy, Moments,
+  relationships, friends, deletion, notifications, and duels have App
+  Check-enforced V2 callable functions.
+- App Attest is preferred on production-capable devices with DeviceCheck
+  fallback; simulator/debug uses Firebase's debug provider.
+- Legacy HTTP endpoints remain only for the shipped-client compatibility window.
+- Firestore indexes are committed.
+- Rules tests cover private data, public projections, minors, relationships,
+  friends-only messaging, blocks, Moment audience/expiry, reports, and
+  server-owned data.
+- Function instance counts and cleanup jobs are bounded.
 
-## Known gaps
+### StoreKit and Pro trust
 
-- **Quest content is bundled, not fetched.** `StudioQuestCatalog` is the seam a
-  remote or bundled feed would plug into; shipping a new quest still needs a
-  build.
-- **QA launch-argument race.** `practiquest.v2.destination` persists across
-  launches, and `StudioQuestShell.onAppear` can read a stale value before
-  `ContentView` applies `--qa-destination`. Uninstall the app between scripted
-  runs, or the destination may be wrong.
-- Community IA is still wide: three header actions plus four Connections
-  sections. Worth revisiting.
-- Segmented controls remain on Quest and Connections.
-- `PBTheme` / `PBTypography` / `PBLayout` still exist as a thin compatibility
-  layer for the practice tools. They now emit Studio Quest values, but the tools
-  are still Form/List-based rather than built from Studio Quest components.
-- No `SKAdNetworkItems`, no ATT prompt, no UMP consent flow (needed for EEA/UK
-  ad serving).
+- Paid access is derived from verified StoreKit 2 current entitlements only.
+- Current Pro and legacy Ad-Free SKUs both grant Pro.
+- Server/local master access and a server-issued unexpired trial are supported.
+- A stale cached Pro flag cannot grant access.
+- Trial claiming uses `entitlementTrialV2` with App Check and a permanent
+  identity.
+- Legacy `syncEntitlements` rejects client-submitted paid product IDs and never
+  persists paid access from them.
+- The new Pro SKU still needs to be created in App Store Connect.
 
----
+### Assets, localization, and visual evidence
 
-## Before uploading 2.0.0
+- Avatar rooms are empty assets; avatar and decorations are runtime layers.
+- Room layouts store normalized position, scale, orientation, depth, and order,
+  with drag and non-drag accessibility controls.
+- Current combined visual boards are:
+  - `Design/StudioQuest2/QA/launch-quality-root-comparison.png`
+  - `Design/StudioQuest2/QA/launch-quality-compact-comparison.png`
+  - `Design/StudioQuest2/QA/launch-quality-promax-comparison.png`
+- `selected-direction.png` remains the comparison reference, except that its
+  baked-in person is explicitly superseded by the empty-room rule.
+- `Localizable.xcstrings` and the translation cache were regenerated after the
+  invite work; Korean and Romanian are complete for all 779 extracted source
+  keys.
 
-- Create the Pro product `com.alexmalaimare.practiquest.pro.monthly` in App
-  Store Connect; keep the legacy Ad-Free SKU for entitlement recognition.
-- Deploy the updated Firebase `syncEntitlements` allowlist first.
-- Validate anonymous → Apple/Google/email upgrade on a physical device.
-- Validate APNs, Live Activity, Family Controls shielding, StoreKit sandbox
-  purchase/restore, and grandfathered entitlements in TestFlight.
-- Recapture App Store screenshots — every primary screen changed.
+## Compatibility code that is deliberate
 
----
+- Legacy Ad-Free product ID recognition.
+- Legacy HTTP Functions while existing App Store clients remain active.
+- Legacy avatar ID read/write during the loadout migration window.
+- Legacy tab/appearance/font preference reads where needed for migration.
+- `/join-studio` hosting/AASA path until old teacher/studio links can be retired.
+- `HomeViewComponents.swift` active engines/managers.
 
-## Key files
+Do not remove these merely because their names look old. Remove only after
+production adoption/data checks prove they are no longer required.
 
-- `PracticeBuddy/App/ContentView.swift`, `App/AppNavigation.swift`
-- `PracticeBuddy/Features/StudioQuest/` — the v2 shell and destinations
-- `PracticeBuddy/Models/StudioQuestCatalog.swift` — quest content
-- `PracticeBuddy/SharedUI/StudioQuestDesign.swift` — tokens, surfaces, chrome
-- `PracticeBuddy/SharedUI/PBTheme.swift` — compatibility layer for the tools
-- `PracticeBuddy/Services/JourneyProgressManager.swift`
-- `functions/index.js`, `firestore.rules`
+## Release gates still open
+
+See:
+
+- `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md`
+- `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md`
+- `Docs/INTERACTION_INVENTORY.md`
+
+External/operational work still required:
+
+1. Create `com.alexmalaimare.practiquest.pro.monthly` in App Store Connect.
+2. Deploy indexes, backward-compatible Functions, rules, and hosting in the
+   documented order.
+3. Register/observe App Check debug and production metrics before broader
+   Firestore/Storage enforcement.
+4. Run the physical-device checklist for audio, recording, backgrounding,
+   Family Controls, Live Activities/Dynamic Island, APNs, StoreKit, account
+   upgrade, and Universal Links.
+5. Run internal then focused external TestFlight migration testing.
+6. Capture final release screenshots from the deployed release configuration.
+7. Update App Store privacy/age/moderation metadata and submit with the
+   `PracticeBuddy` scheme.
+
+## Known infrastructure caveat
+
+CoreSimulator occasionally stalls after building while workers materialize. The
+reliable recovery is:
+
+1. cancel the stalled `xcodebuild`;
+2. `killall -9 com.apple.CoreSimulator.CoreSimulatorService`;
+3. boot the known simulator;
+4. wait with `xcrun simctl bootstatus <id> -b`;
+5. rerun the exact test command.
+
+Do not count an interrupted run as a failure or a pass.

@@ -1,289 +1,298 @@
-# PractiQuest — Project Snapshot
+# PractiQuest 2.0 — Project Snapshot
 
-Last updated: 2026-07-26
-Release train: PractiQuest 2.0.0 (build 31)
-Internal project name: PracticeBuddy
-Bundle identifier: `com.alexmalaimare.practicebuddy`
-Branch at snapshot: `codex/launch-hardening`
+Last updated: 2026-07-27
+Release: 2.0.0 (31)
+Internal target: `PracticeBuddy`
+Bundle ID: `com.alexmalaimare.practicebuddy`
 
 ## Product
 
-PractiQuest is an iOS practice companion for musicians. It combines focused and verifiable practice, session planning and reflection, musical tools, progression, friendly competition, and a private social layer.
+PractiQuest is a musician practice companion combining focused and verifiable
+sessions, musical tools, planning/reflection, progression, friendly competition,
+and a private social layer.
 
-PractiQuest 2.0 is the Studio Quest overhaul. Its primary experience is no longer a collection of generic dashboards, Forms, Lists, glass cards, and bordered buttons. The app uses one focused four-destination shell and a persistent Practice Dock.
-
-## Technology
-
-- Swift and SwiftUI
-- SwiftData for practice sessions and journal/history data
-- Firebase Auth and Cloud Firestore
-- Firebase Cloud Functions on Node.js 22
-- StoreKit 2
-- ActivityKit and Live Activities
-- Family Controls shielding
-- Existing audio, metronome, tuner, rhythm, and intonation integrations
-- String Catalog localization for English, Korean, and Romanian
-
-No cross-platform rewrite, third-party UI framework, live 3D engine, Rive runtime, or Unity integration is used.
-
-## Studio Quest shell
-
-Top-level destinations:
+Studio Quest 2.0 uses four destinations:
 
 1. Today
 2. Quest
 3. Community
 4. You
 
-`AppRouter` owns a typed path for each destination. `AppRoute` retains route payloads for quests, session IDs, practice presets, settings sections, friend IDs, thread IDs, profile IDs, and duel challenge IDs. Changing tabs preserves the other tabs' paths.
+The persistent Practice Dock keeps one-tap practice or the active timer
+available across the shell. The v1 UI was removed; it is not hidden behind a
+runtime flag.
 
-Legacy tab values remain readable through `PractiQuestV2Migration`. The `practiquestV2UI` flag remains the internal rollback boundary; production v2 uses the new shell.
+## Platform
 
-## Practice Dock and Practice Studio
+- Swift and SwiftUI
+- SwiftData
+- Firebase Auth, Firestore, Functions, Messaging, Storage, and App Check
+- StoreKit 2
+- ActivityKit
+- Family Controls
+- AVFoundation and existing tuner/audio analysis
+- String Catalog localization: English, Korean, Romanian
 
-The measured dock is a persistent accessory above the tab bar:
+There is no cross-platform layer, third-party UI framework, animation runtime,
+live 3D engine, or advertising SDK/placement infrastructure.
 
-- idle: one-tap Quick Start with the last setup;
-- planned: next plan and duration;
-- running: timer, task, and verification state;
-- paused: resume or finish.
+## Navigation and deterministic QA
 
-`PracticeSessionCoordinator` is the shared source of truth for Today, the dock, Practice Studio, Live Activity state, background timing, verification, check-ins, shielding, tasks, session progress, reflection, and persistence.
+`AppRouter` owns an independent typed navigation path for every top-level
+destination. `AppRoute` preserves friend, thread, challenge, quest, profile,
+session, practice-preset, Pro-source, and Settings-section payloads.
 
-Practice Studio includes:
+`AppLaunchConfiguration` is immutable and parsed before shell construction.
+Launch arguments can deterministically select:
 
-- immediate Quick Start;
-- full setup for tasks, duration, verification, and check-ins;
-- timer, current task, progress, pause, finish, and verified state;
-- metronome and tuner without leaving the session;
-- contextual tools drawer;
-- reflection for mood, notes, accomplishments, and next step;
-- save/discard behavior and history integration.
+- onboarding and identity state;
+- destination and exact route;
+- populated fixtures;
+- appearance and Dynamic Type;
+- loading, offline, and error states;
+- active, paused, recovered, denied-permission, and failed-save tool states.
 
-The Practice Library exposes recents/favorites and routes to Smart Loop, Warm-up Generator, Plan–Execute–Reflect, Rhythm, Intonation, Run-through, metronome, and tuner. Quest-launched sessions use a typed `PracticeLaunchContext` so completion never depends on user-entered text.
+No `onAppear` path mutation is used to establish the requested launch route.
 
-## Today
+Validated incoming routes include practice, custom friend invites, Universal
+friend invites, notifications, and exact typed app destinations. Friend invite
+URLs use `https://practicebuddytracker.web.app/invite?code=XXXX-XXXX`; only the
+trusted host and valid code shape are accepted.
 
-Today focuses on one dominant practice action plus:
+## Practice runtime
 
-- current daily goal;
-- recommended/last setup;
-- Next Quest;
-- recent-session recap;
-- small community pulse.
+`PracticeSessionCoordinator` owns:
 
-All content uses the responsive page container and can move fully above the Practice Dock.
+- stable session identity;
+- elapsed time and background transitions;
+- active/paused/focused-tool state;
+- verification and check-ins;
+- distraction shielding;
+- task progression;
+- Live Activity presentation;
+- launch, Quest, and Smart Coach attribution;
+- recovery;
+- transactional completion;
+- Moment eligibility.
 
-## Quest and duels
+`PracticeAudioSessionCoordinator` serializes microphone capture, recording,
+tuner listening, reference tone, and metronome playback. Incompatible owners
+are replaced only through an explicit user decision.
 
-The Quest tab contains a width-bounded 2:3 visual path with normalized node coordinates.
+Standalone tools create a focused session. Tools opened from an active session
+attach results to the parent without creating another session or clock.
+Timestamp-based phases prevent lost time during backgrounding or delayed frames.
 
-Featured practice quests:
+Completion uses `SessionStore.savePracticeCompletion(_:)` to commit a session
+and specialized result together. Quest credit, history refresh, success UI, and
+Moment offers happen only after a successful commit. Failed saves remain
+recoverable.
 
-- Warm-up Warrior → Warm-up Generator
-- Rhythm Clarity → Rhythm tool
-- Dynamic Control → preconfigured verified practice
-- Expression Mastery → Run-through mode
+## Practice tools
 
-Every node opens a typed detail containing objective, progress, reward, status, and CTA. `PracticeQuestProgressStore` persists content-free counters for warm-up, rhythm, dynamic control, expression/run-through, loops, and intonation.
+The Practice Library provides search, categories, favorites, recents,
+capability/availability explanations, and full-surface tool cards.
 
-Existing daily/weekly duel quests, league state, rewards, invitations, queue, active match, recording/results, history, and leaderboard behavior remain connected through the rebuilt Duel Arena.
+Rebuilt tools:
 
-## Community
+- Warm-up Generator
+- Smart Loop
+- Plan–Execute–Reflect
+- Run-through
+- Rhythm Accuracy
+- Intonation
+- Metronome
+- Tuner
+- Smart Coach
 
-Community opens on the generated-card Practice Moments feed. Its header leads to
-search, Connections, and Messages; Connections locally switches among Friends,
-Following, Followers, and Requests.
+Each uses Studio Quest setup, active, paused, result, permission, recovery, and
+error components. Primary tool screens no longer use the retired Form/List
+compatibility grammar.
 
-- Standard Dynamic Type: equal-width segmented navigation.
-- Accessibility Dynamic Type: full-width menu.
-- Friend rows: avatar, name, optional level context, online/offline status, and coarse last-practice activity.
-- Entire friend/message pill is the hit target.
-- No row chevrons, long dividers, or generic “Practice buddy” copy.
-- Add friend, compose, accept, decline, cancel, contextual message actions, and exact conversation routing are functional.
-- Conversation backgrounds are solid semantic surfaces in both appearances.
+Lifecycle specifics:
 
-Practice Moments are optional generated cards only: app-rendered avatar/room,
-fixed tag/category, coarse duration bucket, and factual verification badge. They
-expire after 24 hours, have no photos, media, captions, comments, or private
-reflection data, and support only the bounded musical reaction set. Social
-writes—follows, approvals, blocks, mutes, and reports—are Cloud-Function
-owned, with age, private-profile, and block precedence enforced server-side.
+- Smart Loop has timestamp work/rest phases, one clean mark per completed
+  interval, deterministic tempo progression, and an explained Pro preset gate.
+- Guided practice preserves the parent session while nested tools run.
+- Run-through asks permission before countdown/metronome/recording and deletes
+  orphan files on every abandoned path.
+- Rhythm defaults to visual/haptic pulses, distinguishes insufficient input
+  from poor timing, and exposes timing distribution/early-late tendency.
+- Intonation waits for listening readiness, handles note mappings and reference
+  frequencies, and releases the tuner on every exit path.
+- Metronome and Tuner share the global audio owner.
 
-One root `BuddiesViewModel` supplies friends, requests, and presence.
+## Root experiences
 
-`FriendActivityPublisher` publishes only a last-practice timestamp into accepted-friend projections. It never publishes duration, notes, pieces, audio, messages, friend codes, or profile content. Sharing is enabled by default and can be disabled in Privacy. Opt-out stops publication, marks the user offline, and clears projections. Online presence expires after 120 seconds.
+### Today
 
-## You and secondary destinations
+One dominant Next Practice action, daily goal, contextual Smart Coach, exact
+Next Quest, recent session, and a small community pulse. Idle dock presentation
+does not compete with the hero.
 
-You includes:
+### Quest
 
-- a runtime-composed empty-room musician studio hero;
-- weekly insight and trend;
-- recent session timeline;
+One Journey path and one Duels & Leagues destination. Featured nodes are typed
+catalog objects with objective, progress, reward, state, and one CTA:
+
+- Warm-up Warrior
+- Rhythm Clarity
+- Dynamic Control
+- Expression Mastery
+
+Avatar Studio is not in Quest. Duel Arena is not duplicated outside Duels &
+Leagues.
+
+### Community
+
+Feed is the root; Search and Messages are header actions. Connections is reached
+from relationship/profile surfaces and contains friends, following, followers,
+and requests.
+
+Profiles are relationship-aware: Follow, Requested, Following, Friends,
+Unfollow, approval, Message, Duel, block, report, mute, and removal states use
+server-authoritative rules. The entire friend pill opens its action chooser.
+Conversation backgrounds are opaque semantic surfaces.
+
+Practice Moments contain only generated avatar/room artwork, coarse duration,
+instrument/category, preset tag, and factual verification state. They contain
+no uploaded media, caption, comment, journal text, note, or audio. Reactions are
+bounded musical enums. Expiry and cleanup are enforced server-side.
+
+### You
+
+You is the identity/progress destination, not a menu:
+
+- runtime-composed studio room;
+- identity and edit profile;
+- weekly activity and achievements;
+- Avatar Studio and room editor;
 - Goals;
 - History;
-- Settings.
+- Pro;
+- Settings, Help, and About.
 
-Dedicated Studio Quest destinations:
+The studio scene is:
+`empty room → placed decorations → avatar → foreground/lighting`.
 
-- Goals: daily/weekly targets, progress, and adaptive controls.
-- History: trends, filters, session timeline, notes, detail, and Pro export entry.
-- Profile editing is a direct action from the You hero: photo, display name, bio, instrument, avatar identity, and public-profile preview.
-- Settings: System/Light/Dark appearance, language, notifications, privacy, retention, Pro, Help, About, sign-out, and account deletion.
-- Pro: advanced insights/export, unlimited plans and presets, premium avatar/room collections, and no rewarded-ad prompts.
-- Notifications, Practice Library, Duel Arena, Avatar Studio, Help, and About.
+Every decoration is an owned independent item. Placement is normalized and
+room-specific, constrained to valid zones, and stores position, scale,
+orientation, depth, and order. Users can drag, remove, return to inventory, or
+use non-drag accessibility controls.
 
-The v2 Settings UI ignores the legacy six-theme and four-font-palette preferences. Those values remain stored only for rollback compatibility.
+## Identity and age
 
-## Design system
+Permanent profiles use server-reserved unique handles, display-name validation,
+private date of birth, instrument, and privacy selection. Legacy permanent
+profiles are gated through schema-v2 upgrade; offline private Today/Practice
+remains available.
 
-`StudioQuestTokens` defines:
+Age behavior:
 
-- semantic light/dark colors;
-- cobalt/violet identity;
-- mint verified/success state;
-- coral/gold reward and competition state;
-- spacing, widths, radii, elevation, motion, and typography.
+- under 13: private practice only;
+- 13–17: private account and approval relationships, no public publishing;
+- 18+: private by default.
 
-Typography:
+Private `users/{uid}` data is separate from minimal `publicProfiles/{uid}`.
+Birth date, email, entitlements, device tokens, internal migration state, and
+settings are never public.
 
-- Space Grotesk for display moments where available;
-- SF Pro/system semantic styles for body and controls;
-- monospaced system type for timers, tempo, measurements, and scores.
+## Firebase and social security
 
-Native materials are reserved for navigation and interactive chrome. Content uses opaque or standard-material semantic surfaces. Ordinary screens do not run a continuously animated full-screen backdrop.
+V2 client writes use App Check-enforced callable Functions for:
 
-`StudioQuestScrollPage` constrains pages to device width, applies adaptive 16–20 point margins, and adds measured dock clearance. Layouts use wrapping, `ViewThatFits`, or accessibility alternatives rather than fixed horizontal assumptions.
+- identity completion/change/privacy;
+- trial entitlement;
+- friend invite and friend actions;
+- social actions, connections, and relationship reads;
+- Moment create/reaction;
+- account deletion;
+- push diagnostics;
+- duel queue/invite/respond/attempt lifecycle.
 
-## Avatar identity and assets
+App Attest is preferred with DeviceCheck fallback. Debug/simulator builds use
+the Firebase debug provider. Legacy HTTP handlers remain temporarily for shipped
+client compatibility; their client-trust paths are hardened.
 
-`AvatarLoadout` is a versioned `Codable` model containing base, skin tone, hair, outfit, instrument, accessory, pose, room IDs, and room-specific normalized decoration layouts.
+Firestore rules and emulator tests cover private/public profile separation,
+minors, accepted-friend messaging, follow approval, blocks, Moment
+audience/expiry, reports, server-owned fields, and deletion constraints.
+Compound indexes are committed. Cleanup jobs and Function instances are
+bounded.
 
-Avatar Studio exposes an expandable V2 foundation:
+Feature flags:
 
-- inclusive starter musician bases with loadout choices;
-- 8 skin tones, 12 hairstyles, outfit and instrument selections, accessories, and poses;
-- 3 intentionally empty rooms;
-- 5 individually owned starter/collectible decorations.
+- `practiceMoments`: on
+- `publicExplore`: off
+- `identityUpgradeRequired`: on
+- `smartCoach`: on
+- `newAvatarRenderer`: on
 
-Scene order is always `empty room → placed decorations → avatar → foreground/lighting`.
-The room asset never includes a person or an optional decoration. Each room has
-its own normalized placement layout; items can be dragged within wall/floor/
-surface zones, adjusted with non-drag accessibility controls, removed without
-losing ownership, and rendered in front of or behind the avatar through depth.
+## Pro and commerce
 
-The renderer is native SwiftUI and uses generated 2.5D raster bases plus native composition. It does not use a live 3D engine. Legacy avatar IDs migrate into starter loadouts and remain written during the compatibility window.
+PractiQuest contains no ads.
 
-Generated asset provenance and prompts are documented in `ASSET_PROVENANCE.md`.
+Recognized products:
 
-## Authentication and onboarding
+- current: `com.alexmalaimare.practiquest.pro.monthly`
+- legacy: `com.alexmalaimare.practicebuddy.adfree.monthly`
 
-Practice-first onboarding:
+Verified StoreKit 2 current entitlements are the authority for paid access.
+Legacy Ad-Free owners are Pro. An unexpired server trial or explicit
+server/local master status can also grant access. Cached Pro state and
+client-submitted product IDs cannot grant paid access.
 
-1. brand welcome;
-2. instrument and goal;
-3. optional avatar starter;
-4. first practice.
+Pro includes Smart Coach continuation, saved plans/presets, advanced insights,
+export, premium avatar collections, rooms/decorations, and cosmetic allowance.
+The current Pro product still requires App Store Connect configuration.
 
-The app continues using anonymous Firebase authentication underneath. Permanent sign-in is requested when entering Community, cloud-linked identity/inventory, account backup, or other account-dependent functionality. User-facing errors use recovery-oriented copy; raw Firebase errors remain diagnostic-only.
+## Design and localization
 
-## Monetization
+`StudioQuestTokens` defines semantic light/dark colors, explicit Space Grotesk
+display faces, SF/system body/control type, monospaced measurement roles,
+spacing, radii, elevation, motion, and accessibility variants.
 
-- No persistent banner appears in the v2 shell or v2 destinations.
-- Rewarded ads are disabled for duels and never interrupt active practice.
-- Core practice, verification, messaging, fair duels, and progression remain free.
-- PractiQuest Pro recognizes:
-  - new product: `com.alexmalaimare.practiquest.pro.monthly`;
-  - legacy product: `com.alexmalaimare.practicebuddy.adfree.monthly`.
-- Legacy Ad-Free owners are treated as Pro.
-- Both product IDs are recognized locally and by `functions/index.js`.
+Native glass/material is reserved for navigation, the Practice Dock, and
+transient controls. Feed, chat, forms, analytics, history, and content use
+opaque semantic surfaces.
 
-The Pro product still needs to be created in App Store Connect, and the updated entitlement function must be deployed before release.
+Combined design evidence:
 
-## Localization and analytics
+- `Design/StudioQuest2/QA/launch-quality-root-comparison.png`
+- `Design/StudioQuest2/QA/launch-quality-compact-comparison.png`
+- `Design/StudioQuest2/QA/launch-quality-promax-comparison.png`
 
-- `PracticeBuddy/Localizable.xcstrings` contains 1,534 keys.
-- Korean missing keys: 0.
-- Romanian missing keys: 0.
-- Placeholder mismatches: 0.
-- `scripts/generate_string_catalog.mjs` and its translation cache maintain the catalog.
+Reference:
+`Design/StudioQuest2/QA/selected-direction.png`, with its baked-in person
+superseded by the empty-room architecture.
 
-`PracticeAnalytics` records bounded, content-free events for onboarding, practice start/save/abandon, dock use, tool discovery, route depth, duel entry, and sign-in conversion. It never records notes, messages, audio, profile text, or friend codes.
+The generated String Catalog currently contains 779 extracted source keys with
+complete Korean and Romanian coverage.
 
-## Persistence and migration
+## Verification
 
-Preserved:
+- Unit: 57/57
+- UI: 30/30
+- Firebase emulator/rules: 10/10
+- Exact simulator: iPhone 17 Pro Max, iOS 26.5
 
-- SwiftData sessions and journal/history;
-- XP and level;
-- league rating and duel history;
-- token balances and inventory;
-- quest state;
-- avatar identity;
-- notification preferences;
-- subscription entitlements;
-- existing friends, requests, and messages;
-- legacy tab and appearance/font values for rollback.
+Coverage includes launch/router determinism, practice clocks/audio ownership,
+save/retry, tool recovery and permission states, scoring, file lifecycle,
+routes, profile relationships, full-pill actions, room editing, localization,
+and accessibility/pseudolocalization reachability.
 
-New v2 state:
+## Release status
 
-- selected `AppDestination`;
-- independent typed navigation paths;
-- versioned `AvatarLoadout`;
-- practice quest event counters;
-- friend activity sharing preference;
-- privacy-safe analytics markers.
+Internal implementation is launch-candidate quality, but release is not
+complete until external gates pass:
 
-## Testing and QA
+1. App Store Connect Pro product;
+2. staged Firebase deployment and App Check monitoring;
+3. internal and focused external TestFlight migration;
+4. physical-device audio, route, interruption, background, Family Controls,
+   Live Activity, APNs, StoreKit, account-upgrade, and Universal Link tests;
+5. final deterministic App Store screenshots and metadata;
+6. resolution of every device/TestFlight P0–P2 issue.
 
-Targets:
-
-- `PracticeBuddyTests/StudioQuestFoundationTests.swift`
-- `PracticeBuddyUITests/StudioQuestNavigationUITests.swift`
-
-Foundation tests cover migration, typed path preservation, quest completion/persistence, avatar-room schema/zone clamping, presence expiry, and bounded analytics. UI tests cover the four-tab shell, featured Quest nodes, rebuilt secondary routes, full friend-pill action selection, and accessibility/pseudolocalization.
-
-Visual evidence:
-
-- `Design/StudioQuest2/QA/final-reference-comparison.png`
-- `Design/StudioQuest2/QA/final-secondary-destinations.png`
-- `Design/StudioQuest2/QA/final-responsive-matrix.png`
-- root `design-qa.md`
-
-The app compiles cleanly and the foundation and Studio Quest UI test targets pass on the iPhone 17 Pro simulator.
-
-## Primary files
-
-- Shell and routing:
-  - `PracticeBuddy/App/ContentView.swift`
-  - `PracticeBuddy/App/AppNavigation.swift`
-  - `PracticeBuddy/Features/StudioQuest/StudioQuestShell.swift`
-- Destinations:
-  - `PracticeBuddy/Features/StudioQuest/StudioQuestDestinationViews.swift`
-  - `PracticeBuddy/Features/StudioQuest/StudioQuestSecondaryViews.swift`
-- Practice:
-  - `PracticeBuddy/Features/StudioQuest/PracticeStudioView.swift`
-  - `PracticeBuddy/Services/PracticeSessionCoordinator.swift`
-  - `PracticeBuddy/Models/PracticeRuntimeModels.swift`
-- Design:
-  - `PracticeBuddy/SharedUI/StudioQuestDesign.swift`
-  - `PracticeBuddy/SharedUI/PBAvatarView.swift`
-- Progress/social:
-  - `PracticeBuddy/Services/PracticeQuestProgressStore.swift`
-  - `PracticeBuddy/Services/FriendActivityPublisher.swift`
-  - `PracticeBuddy/Features/Friends/BuddiesViewModel.swift`
-- Commerce:
-  - `PracticeBuddy/Services/PurchaseManager.swift`
-  - `PracticeBuddy/Features/Settings/StoreView.swift`
-  - `functions/index.js`
-
-## Release gates
-
-Before App Store submission:
-
-1. Create the new Pro product in App Store Connect.
-2. Deploy updated Firebase Functions and verify entitlement synchronization.
-3. Run the final UI suite from a healthy Xcode/CoreSimulator host.
-4. Validate anonymous account upgrade, StoreKit purchase/restore/grandfathering, APNs, Live Activities, Family Controls, and audio on physical devices/TestFlight.
-5. Capture final release screenshots and complete App Store metadata.
+Use `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md` and
+`Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md`.

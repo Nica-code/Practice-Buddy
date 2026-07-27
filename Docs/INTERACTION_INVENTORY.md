@@ -15,6 +15,8 @@ collections use one contract per row type rather than one entry per database row
 | You tab | `AppDestination.you` | Preserves You navigation path | Never disabled | Shell UI test |
 | Practice Dock | Coordinator-owned state | Opens setup, starts/resumes a session, or restores the active tool | Replacement confirmation for incompatible activity | Coordinator unit tests and tool UI tests |
 | Notification/deep link | Typed `AppRoute` payload | Replaces the exact owning tab path once | Unsupported payload is ignored and logged | Router unit tests |
+| Practice URL | `practicebuddy://practice` | Starts the coordinator even for an anonymous user | Invalid custom routes are ignored | Incoming-link parser tests |
+| Friend invite URL | custom or trusted `/invite?code=` URL | Sends immediately for a permanent account or retains the code through account linking | Invalid code/untrusted host is rejected; failed request remains retryable | Incoming-link parser tests |
 
 ## Today and practice
 
@@ -51,6 +53,7 @@ collections use one contract per row type rather than one entry per database row
 | Messages header | `.communityMessages(friendUID:threadID:)` | Opens inbox or exact thread | Accepted friends only | Exact-chat UI test |
 | Your circle | `community.connections` | Opens Connections | Permanent profile required | Community fixture UI test |
 | Friend pill | Full `StudioQuestInteractiveSurface` | Opens Message/Profile/Duel/Remove chooser | Actions reflect current relationship | Full-pill UI test |
+| Share friend invite | Profile row or Connections sheet | Opens the native share sheet with a validated Universal Link | Hidden when no valid owned code exists | Invite URL unit tests and secondary-route coverage |
 | Connection profile area | Full leading row surface | Opens exact public profile | Trailing relationship buttons remain independent | Relationship UI tests |
 | Follow actions | `profile.follow`, `profile.unfollow`, `profile.cancelFollowRequest`, `profile.followBack` | Mutates server-authoritative relationship and refreshes in place | Loading disables repeat; failure is retryable | Relationship UI tests |
 | Friend actions | `profile.acceptFriend`, `profile.declineFriend`, `profile.message`, `profile.duel` | Accept/decline or route to exact eligible feature | Messaging/duel only appears for accepted friends | Relationship UI tests |
@@ -70,6 +73,8 @@ collections use one contract per row type rather than one entry per database row
 | Goals | `.goals` | Opens dedicated goals editor | Save/validation errors visible | You route test |
 | History | `.history`, `.sessionDetail(sessionID:)` | Filters timeline or opens exact session | Deleted session shows unavailable; export explains Pro | You route test |
 | Pro | `.pro(source:)` | Opens source-aware entitlement screen | Purchase/restore failures visible | Entitlement tests |
+| Start Pro trial | `entitlementTrialV2` | Claims server-authoritative one-time trial | Permanent account and App Check required; failure stays visible | Entitlement callable unit tests |
+| Purchase/restore | Verified StoreKit 2 transaction | Grants current or legacy Pro access | Cached/client-submitted identifiers cannot grant access | Entitlement policy tests |
 | Settings | `.settings(section:)` | Opens exact section | Destructive actions require consequence confirmation | You route test |
 
 ## Release audit
@@ -85,5 +90,5 @@ reachable Studio Quest files. Before release:
 3. A visually button-like surface may not be decorative.
 4. All save actions expose loading, committed success, and retryable failure.
 5. All destructive actions explain local and cloud consequences.
-6. The complete UI suite, accessibility matrix, and physical-device checklist
-   must pass before this inventory is signed off.
+6. The complete 57-unit/30-UI suite, accessibility matrix, Firebase rules suite,
+   and physical-device checklist must pass before this inventory is signed off.
