@@ -15,7 +15,7 @@ Firebase deployed from this branch: **Partially — see rollout state below**
 
 The latest exact run passed:
 
-- 60/60 unit tests
+- 61/61 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
@@ -30,11 +30,10 @@ The latest exact run passed:
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
 
-The latest UI target passed 30/30 on that simulator. Xcode 26.5 then failed to
-connect the unit-test host before any unit test started. The unit target passed
-60/60 on the alternate iPhone 17 Pro Max iOS 26.4.1 simulator
+The latest UI target passed 30/30 on that simulator. The unit target passed
+61/61 on the alternate iPhone 17 Pro Max iOS 26.4.1 simulator
 `9D737516-088B-44FD-906D-38375549A920`. This is recorded in `PROJECT_STATE.md`;
-do not report the combined runner connection error as an assertion failure.
+use the alternate simulator if Xcode 26.5 cannot connect the unit-test host.
 
 Run:
 

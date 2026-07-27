@@ -9,7 +9,7 @@ import FirebaseFirestore
 import UIKit
 
 @MainActor
-final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationControllerDelegate {
     private static var didMarkConfigured = false
 
     static func markConfiguredAtLaunch() {
@@ -25,6 +25,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     private var isStarting = false
     private var currentNonce: String?
     private var activeAppleAuthController: ASAuthorizationController?
+    private var activeApplePresentationProvider: AppleSignInPresentationContextProvider?
     private let authUIDelegate = FirebaseAuthPresentationDelegate()
     private lazy var callable: FirebaseCallableTransport = FirebaseCallableClient()
 
@@ -107,6 +108,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         defer {
             currentNonce = nil
             activeAppleAuthController = nil
+            activeApplePresentationProvider = nil
         }
         switch result {
         case .failure(let error):
@@ -143,13 +145,24 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
     }
 
     func startAppleSignInFlowFallback() {
+        guard let presentationAnchor = applePresentationAnchorCandidate() else {
+            currentNonce = nil
+            statusMessage = "Apple sign-in isn’t ready yet. Return to PractiQuest and try again."
+            PBLog.firebase.error("Apple sign-in was requested without an available UIWindowScene.")
+            return
+        }
+
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         prepareAppleSignInRequest(request)
 
         let controller = ASAuthorizationController(authorizationRequests: [request])
         controller.delegate = self
-        controller.presentationContextProvider = self
+        let presentationProvider = AppleSignInPresentationContextProvider(
+            anchor: presentationAnchor
+        )
+        activeApplePresentationProvider = presentationProvider
+        controller.presentationContextProvider = presentationProvider
         activeAppleAuthController = controller
         controller.performRequests()
     }
@@ -162,7 +175,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         handleAppleSignInCompletion(.failure(error))
     }
 
-    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+    private func applePresentationAnchorCandidate() -> ASPresentationAnchor? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         if let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }),
            let keyWindow = activeScene.windows.first(where: { $0.isKeyWindow }) {
@@ -175,9 +188,8 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
             PBLog.firebase.error("No UIWindow available for Apple sign-in presentation anchor. Using scene fallback window.")
             return UIWindow(windowScene: fallbackScene)
         }
-        preconditionFailure("No UIWindowScene available for Apple sign-in presentation anchor.")
+        return nil
     }
-
 
     func signInWithGoogle() {
         statusMessage = "Starting Google sign-in…"
@@ -569,6 +581,21 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
         default:
             return "\(prefix) couldn't be completed. Please try again."
         }
+    }
+}
+
+private final class AppleSignInPresentationContextProvider:
+    NSObject,
+    ASAuthorizationControllerPresentationContextProviding
+{
+    private let anchor: ASPresentationAnchor
+
+    init(anchor: ASPresentationAnchor) {
+        self.anchor = anchor
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        anchor
     }
 }
 

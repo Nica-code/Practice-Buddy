@@ -194,6 +194,33 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(configuration.fixtureSet, .complete)
     }
 
+    func testLaunchConfigurationExactRouteSurvivesAccessibilityAndPseudolocalizationArguments() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.accessibility.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(AppDestination.quest.rawValue, forKey: "practiquest.v2.destination")
+
+        let configuration = AppLaunchConfiguration(
+            arguments: [
+                "PracticeBuddy",
+                "--qa-skip-onboarding",
+                "--qa-destination", "0",
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
+                "-NSDoubleLocalizedStrings", "YES",
+                "-NSShowNonLocalizedStrings", "YES",
+                "--qa-route", "settings"
+            ],
+            defaults: defaults,
+            qaOverridesEnabled: true
+        )
+
+        XCTAssertEqual(configuration.initialDestination, .you)
+        XCTAssertEqual(configuration.initialRoute, .settings(section: nil))
+        XCTAssertTrue(configuration.skipOnboarding)
+        XCTAssertTrue(configuration.isQA)
+    }
+
     func testLaunchConfigurationParsesDeterministicVersionGateFixture() throws {
         let suiteName = "StudioQuestFoundationTests.launch.versionGate.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

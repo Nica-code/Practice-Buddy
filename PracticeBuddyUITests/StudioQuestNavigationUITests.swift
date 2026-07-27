@@ -13,10 +13,18 @@ final class StudioQuestNavigationUITests: XCTestCase {
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        // UI-test methods intentionally launch several deterministic states in
+        // one runner process. Explicitly terminate the previous app process so
+        // UIKit scene restoration cannot write a stale tab selection into the
+        // new router before its immutable QA configuration owns the shell.
+        if app.state != .notRunning {
+            app.terminate()
+        }
         app.launchArguments = [
             "--qa-skip-onboarding",
             "--qa-skip-version-gate",
-            "--qa-destination", "\(destination)"
+            "--qa-destination", "\(destination)",
+            "--qa-launch-token", UUID().uuidString
         ] + extraArguments
         if communityPopulated {
             app.launchArguments.append("--qa-community-populated")

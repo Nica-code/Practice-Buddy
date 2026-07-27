@@ -9,7 +9,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
 
 - Exact simulator command:
   `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
-- Unit tests: 60/60 passed.
+- Unit tests: 61/61 passed.
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
@@ -19,6 +19,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
   IPA was inspected and contains no repository Markdown/internal planning files.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `852697e` — recorded privacy release hardening and remaining gates.
   - `c152689` — validated App Store metadata and v2 legal-site requirements.
   - `50fdb9b` — App Store privacy declarations and centralized legal links.
   - `bd88167` — correct App Store identity and lifetime Pro recognition.
@@ -43,6 +44,12 @@ Internal Xcode target/scheme: `PracticeBuddy`
   - a packaged-manifest regression test is present;
   - App Store copy, privacy/age answers, and v2 legal-site requirements are
     prepared in `Docs/`.
+- QA launches explicitly terminate any previous app process before applying
+  their immutable launch configuration. This prevents UIKit scene restoration
+  from leaking a prior tab into accessibility/pseudolocalization runs.
+- Apple sign-in no longer crashes when no presentation scene exists. It uses a
+  retained scene-specific presentation provider and exposes a retryable state
+  when the app cannot provide a safe anchor.
 
 ## Locked product and engineering decisions
 
@@ -72,6 +79,11 @@ exact route, fixture set, appearance, Dynamic Type, loading/error state, and
 tool lifecycle state no longer race persisted navigation. `AppRouter` owns one
 typed path per tab and retains associated IDs for chats, profiles, Moments,
 duels, quests, sessions, presets, and Settings sections.
+
+The UI-test launcher also forces a clean app process for every deterministic
+state. Accessibility and pseudolocalization arguments are covered by a unit
+regression test, and persisted UIKit scene state cannot override the requested
+QA route.
 
 Incoming links use a validated parser:
 
