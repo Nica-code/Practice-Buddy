@@ -11,6 +11,10 @@ while introducing V2 callables and rules.
 - [ ] Worktree and intended commit are identified.
 - [ ] `firebase login` is active for the correct account.
 - [ ] `.firebaserc` resolves `default` to `practicebuddytracker`.
+- [ ] `firebase projects:list --json` succeeds and the active account can see
+      `practicebuddytracker`.
+- [ ] `firebase functions:list --project practicebuddytracker --json` is saved
+      or reviewed as the pre-deployment production inventory.
 - [ ] A recent production backup/export exists.
 - [ ] The current App Store client's Firebase behavior is understood.
 - [ ] `publicExplore` will remain false.
@@ -39,6 +43,17 @@ xcodebuild test \
 ```
 
 Expected: 58 unit and 30 UI tests.
+
+Run a signed generic-device build:
+
+```text
+xcodebuild build -quiet \
+  -project PracticeBuddy.xcodeproj \
+  -scheme PracticeBuddy \
+  -destination 'generic/platform=iOS'
+```
+
+Expected: exit code 0 for the app and Live Activity extension.
 
 ## 2. Review the production diff
 

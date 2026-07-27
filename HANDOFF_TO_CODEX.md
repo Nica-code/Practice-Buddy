@@ -19,6 +19,7 @@ The latest exact run passed:
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
+- signed generic iOS build passed for the app and Live Activity extension
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
@@ -84,6 +85,8 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+4d0955a Enforce callable rate limits
+ee26541 Refresh launch state and release runbooks
 d3bd68a Complete secure musician invite links
 99e4ae6 Harden StoreKit and trial entitlement trust
 0cd093d Protect friend mutations with App Check callables
@@ -97,7 +100,8 @@ d8d82b0 Retire legacy theme compatibility and expand launch QA
 The simulator implementation is past the main functional rewrite. The next
 priority is release operations, in this order:
 
-1. review the Firebase deployment diff and run the preflight;
+1. rerun the read-only Firebase project/function inventory from an environment
+   with working Google API DNS, then review the deployment diff;
 2. create/verify the Pro product in App Store Connect;
 3. deploy through the staged runbook;
 4. make an internal TestFlight build;
@@ -108,6 +112,12 @@ priority is release operations, in this order:
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
 legitimate builds.
+
+The 2026-07-27 read-only Firebase project query made no production changes and
+failed before authentication completed because `www.googleapis.com` could not
+resolve in the current execution environment. The local default remains
+`practicebuddytracker`. This is an environment/network blocker, not evidence of
+a bad project or backend configuration.
 
 ## Landmines
 

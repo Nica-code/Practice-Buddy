@@ -13,8 +13,12 @@ Internal Xcode target/scheme: `PracticeBuddy`
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
+- Signed generic iOS build: passed for the `PracticeBuddy` scheme, including
+  `PracticeBuddyLiveActivityExtension`.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `4d0955a` — callable rate limits and client recovery copy.
+  - `ee26541` — release state and operational runbooks.
   - `99e4ae6` — StoreKit and trial entitlement trust hardening.
   - `d3bd68a` — secure musician invite links and Universal Link routing.
 - Firebase has not been deployed from this branch.
@@ -189,6 +193,20 @@ External/operational work still required:
 6. Capture final release screenshots from the deployed release configuration.
 7. Update App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
+
+## Current Firebase preflight status
+
+The local configuration resolves the default project to
+`practicebuddytracker`, and the deployment runbook/config/index/rule inputs are
+present. A read-only `firebase projects:list --json` preflight was attempted on
+2026-07-27, but the CLI could not refresh OAuth because DNS resolution for
+`www.googleapis.com` failed in the current execution environment. No Firebase
+resource was changed.
+
+Before deployment, rerun the read-only project/function inventory from a network
+environment where the Firebase CLI can reach Google APIs. Do not interpret this
+local DNS failure as a Firebase project, credentials, rules, or Functions
+failure.
 
 ## Known infrastructure caveat
 
