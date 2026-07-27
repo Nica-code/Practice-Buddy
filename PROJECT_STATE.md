@@ -9,7 +9,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
 
 - Exact simulator command:
   `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
-- Unit tests: 59/59 passed.
+- Unit tests: 60/60 passed.
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
@@ -19,6 +19,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
   IPA was inspected and contains no repository Markdown/internal planning files.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `50fdb9b` — App Store privacy declarations and centralized legal links.
   - `bd88167` — correct App Store identity and lifetime Pro recognition.
   - `43e54b0` — clean App Store export membership hardening.
   - `8b0e6c2` — staged Firebase rollout record and compatibility hold.
@@ -33,6 +34,14 @@ Internal Xcode target/scheme: `PracticeBuddy`
   - Storage rules were already current and were re-released successfully;
   - the owner-only Firestore rules are intentionally **not deployed yet**.
 - Physical-device and TestFlight release checks remain open.
+- Release privacy hardening is implemented locally:
+  - stale Calendar permission copy was removed;
+  - microphone copy now covers every microphone-backed v2 capability;
+  - the app privacy manifest declares first-party collection plus the
+    UserDefaults and system-boot-time required-reason APIs;
+  - a packaged-manifest regression test is present;
+  - App Store copy, privacy/age answers, and v2 legal-site requirements are
+    prepared in `Docs/`.
 
 ## Locked product and engineering decisions
 
@@ -217,8 +226,9 @@ External/operational work still required:
    upgrade, and Universal Links.
 6. Run internal then focused external TestFlight migration testing.
 7. Capture final release screenshots from the deployed release configuration.
-8. Update App Store privacy/age/moderation metadata and submit with the
-   `PracticeBuddy` scheme.
+8. Deploy the v2 privacy/terms/support pages from the separate website
+   repository, then publish the prepared App Store privacy/age/moderation
+   metadata and submit with the `PracticeBuddy` scheme.
 
 App Store Connect is authenticated. The new Pro creation form is prepared for
 `com.alexmalaimare.practiquest.pro.monthly`, but no product has been created or
@@ -232,9 +242,9 @@ Build 31 was archived with the `PracticeBuddy` scheme and exported using the
 `app-store-connect` export method:
 
 - archive:
-  `/private/tmp/PractiQuest-2.0.0-31-final.xcarchive`
+  `/private/tmp/PractiQuest-2.0.0-31-privacy-final.xcarchive`
 - exported IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-final-export/PracticeBuddy.ipa`
+  `/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`
 
 The filesystem-synchronized app target initially copied seven repository
 Markdown documents into the bundle. They are now explicit target-membership
@@ -255,7 +265,22 @@ The final IPA was inspected after these corrections:
 - correct App Store ID embedded;
 - current monthly Pro and approved lifetime Pro IDs embedded;
 - no stale App Store ID;
-- no `.md` resources.
+- no `.md` resources;
+- no Google Mobile Ads, User Messaging Platform, AdSupport, or App Tracking
+  Transparency framework;
+- no stale `alexmalaimare.com/privacy` or `/terms` link;
+- packaged first-party privacy declarations and required reasons;
+- no Calendar permission key.
+
+Prepared release material:
+
+- `Docs/APP_STORE_RELEASE_METADATA_2.0.md`
+- `Docs/LEGAL_SITE_V2_UPDATE.md`
+- `scripts/validate_release_metadata.mjs`
+
+The metadata validator passes Apple's current character limits. The live legal
+pages are still v1 content and must be updated from the separate
+`PractiQuest-Website` repository before submission.
 
 ## Current Firebase rollout status
 
@@ -293,3 +318,12 @@ reliable recovery is:
 5. rerun the exact test command.
 
 Do not count an interrupted run as a failure or a pass.
+
+On 2026-07-27, Xcode 26.5 twice completed all 30 UI tests on the iOS 26.5
+simulator and then failed to establish the subsequent `PracticeBuddyTests`
+runner connection. The `.xcresult` recorded 30 passed UI tests and one
+infrastructure error, not a failed assertion. After a simulator reboot, the
+isolated unit target reproduced the iOS 26.5 connection failure. The same unit
+target then passed 60/60 on the iPhone 17 Pro Max iOS 26.4.1 simulator
+(`9D737516-088B-44FD-906D-38375549A920`). Keep both results explicit until the
+Xcode 26.5 unit-host issue stops reproducing.

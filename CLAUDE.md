@@ -13,12 +13,14 @@ Before code:
 - Branch: `codex/launch-hardening`
 - Version: 2.0.0 (31)
 - Scheme: `PracticeBuddy`
-- Unit: 59/59
+- Unit: 60/60
 - UI: 30/30
 - Firebase rules: 10/10
 - Function contracts: 3/3
 - Clean App Store archive/export: passed; exported IPA contains no internal
   Markdown resources
+- Privacy-corrected final IPA:
+  `/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`
 - Firebase deployed from this branch: indexes, Functions, Hosting, and Storage
   are live; the base rollout is from `3898fe9`, with corrected Hosting and
   `syncEntitlements` from `bd88167`; owner-only Firestore rules are held for
@@ -93,6 +95,20 @@ npm run test:functions
 
 CoreSimulator can stall while materializing workers. Follow the reset sequence
 in `PROJECT_STATE.md`; do not count a cancelled run.
+
+Latest verification split by runtime because of an Xcode host issue:
+
+- UI: 30/30 on iPhone 17 Pro Max iOS 26.5
+  (`54EC2207-327E-4262-AE90-3A31D022F394`)
+- Unit: 60/60 on iPhone 17 Pro Max iOS 26.4.1
+  (`9D737516-088B-44FD-906D-38375549A920`)
+
+The iOS 26.5 unit host twice hung before establishing a connection; no assertion
+failed. See `PROJECT_STATE.md` before retrying.
+
+App Store copy and privacy/age answers are prepared in
+`Docs/APP_STORE_RELEASE_METADATA_2.0.md`. The live legal/support pages are still
+v1 content; use `Docs/LEGAL_SITE_V2_UPDATE.md` before submission.
 
 ## Firebase and release
 

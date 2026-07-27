@@ -33,13 +33,16 @@ friends, messages, notification preferences, and avatar identity are preserved.
 - Public Explore at initial launch: off
 - Advertising: none
 - Current Pro SKU: `com.alexmalaimare.practiquest.pro.monthly`
-- Legacy recognized SKU: `com.alexmalaimare.practicebuddy.adfree.monthly`
+- Legacy recognized SKUs:
+  - `com.alexmalaimare.practicebuddy.adfree.monthly`
+  - `practicebuddy.pro.lifetime`
+- Public App Store ID: `6759354312`
 - Paid-access authority: verified StoreKit 2 current entitlements
 - Trial authority: App Check callable/server state
 
 ## Verified baseline
 
-- 58/58 unit tests
+- 60/60 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
@@ -53,7 +56,7 @@ friends, messages, notification preferences, and avatar identity are preserved.
   writing during the migration window.
 - Preserve SwiftData sessions, reflections, specialized tool logs, XP, rating,
   tokens, inventory, quests, friends, messages, notifications, and preferences.
-- Recognize legacy Ad-Free owners as Pro.
+- Recognize legacy Ad-Free subscribers and Pro Lifetime owners as Pro.
 - Require permanent legacy accounts with old profile schema to complete the
   identity upgrade, while retaining offline private practice.
 
@@ -67,6 +70,9 @@ friends, messages, notification preferences, and avatar identity are preserved.
 - Age-band restrictions, blocks, reports, relationship access, and Moment
   audience are server enforced.
 - Client mutations use App Check V2 callables.
+- The app privacy manifest declares first-party collected data and the
+  UserDefaults/system-boot-time required-reason APIs.
+- No Calendar permission is declared because v2 contains no calendar feature.
 
 ## Submission gates
 
@@ -78,3 +84,8 @@ friends, messages, notification preferences, and avatar identity are preserved.
 6. Capture final screenshots from deterministic release states.
 7. Update privacy, age, moderation/support, terms, and release metadata.
 8. Archive the `PracticeBuddy` scheme, never the Live Activity extension.
+
+Prepared metadata and legal-site requirements are in
+`Docs/APP_STORE_RELEASE_METADATA_2.0.md` and
+`Docs/LEGAL_SITE_V2_UPDATE.md`. The final privacy-corrected build-31 IPA is at
+`/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`.

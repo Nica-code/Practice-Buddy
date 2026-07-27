@@ -15,16 +15,26 @@ Firebase deployed from this branch: **Partially — see rollout state below**
 
 The latest exact run passed:
 
-- 59/59 unit tests
+- 60/60 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
 - signed generic iOS build passed for the app and Live Activity extension
 - clean App Store archive/export passed; exported IPA contains no repository
   Markdown or internal planning documents
+- final privacy-corrected archive:
+  `/private/tmp/PractiQuest-2.0.0-31-privacy-final.xcarchive`
+- final privacy-corrected IPA:
+  `/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
+
+The latest UI target passed 30/30 on that simulator. Xcode 26.5 then failed to
+connect the unit-test host before any unit test started. The unit target passed
+60/60 on the alternate iPhone 17 Pro Max iOS 26.4.1 simulator
+`9D737516-088B-44FD-906D-38375549A920`. This is recorded in `PROJECT_STATE.md`;
+do not report the combined runner connection error as an assertion failure.
 
 Run:
 
@@ -87,6 +97,7 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+50fdb9b Complete App Store privacy declarations
 bd88167 Correct App Store identity and legacy Pro access
 43e54b0 Harden App Store export contents
 8b0e6c2 Record staged Firebase production rollout
@@ -105,19 +116,27 @@ d8d82b0 Retire legacy theme compatibility and expand launch QA
 The simulator implementation is past the main functional rewrite. The next
 priority is release operations, in this order:
 
-1. sign in to App Store Connect and create/verify the Pro product;
-2. register DeviceCheck in Firebase Console using the Apple `.p8` key and Key
+1. update and deploy the v2 privacy, terms, and support pages using
+   `Docs/LEGAL_SITE_V2_UPDATE.md`;
+2. publish the prepared App Store privacy/age/social answers and create/verify
+   the Pro product;
+3. register DeviceCheck in Firebase Console using the Apple `.p8` key and Key
    ID; App Attest is already registered;
-3. upload an internal TestFlight build from the clean archive/export path;
-4. verify App Check and migration behavior on a physical device;
-5. coordinate the owner-only Firestore-rule cutover with the v2 client;
-6. execute the complete physical-device checklist;
-7. fix any device-only defects;
-8. recapture final App Store screenshots and finish metadata.
+4. upload an internal TestFlight build from the clean archive/export path;
+5. verify App Check and migration behavior on a physical device;
+6. coordinate the owner-only Firestore-rule cutover with the v2 client;
+7. execute the complete physical-device checklist;
+8. fix any device-only defects;
+9. recapture final App Store screenshots and finish metadata.
 
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
 legitimate builds.
+
+Release metadata is prepared in `Docs/APP_STORE_RELEASE_METADATA_2.0.md`.
+The live privacy, terms, and support pages remain a blocker; implement
+`Docs/LEGAL_SITE_V2_UPDATE.md` in the separate `PractiQuest-Website` repository
+before submission.
 
 ## Firebase rollout state — 2026-07-27
 
