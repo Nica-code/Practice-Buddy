@@ -49,8 +49,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
-	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-6233840432120177~4024122715</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSCalendarsUsageDescription</key>
@@ -59,14 +57,6 @@
 	<string>PractiQuest uses your microphone for tuner, intonation, rhythm, and duel analysis features.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>PBAdMobBannerPlayAdUnitID</key>
-	<string>ca-app-pub-6233840432120177/8238699892</string>
-	<key>PBAdMobRewardedDuelAdUnitID</key>
-	<string>ca-app-pub-6233840432120177/3504547263</string>
-	<key>PBAdsKillSwitch</key>
-	<false/>
-	<key>PBAdsUseTestAds</key>
-	<false/>
 	<key>PBInviteLinkBaseURL</key>
 	<string>https://practicebuddytracker.web.app</string>
 	<key>PBIsTestFlightBuild</key>

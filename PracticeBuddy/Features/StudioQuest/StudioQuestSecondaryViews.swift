@@ -1324,7 +1324,7 @@ struct StudioQuestProView: View {
                         proFeature("CSV and JSON export", "square.and.arrow.up")
                         proFeature("Unlimited plans and tool presets", "slider.horizontal.3")
                         proFeature("Premium avatar and studio collections", "sparkles")
-                        proFeature("No rewarded-ad prompts", "hand.raised")
+                        proFeature("Monthly cosmetic token allowance", "sparkles.rectangle.stack")
                     }
                 }
                 if let ends = purchaseManager.trialEndsAt, ends > Date() {

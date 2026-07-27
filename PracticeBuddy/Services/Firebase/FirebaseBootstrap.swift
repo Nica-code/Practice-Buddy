@@ -275,7 +275,7 @@ final class FirebaseBootstrap: NSObject, ObservableObject, ASAuthorizationContro
 
     @discardableResult
     func deleteCurrentAccount() async -> Bool {
-        guard let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             statusMessage = "No signed-in account to delete."
             return false
         }

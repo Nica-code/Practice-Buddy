@@ -14,7 +14,6 @@ struct PracticeBuddyApp: App {
     @StateObject private var firebase: FirebaseBootstrap
     @StateObject private var featureFlags: StudioQuestFeatureFlags
     @StateObject private var purchaseManager: PurchaseManager
-    @StateObject private var adsManager: PBAdsManager
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
 
     init() {
@@ -22,7 +21,6 @@ struct PracticeBuddyApp: App {
         _firebase = StateObject(wrappedValue: FirebaseBootstrap())
         _featureFlags = StateObject(wrappedValue: StudioQuestFeatureFlags())
         _purchaseManager = StateObject(wrappedValue: PurchaseManager())
-        _adsManager = StateObject(wrappedValue: PBAdsManager())
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
         PBNotificationCenter.registerCategories()
     }
@@ -41,7 +39,6 @@ struct PracticeBuddyApp: App {
         .environmentObject(firebase)
         .environmentObject(featureFlags)
         .environmentObject(purchaseManager)
-        .environmentObject(adsManager)
     }
 }
 

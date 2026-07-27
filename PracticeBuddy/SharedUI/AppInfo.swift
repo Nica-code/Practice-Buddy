@@ -147,30 +147,6 @@ enum AppInfo {
         return boolValue(for: "PBIsTestFlightBuild", defaultValue: false)
     }
 
-    static var adMobAppID: String? {
-        stringValue(for: "GADApplicationIdentifier")
-    }
-
-    static var productionBannerAdUnitID: String? {
-        stringValue(for: "PBAdMobBannerPlayAdUnitID")
-    }
-
-    static var productionBannerSocialAdUnitID: String? {
-        stringValue(for: "PBAdMobBannerSocialAdUnitID")
-    }
-
-    static var productionRewardedAdUnitID: String? {
-        stringValue(for: "PBAdMobRewardedDuelAdUnitID")
-    }
-
-    static var adsKillSwitchEnabled: Bool {
-        boolValue(for: "PBAdsKillSwitch", defaultValue: false)
-    }
-
-    static var useTestAdsOverride: Bool {
-        boolValue(for: "PBAdsUseTestAds", defaultValue: false)
-    }
-
     private static func stringValue(for key: String) -> String? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

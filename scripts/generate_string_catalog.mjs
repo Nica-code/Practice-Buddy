@@ -1,14 +1,59 @@
 #!/usr/bin/env node
 
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 const projectRoot = process.cwd();
-const stringsDataDirectory =
-  process.argv[2] ??
-  "/private/tmp/practiquest-third-pass-build/Build/Intermediates.noindex/PracticeBuddy.build/Debug-iphonesimulator/PracticeBuddy.build/Objects-normal/arm64";
 const outputPath = path.join(projectRoot, "PracticeBuddy", "Localizable.xcstrings");
 const translationCachePath = path.join(projectRoot, "scripts", ".studioquest-translation-cache.json");
+
+async function resolveStringsDataDirectory() {
+  if (process.argv[2]) return path.resolve(process.argv[2]);
+
+  const derivedDataRoot = path.join(
+    os.homedir(),
+    "Library",
+    "Developer",
+    "Xcode",
+    "DerivedData",
+  );
+  const derivedDataEntries = await readdir(derivedDataRoot, {
+    withFileTypes: true,
+  });
+  const candidates = [];
+
+  for (const entry of derivedDataEntries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("PracticeBuddy-")) continue;
+    const candidate = path.join(
+      derivedDataRoot,
+      entry.name,
+      "Build",
+      "Intermediates.noindex",
+      "PracticeBuddy.build",
+      "Debug-iphonesimulator",
+      "PracticeBuddy.build",
+      "Objects-normal",
+      "arm64",
+    );
+    try {
+      const metadata = await stat(candidate);
+      candidates.push({ path: candidate, modifiedAt: metadata.mtimeMs });
+    } catch {
+      // This DerivedData entry has not produced simulator localization data.
+    }
+  }
+
+  candidates.sort((left, right) => right.modifiedAt - left.modifiedAt);
+  if (!candidates[0]) {
+    throw new Error(
+      "No current PracticeBuddy simulator stringsdata was found. Build the PracticeBuddy scheme first, or pass its Objects-normal/arm64 directory as the first argument.",
+    );
+  }
+  return candidates[0].path;
+}
+
+const stringsDataDirectory = await resolveStringsDataDirectory();
 
 async function readExistingCatalog(language) {
   try {
@@ -35,6 +80,11 @@ async function extractedKeys() {
     for (const entry of payload.tables?.Localizable ?? []) {
       if (entry.key) keys.add(entry.key);
     }
+  }
+  if (keys.size === 0) {
+    throw new Error(
+      `No Localizable strings were extracted from ${stringsDataDirectory}. Refusing to replace the catalog.`,
+    );
   }
   return keys;
 }
@@ -119,11 +169,9 @@ async function translateMissing(keys, language, existing, cache) {
 const sourceKeys = await extractedKeys();
 const existingKorean = await readExistingCatalog("ko");
 const existingRomanian = await readExistingCatalog("ro");
-const allKeys = [...new Set([
-  ...sourceKeys,
-  ...Object.keys(existingKorean),
-  ...Object.keys(existingRomanian),
-])].sort((left, right) => left.localeCompare(right, "en"));
+const allKeys = [...sourceKeys].sort((left, right) =>
+  left.localeCompare(right, "en"),
+);
 
 const cache = await loadCache();
 const korean = await translateMissing(allKeys, "ko", existingKorean, cache);
@@ -157,5 +205,5 @@ const catalog = {
 
 await writeFile(outputPath, `${JSON.stringify(catalog, null, 2)}\n`);
 console.log(
-  `Wrote ${outputPath} with ${allKeys.length} keys; Korean and Romanian have complete coverage.`,
+  `Wrote ${outputPath} from ${stringsDataDirectory} with ${allKeys.length} source keys; Korean and Romanian have complete coverage.`,
 );

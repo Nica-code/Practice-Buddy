@@ -14,8 +14,8 @@ final class IdentityUpgradeCoordinator: ObservableObject {
     private var configuredUID: String?
     private var isAnonymous = true
 
-    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
-        self.callable = callable
+    init(callable: FirebaseCallableTransport? = nil) {
+        self.callable = callable ?? FirebaseCallableClient()
     }
 
     var blocksOnlineFeatures: Bool {

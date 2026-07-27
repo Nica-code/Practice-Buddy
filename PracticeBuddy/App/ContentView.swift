@@ -24,7 +24,6 @@ struct ContentView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var featureFlags: StudioQuestFeatureFlags
     @EnvironmentObject private var purchaseManager: PurchaseManager
-    @EnvironmentObject private var adsManager: PBAdsManager
 
     @AppStorage("practiquest.v2.destination") private var selectedTab: Int = AppDestination.today.rawValue
     @AppStorage("practiquest.v2.onboarding.completed") private var v2OnboardingCompleted: Bool = false
@@ -137,7 +136,6 @@ struct ContentView: View {
                 }
             themeManager.refresh()
             PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
-            adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
             if purchaseManager.isPro {
                 Task { _ = await journeyManager.claimProDailyCosmeticAllowance() }
             }
@@ -171,7 +169,8 @@ struct ContentView: View {
             Task {
                 await identityUpgrade.configure(
                     uid: firebase.currentUserID,
-                    isAnonymous: firebase.isAnonymousUser
+                    isAnonymous: firebase.isAnonymousUser,
+                    upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                 )
             }
         }
@@ -180,12 +179,12 @@ struct ContentView: View {
             Task {
                 await identityUpgrade.configure(
                     uid: firebase.currentUserID,
-                    isAnonymous: firebase.isAnonymousUser
+                    isAnonymous: firebase.isAnonymousUser,
+                    upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                 )
             }
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
-            adsManager.syncAdFreeStatus(purchaseManager.hasAdFree)
             if purchaseManager.isPro {
                 Task { _ = await journeyManager.claimProDailyCosmeticAllowance() }
             }
@@ -199,7 +198,8 @@ struct ContentView: View {
                 Task {
                     await identityUpgrade.configure(
                         uid: firebase.currentUserID,
-                        isAnonymous: firebase.isAnonymousUser
+                        isAnonymous: firebase.isAnonymousUser,
+                        upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                     )
                 }
             } else {
@@ -474,7 +474,7 @@ struct ContentView: View {
             scenePhase == .active ? "active" : "inactive",
             firebase.currentUserID ?? "nil",
             firebase.isAnonymousUser ? "anon" : "auth",
-            purchaseManager.hasAdFree ? "adfree" : "ads",
+            purchaseManager.isPro ? "pro" : "free",
             needsAccountSetup ? "setup" : "ready"
         ].joined(separator: "|")
 
