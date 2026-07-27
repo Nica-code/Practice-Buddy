@@ -152,6 +152,8 @@ private struct StudioQuestNewMessageSheet: View {
 
 struct StudioQuestPublicProfileView: View {
     let userID: String
+    @EnvironmentObject private var firebase: FirebaseBootstrap
+    @EnvironmentObject private var buddies: BuddiesViewModel
     @EnvironmentObject private var router: AppRouter
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var model = StudioQuestPublicProfileModel()
@@ -184,25 +186,7 @@ struct StudioQuestPublicProfileView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         }
-                        StudioQuestInteractiveSurface {
-                            router.navigate(to: .duelArena(challengeID: nil), in: .quest)
-                        } content: {
-                            Label("Start a friendly duel", systemImage: "bolt.shield")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(15)
-                                .background(StudioQuestTokens.ColorRole.surface(colorScheme), in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
-                        }
-                        StudioQuestInteractiveSurface {
-                            Task { _ = await socialGraph.perform(.follow, targetUID: userID) }
-                        } content: {
-                            Label("Follow", systemImage: "person.badge.plus")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(15)
-                                .background(StudioQuestTokens.ColorRole.cobalt, in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
-                                .foregroundStyle(.white)
-                        }
+                        relationshipActions(profile: profile)
                         Menu {
                             Button("Mute Moments", systemImage: "speaker.slash") {
                                 Task { _ = await socialGraph.perform(.mute, targetUID: userID) }
@@ -224,9 +208,19 @@ struct StudioQuestPublicProfileView: View {
                         if let status = socialGraph.statusMessage {
                             StudioQuestInlineStatus(text: status, kind: .warning)
                         }
+                        if let error = socialGraph.errorMessage {
+                            StudioQuestInlineStatus(text: error, kind: .warning)
+                        }
                     }
                 } else if model.isLoading {
                     StudioQuestLoadingState(title: "Loading musician…")
+                } else if let errorMessage = model.errorMessage {
+                    StudioQuestErrorState(
+                        title: "Profile unavailable",
+                        message: LocalizedStringKey(errorMessage)
+                    ) {
+                        Task { await loadProfileAndRelationship() }
+                    }
                 } else {
                     StudioQuestEmptyState(
                         title: "Profile unavailable",
@@ -237,9 +231,178 @@ struct StudioQuestPublicProfileView: View {
             }
             .padding(.top, StudioQuestTokens.Spacing.lg)
         }
-        .task(id: userID) { await model.load(userID: userID) }
+        .task(id: userID) { await loadProfileAndRelationship() }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func relationshipActions(profile: PublicProfile) -> some View {
+        if !socialGraph.hasLoadedRelationship {
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Loading relationship…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+        } else {
+            relationshipActionsContent(profile: profile)
+        }
+    }
+
+    @ViewBuilder
+    private func relationshipActionsContent(profile: PublicProfile) -> some View {
+        switch buddies.relationshipState(with: userID) {
+        case .me:
+            profileAction(
+                title: "Edit profile",
+                systemImage: "pencil",
+                accessibilityID: "profile.edit"
+            ) {
+                router.navigate(to: .profile(userID: nil), in: .you)
+            }
+        case .friends:
+            HStack(spacing: 12) {
+                profileAction(
+                    title: "Message",
+                    systemImage: "bubble.left.and.bubble.right.fill",
+                    accessibilityID: "profile.message",
+                    isPrimary: true
+                ) {
+                    router.navigate(to: .communityMessages(friendUID: userID, threadID: nil), in: .community)
+                }
+                profileAction(
+                    title: "Duel",
+                    systemImage: "bolt.shield",
+                    accessibilityID: "profile.duel"
+                ) {
+                    router.navigate(to: .duelArena(challengeID: nil), in: .quest)
+                }
+            }
+        case .incoming(let invite):
+            VStack(alignment: .leading, spacing: 12) {
+                Text("\(profile.displayName) sent you a friend request.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    profileAction(
+                        title: "Accept",
+                        systemImage: "checkmark",
+                        accessibilityID: "profile.acceptFriend",
+                        isPrimary: true
+                    ) {
+                        Task { await buddies.acceptInvite(invite) }
+                    }
+                    profileAction(
+                        title: "Decline",
+                        systemImage: "xmark",
+                        accessibilityID: "profile.declineFriend"
+                    ) {
+                        Task { await buddies.declineInvite(invite) }
+                    }
+                }
+            }
+        case .outgoing(let invite):
+            profileAction(
+                title: "Friend request sent",
+                systemImage: "clock",
+                accessibilityID: "profile.cancelFriendRequest"
+            ) {
+                Task { await buddies.cancelOutgoingInvite(invite) }
+            }
+        case .notFriends:
+            followActions
+        }
+    }
+
+    @ViewBuilder
+    private var followActions: some View {
+        switch socialGraph.profileRelationship {
+        case .none:
+            profileAction(
+                title: "Follow",
+                systemImage: "person.badge.plus",
+                accessibilityID: "profile.follow",
+                isPrimary: true,
+                isEnabled: !socialGraph.isPerformingAction
+            ) {
+                perform(.follow)
+            }
+        case .requested:
+            profileAction(
+                title: "Requested",
+                systemImage: "clock",
+                accessibilityID: "profile.cancelFollowRequest",
+                isEnabled: !socialGraph.isPerformingAction
+            ) {
+                perform(.unfollow)
+            }
+        case .following, .mutualFollowing:
+            profileAction(
+                title: "Following",
+                systemImage: "checkmark",
+                accessibilityID: "profile.unfollow",
+                isEnabled: !socialGraph.isPerformingAction
+            ) {
+                perform(.unfollow)
+            }
+        case .followsYou:
+            profileAction(
+                title: "Follow back",
+                systemImage: "person.badge.plus",
+                accessibilityID: "profile.followBack",
+                isPrimary: true,
+                isEnabled: !socialGraph.isPerformingAction
+            ) {
+                perform(.follow)
+            }
+        case .blocked:
+            profileAction(
+                title: "Unblock musician",
+                systemImage: "hand.raised.slash",
+                accessibilityID: "profile.unblock",
+                isEnabled: !socialGraph.isPerformingAction
+            ) {
+                perform(.unblock)
+            }
+        }
+    }
+
+    private func profileAction(
+        title: LocalizedStringKey,
+        systemImage: String,
+        accessibilityID: String,
+        isPrimary: Bool = false,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        StudioQuestInteractiveSurface(isEnabled: isEnabled, action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 52)
+                .foregroundStyle(isPrimary ? Color.white : Color.primary)
+                .background(
+                    isPrimary
+                        ? StudioQuestTokens.ColorRole.cobalt
+                        : StudioQuestTokens.ColorRole.surface(colorScheme),
+                    in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
+                )
+        }
+        .id(accessibilityID)
+        .accessibilityIdentifier(accessibilityID)
+    }
+
+    private func perform(_ action: StudioQuestSocialAction) {
+        Task { _ = await socialGraph.perform(action, targetUID: userID) }
+    }
+
+    private func loadProfileAndRelationship() async {
+        async let profileLoad: Void = model.load(userID: userID)
+        async let relationshipLoad: Void = socialGraph.loadRelationship(targetUID: userID)
+        _ = await (profileLoad, relationshipLoad)
     }
 }
 
@@ -247,15 +410,38 @@ struct StudioQuestPublicProfileView: View {
 private final class StudioQuestPublicProfileModel: ObservableObject {
     @Published var profile: PublicProfile?
     @Published var isLoading = false
+    @Published var errorMessage: String?
 
     func load(userID: String) async {
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
+        #if DEBUG
+        if userID.hasPrefix("fixture-") {
+            profile = PublicProfile(
+                id: userID,
+                displayName: fixtureDisplayName(for: userID),
+                handle: fixtureHandle(for: userID),
+                profilePhotoURL: "",
+                instrument: "Violin",
+                bio: "Building a thoughtful daily practice.",
+                publicLevel: 18,
+                avatarID: "avatar_note",
+                isPrivate: userID == "fixture-requested",
+                allowsMoments: true
+            )
+            return
+        }
+        #endif
         do {
             let document = try await Firestore.firestore().collection("publicProfiles").document(userID).getDocument()
             let data = document.data() ?? [:]
-            guard let displayName = data["displayName"] as? String,
-                  let handle = data["handle"] as? String else { return }
+            guard document.exists,
+                  let displayName = data["displayName"] as? String,
+                  let handle = data["handle"] as? String else {
+                profile = nil
+                return
+            }
             profile = PublicProfile(
                 id: document.documentID,
                 displayName: displayName,
@@ -270,8 +456,27 @@ private final class StudioQuestPublicProfileModel: ObservableObject {
             )
         } catch {
             profile = nil
+            errorMessage = "We couldn’t load this profile. Check your connection and try again."
         }
     }
+
+    #if DEBUG
+    private func fixtureDisplayName(for userID: String) -> String {
+        switch userID {
+        case "fixture-aya": "Aya Chen"
+        case "fixture-requested": "Lina Park"
+        case "fixture-following": "Noah Williams"
+        case "fixture-follower": "Maya Ortiz"
+        case "fixture-mutual": "Theo Martin"
+        case "fixture-blocked": "Blocked Musician"
+        default: "Jordan Lee"
+        }
+    }
+
+    private func fixtureHandle(for userID: String) -> String {
+        userID.replacingOccurrences(of: "fixture-", with: "")
+    }
+    #endif
 }
 
 struct StudioQuestConnectionsView: View {
@@ -465,6 +670,13 @@ struct StudioQuestConnectionsView: View {
     private var socialConnectionRows: some View {
         if socialGraph.isLoading {
             StudioQuestLoadingState(title: "Loading connections…")
+        } else if let error = socialGraph.errorMessage, socialGraph.rows.isEmpty {
+            StudioQuestErrorState(
+                title: "Connections unavailable",
+                message: LocalizedStringKey(error)
+            ) {
+                Task { await socialGraph.load(section: section) }
+            }
         } else if socialGraph.rows.isEmpty {
             relationshipEmpty(
                 title: section == .following ? "You are not following anyone yet" : (section == .followers ? "No followers yet" : "No follow requests yet"),
@@ -473,6 +685,10 @@ struct StudioQuestConnectionsView: View {
         } else {
             ForEach(socialGraph.rows) { connection in
                 HStack(spacing: 12) {
+                    StudioQuestInteractiveSurface {
+                        router.navigate(to: .publicProfile(userID: connection.id), in: .community)
+                    } content: {
+                        HStack(spacing: 12) {
                         PBAvatarView(avatarID: connection.avatarID, displayName: connection.displayName, size: 48)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(connection.displayName).font(.headline)
@@ -480,6 +696,11 @@ struct StudioQuestConnectionsView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    }
+                    .accessibilityLabel("View \(connection.displayName)'s profile")
+
                         if section == .requests {
                             HStack(spacing: 8) {
                                 Button(connection.isIncoming ? "Accept" : "Cancel") {
@@ -515,15 +736,9 @@ struct StudioQuestConnectionsView: View {
                             }
                             .buttonStyle(.bordered)
                         }
-                    }
+                }
                 .padding(14)
                 .background(StudioQuestTokens.ColorRole.surface(colorScheme), in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    router.navigate(to: .publicProfile(userID: connection.id), in: .community)
-                }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityHint("Opens \(connection.displayName)'s profile")
                 }
             }
         if let status = socialGraph.statusMessage {
@@ -591,6 +806,13 @@ struct StudioQuestPeopleSearchView: View {
                     .onSubmit { Task { await model.search(query) } }
                 if model.isLoading {
                     StudioQuestLoadingState(title: "Finding musicians…")
+                } else if let error = model.errorMessage {
+                    StudioQuestErrorState(
+                        title: "Search unavailable",
+                        message: LocalizedStringKey(error)
+                    ) {
+                        Task { await model.search(query) }
+                    }
                 } else if model.results.isEmpty, !query.isEmpty {
                     StudioQuestEmptyState(title: "No musicians found", message: "Try a different public handle.", systemImage: "magnifyingglass") {}
                 } else {
@@ -627,14 +849,17 @@ struct StudioQuestPeopleSearchView: View {
 private final class StudioQuestPeopleSearchModel: ObservableObject {
     @Published var results: [PublicProfile] = []
     @Published var isLoading = false
+    @Published var errorMessage: String?
 
     func search(_ raw: String) async {
         let query = StudioQuestIdentityValidator.normalizedHandle(raw)
         guard query.count >= 2 else {
             results = []
+            errorMessage = nil
             return
         }
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
         do {
             let snapshot = try await Firestore.firestore()
@@ -663,6 +888,7 @@ private final class StudioQuestPeopleSearchModel: ObservableObject {
             }
         } catch {
             results = []
+            errorMessage = "We couldn’t search right now. Check your connection and try again."
         }
     }
 }

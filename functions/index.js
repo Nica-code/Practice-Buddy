@@ -361,6 +361,25 @@ exports.socialConnections = onRequest({maxInstances: 5}, async (req, res) => {
   }
 });
 
+exports.socialRelationship = onRequest({maxInstances: 5}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({error: "Method not allowed"});
+    return;
+  }
+  try {
+    const auth = await requireAuth(req);
+    if (auth.token.firebase?.sign_in_provider === "anonymous") {
+      throw new Error("Create a permanent profile before viewing relationships.");
+    }
+    const targetUID = validateDocumentID(req.body?.targetUID, "Musician");
+    const state = await socialRelationshipState(auth.uid, targetUID);
+    res.status(200).json({ok: true, state});
+  } catch (error) {
+    logger.warn("socialRelationship failed", {error: String(error?.message || error)});
+    res.status(400).json({error: String(error?.message || error)});
+  }
+});
+
 // A bounded cleanup is used in addition to read-time expiresAt checks. It
 // removes subcollections and inbox references, which Firestore TTL cannot do.
 exports.cleanupExpiredPracticeMoments = onSchedule({schedule: "every 60 minutes", timeZone: "UTC", maxInstances: 1}, async () => {
@@ -1815,6 +1834,30 @@ async function applySocialAction(uid, targetUID, action, reason) {
     return {status: "declined"};
   }
   throw new Error("That community action is unavailable.");
+}
+
+async function socialRelationshipState(uid, targetUID) {
+  if (uid === targetUID) return "none";
+  await socialActor(uid);
+
+  const [
+    blockedByMe,
+    outgoingFollow,
+    incomingFollow,
+    outgoingRequest,
+  ] = await Promise.all([
+    db.collection("socialBlocks").doc(socialDocID(uid, targetUID)).get(),
+    db.collection("socialFollows").doc(socialDocID(uid, targetUID)).get(),
+    db.collection("socialFollows").doc(socialDocID(targetUID, uid)).get(),
+    db.collection("followRequests").doc(socialDocID(uid, targetUID)).get(),
+  ]);
+
+  if (blockedByMe.exists) return "blocked";
+  if (outgoingFollow.exists && incomingFollow.exists) return "mutualFollowing";
+  if (outgoingFollow.exists) return "following";
+  if (outgoingRequest.exists) return "requested";
+  if (incomingFollow.exists) return "followsYou";
+  return "none";
 }
 
 async function socialConnectionRows(uid, section) {

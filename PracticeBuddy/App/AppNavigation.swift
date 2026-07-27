@@ -468,6 +468,18 @@ struct AppLaunchConfiguration: Equatable {
                 ),
                 opensRoomEditor: false
             )
+        case "publicProfileNone":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-none"), opensRoomEditor: false)
+        case "publicProfileRequested":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-requested"), opensRoomEditor: false)
+        case "publicProfileFollowing":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-following"), opensRoomEditor: false)
+        case "publicProfileFollower":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-follower"), opensRoomEditor: false)
+        case "publicProfileFriend":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-aya"), opensRoomEditor: false)
+        case "publicProfileBlocked":
+            RouteRequest(destination: .community, route: .publicProfile(userID: "fixture-blocked"), opensRoomEditor: false)
         default:
             nil
         }

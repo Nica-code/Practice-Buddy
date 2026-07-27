@@ -25,6 +25,15 @@ enum StudioQuestSocialAction: String {
     case mute
 }
 
+enum StudioQuestProfileRelationshipState: String, Equatable, Sendable {
+    case none
+    case requested
+    case following
+    case followsYou
+    case mutualFollowing
+    case blocked
+}
+
 /// All relationship writes pass through Cloud Functions. This keeps the app
 /// client content-free and leaves age, block, and private-account policy on
 /// the server rather than relying on a screen to enforce it.
@@ -69,6 +78,18 @@ final class SocialGraphRepository {
         }
     }
 
+    func relationship(targetUID: String) async throws -> StudioQuestProfileRelationshipState {
+        let response = try await post(path: "socialRelationship", payload: ["targetUID": targetUID])
+        guard response["ok"] as? Bool == true else {
+            throw SocialGraphError.server(response["error"] as? String ?? "This relationship is unavailable right now.")
+        }
+        guard let rawState = response["state"] as? String,
+              let state = StudioQuestProfileRelationshipState(rawValue: rawState) else {
+            throw SocialGraphError.server("This relationship could not be read.")
+        }
+        return state
+    }
+
     private func post(path: String, payload: [String: Any]) async throws -> [String: Any] {
         guard let baseURL = AppInfo.duelFunctionsBaseURL,
               let user = Auth.auth().currentUser else {
@@ -106,8 +127,12 @@ enum SocialGraphError: LocalizedError {
 @MainActor
 final class StudioQuestSocialGraphCoordinator: ObservableObject {
     @Published private(set) var rows: [StudioQuestSocialConnection] = []
+    @Published private(set) var profileRelationship: StudioQuestProfileRelationshipState = .none
+    @Published private(set) var hasLoadedRelationship = false
     @Published private(set) var isLoading = false
+    @Published private(set) var isPerformingAction = false
     @Published var statusMessage: String?
+    @Published private(set) var errorMessage: String?
 
     private let repository: SocialGraphRepository
 
@@ -117,11 +142,37 @@ final class StudioQuestSocialGraphCoordinator: ObservableObject {
 
     func load(section: CommunityConnectionsSection) async {
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
         do {
             rows = try await repository.connections(section: section)
         } catch {
-            statusMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadRelationship(targetUID: String) async {
+        hasLoadedRelationship = false
+        #if DEBUG
+        if let fixture = Self.fixtureRelationship(targetUID: targetUID) {
+            profileRelationship = fixture
+            statusMessage = nil
+            errorMessage = nil
+            hasLoadedRelationship = true
+            return
+        }
+        #endif
+        isLoading = true
+        errorMessage = nil
+        defer {
+            isLoading = false
+            hasLoadedRelationship = true
+        }
+        do {
+            profileRelationship = try await repository.relationship(targetUID: targetUID)
+            statusMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -130,15 +181,63 @@ final class StudioQuestSocialGraphCoordinator: ObservableObject {
         targetUID: String,
         reason: [String: String]? = nil
     ) async -> Bool {
+        isPerformingAction = true
+        errorMessage = nil
+        defer { isPerformingAction = false }
+        #if DEBUG
+        if Self.fixtureRelationship(targetUID: targetUID) != nil {
+            applyFixtureAction(action)
+            statusMessage = socialStatusMessage(profileRelationship.rawValue)
+            return true
+        }
+        #endif
         do {
             let status = try await repository.act(action, targetUID: targetUID, reason: reason)
             statusMessage = socialStatusMessage(status)
+            applyReturnedStatus(status)
             return true
         } catch {
-            statusMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
             return false
         }
     }
+
+    private func applyReturnedStatus(_ status: String) {
+        switch status {
+        case "following": profileRelationship = .following
+        case "requested": profileRelationship = .requested
+        case "unfollowed", "declined", "removed": profileRelationship = .none
+        case "blocked": profileRelationship = .blocked
+        case "unblocked": profileRelationship = .none
+        default: break
+        }
+    }
+
+    #if DEBUG
+    private static func fixtureRelationship(targetUID: String) -> StudioQuestProfileRelationshipState? {
+        switch targetUID {
+        case "fixture-none": .some(.none)
+        case "fixture-requested": .requested
+        case "fixture-following": .following
+        case "fixture-follower": .followsYou
+        case "fixture-mutual": .mutualFollowing
+        case "fixture-blocked": .blocked
+        case "fixture-aya": .mutualFollowing
+        default: nil
+        }
+    }
+
+    private func applyFixtureAction(_ action: StudioQuestSocialAction) {
+        switch action {
+        case .follow: profileRelationship = .following
+        case .unfollow, .declineFollow, .removeFollower: profileRelationship = .none
+        case .acceptFollow: profileRelationship = .following
+        case .block: profileRelationship = .blocked
+        case .unblock: profileRelationship = .none
+        case .reportProfile, .reportMoment, .mute: break
+        }
+    }
+    #endif
 
     private func socialStatusMessage(_ status: String) -> String {
         switch status {

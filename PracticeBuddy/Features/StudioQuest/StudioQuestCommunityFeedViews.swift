@@ -397,9 +397,19 @@ struct StudioQuestMomentDetailView: View {
                         if let status = socialGraph.statusMessage {
                             StudioQuestInlineStatus(text: status, kind: .warning)
                         }
+                        if let error = socialGraph.errorMessage {
+                            StudioQuestInlineStatus(text: error, kind: .warning)
+                        }
                     }
                 } else if repository.isLoading {
                     StudioQuestLoadingState(title: "Loading Moment…")
+                } else if let error = repository.errorMessage {
+                    StudioQuestErrorState(
+                        title: "Moment unavailable",
+                        message: LocalizedStringKey(error)
+                    ) {
+                        Task { await repository.load(momentID: momentID) }
+                    }
                 } else {
                     StudioQuestEmptyState(title: "Moment unavailable", message: "It may have expired or been removed.", systemImage: "clock.badge.xmark") {}
                 }
@@ -414,11 +424,18 @@ struct StudioQuestMomentDetailView: View {
 private final class PracticeMomentDetailModel: ObservableObject {
     @Published var moment: PracticeMoment?
     @Published var isLoading = false
+    @Published var errorMessage: String?
     private let repository = PracticeMomentRepository()
 
     func load(momentID: String) async {
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
-        moment = try? await repository.fetchMoment(id: momentID)
+        do {
+            moment = try await repository.fetchMoment(id: momentID)
+        } catch {
+            moment = nil
+            errorMessage = "We couldn’t load this Moment. Check your connection and try again."
+        }
     }
 }

@@ -431,6 +431,31 @@ struct StudioQuestLoadingState: View {
     }
 }
 
+struct StudioQuestErrorState: View {
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    var retryTitle: LocalizedStringKey = "Try again"
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(StudioQuestTokens.ColorRole.coral)
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button(retryTitle, action: retry)
+                .buttonStyle(StudioQuestSecondaryButtonStyle())
+        }
+        .frame(maxWidth: .infinity, minHeight: 180)
+        .accessibilityElement(children: .contain)
+    }
+}
+
 struct StudioQuestEmptyState: View {
     let title: LocalizedStringKey
     let message: LocalizedStringKey

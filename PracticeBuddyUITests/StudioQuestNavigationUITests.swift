@@ -189,6 +189,46 @@ final class StudioQuestNavigationUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Write a message…"].exists)
     }
 
+    func testPublicProfileActionsReflectRelationshipState() {
+        let followApp = launch(route: "publicProfileNone")
+        let follow = followApp.buttons["profile.follow"]
+        XCTAssertTrue(reveal(follow, in: followApp), "A new relationship should offer Follow")
+        follow.tap()
+        XCTAssertTrue(
+            followApp.buttons["profile.unfollow"].waitForExistence(timeout: 5),
+            "Following a public fixture should update the profile action in place"
+        )
+        followApp.terminate()
+
+        let requestedApp = launch(route: "publicProfileRequested")
+        let requested = requestedApp.buttons["profile.cancelFollowRequest"]
+        XCTAssertTrue(reveal(requested, in: requestedApp), "A pending private-profile request should show Requested")
+        requested.tap()
+        XCTAssertTrue(
+            requestedApp.buttons["profile.follow"].waitForExistence(timeout: 5),
+            "Canceling a request should restore the Follow action"
+        )
+        requestedApp.terminate()
+
+        let friendApp = launch(route: "publicProfileFriend")
+        XCTAssertTrue(
+            reveal(friendApp.buttons["profile.message"], in: friendApp),
+            "Accepted friends should expose messaging"
+        )
+        XCTAssertTrue(friendApp.buttons["profile.duel"].exists)
+    }
+
+    func testBlockedPublicProfileCanBeUnblocked() {
+        let app = launch(route: "publicProfileBlocked")
+        let unblock = app.buttons["profile.unblock"]
+        XCTAssertTrue(reveal(unblock, in: app), "Blocked profiles should expose Unblock")
+        unblock.tap()
+        XCTAssertTrue(
+            app.buttons["profile.follow"].waitForExistence(timeout: 5),
+            "Unblocking should restore the available follow action"
+        )
+    }
+
     func testAccessibilityTextAndPseudolocalizationKeepCoreControlsReachable() {
         let app = launch(
             route: "settings",

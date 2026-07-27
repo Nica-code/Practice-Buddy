@@ -346,6 +346,7 @@ final class BuddiesViewModel: ObservableObject {
 
     func applyStudioQuestDebugFixtures() {
         isShowingDebugFixtures = true
+        configuredUID = configuredUID ?? "fixture-me"
         let now = Date()
         buddies = [
             BuddySummary(
