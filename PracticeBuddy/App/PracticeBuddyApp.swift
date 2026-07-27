@@ -78,6 +78,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
+        PBAppCheck.configureProviderFactory()
         FirebaseApp.configure()
         FirebaseBootstrap.markConfiguredAtLaunch()
         Task { @MainActor in

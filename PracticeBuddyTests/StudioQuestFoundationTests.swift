@@ -891,4 +891,81 @@ final class StudioQuestFoundationTests: XCTestCase {
             ["source": "account_setup"]
         )
     }
+
+    func testSocialActionsUseTheAppCheckCallableSurface() async throws {
+        let transport = SocialCallableTransportStub(responses: [
+            "socialActionV2": ["ok": true, "status": "requested"]
+        ])
+        let repository = SocialGraphRepository(callable: transport)
+
+        let status = try await repository.act(.follow, targetUID: "musician-42")
+
+        XCTAssertEqual(status, "requested")
+        XCTAssertEqual(transport.calls.map(\.name), ["socialActionV2"])
+        XCTAssertEqual(transport.calls.first?.data["action"] as? String, "follow")
+        XCTAssertEqual(transport.calls.first?.data["targetUID"] as? String, "musician-42")
+    }
+
+    func testSocialConnectionCallableResponseDecodesWithoutUserContent() async throws {
+        let transport = SocialCallableTransportStub(responses: [
+            "socialConnectionsV2": [
+                "ok": true,
+                "rows": [[
+                    "id": "aya",
+                    "displayName": "Aya",
+                    "handle": "aya.music",
+                    "profilePhotoURL": "",
+                    "instrument": "Cello",
+                    "avatarID": "avatar-cello",
+                    "isIncoming": true
+                ]]
+            ]
+        ])
+        let repository = SocialGraphRepository(callable: transport)
+
+        let rows = try await repository.connections(section: .requests)
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.id, "aya")
+        XCTAssertEqual(rows.first?.handle, "aya.music")
+        XCTAssertEqual(rows.first?.instrument, "Cello")
+        XCTAssertEqual(rows.first?.isIncoming, true)
+        XCTAssertEqual(transport.calls.first?.name, "socialConnectionsV2")
+        XCTAssertEqual(transport.calls.first?.data["section"] as? String, "requests")
+    }
+
+    func testSocialRelationshipCallablePreservesServerState() async throws {
+        let transport = SocialCallableTransportStub(responses: [
+            "socialRelationshipV2": ["ok": true, "state": "mutualFollowing"]
+        ])
+        let repository = SocialGraphRepository(callable: transport)
+
+        let state = try await repository.relationship(targetUID: "aya")
+
+        XCTAssertEqual(state, .mutualFollowing)
+        XCTAssertEqual(transport.calls.first?.name, "socialRelationshipV2")
+    }
+}
+
+@MainActor
+private final class SocialCallableTransportStub: FirebaseCallableTransport {
+    struct Call {
+        let name: String
+        let data: [String: Any]
+    }
+
+    private let responses: [String: [String: Any]]
+    private(set) var calls: [Call] = []
+
+    init(responses: [String: [String: Any]]) {
+        self.responses = responses
+    }
+
+    func call(_ name: String, data: [String: Any]) async throws -> [String: Any] {
+        calls.append(Call(name: name, data: data))
+        guard let response = responses[name] else {
+            throw FirebaseCallableError.invalidResponse
+        }
+        return response
+    }
 }

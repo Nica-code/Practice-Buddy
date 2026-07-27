@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import FirebaseAuth
 
 struct StudioQuestSocialConnection: Identifiable, Hashable {
     let id: String
@@ -38,10 +37,10 @@ enum StudioQuestProfileRelationshipState: String, Equatable, Sendable {
 /// client content-free and leaves age, block, and private-account policy on
 /// the server rather than relying on a screen to enforce it.
 final class SocialGraphRepository {
-    private let session: URLSession
+    private let callable: FirebaseCallableTransport
 
-    nonisolated init(session: URLSession = .shared) {
-        self.session = session
+    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
+        self.callable = callable
     }
 
     func act(
@@ -51,7 +50,7 @@ final class SocialGraphRepository {
     ) async throws -> String {
         var payload: [String: Any] = ["action": action.rawValue, "targetUID": targetUID]
         if let reason { payload["reason"] = reason }
-        let response = try await post(path: "socialAction", payload: payload)
+        let response = try await callable.call("socialActionV2", data: payload)
         guard response["ok"] as? Bool == true else {
             throw SocialGraphError.server(response["error"] as? String ?? "That community action could not be completed.")
         }
@@ -59,7 +58,10 @@ final class SocialGraphRepository {
     }
 
     func connections(section: CommunityConnectionsSection) async throws -> [StudioQuestSocialConnection] {
-        let response = try await post(path: "socialConnections", payload: ["section": section.rawValue])
+        let response = try await callable.call(
+            "socialConnectionsV2",
+            data: ["section": section.rawValue]
+        )
         guard response["ok"] as? Bool == true else {
             throw SocialGraphError.server(response["error"] as? String ?? "Connections are unavailable right now.")
         }
@@ -79,7 +81,10 @@ final class SocialGraphRepository {
     }
 
     func relationship(targetUID: String) async throws -> StudioQuestProfileRelationshipState {
-        let response = try await post(path: "socialRelationship", payload: ["targetUID": targetUID])
+        let response = try await callable.call(
+            "socialRelationshipV2",
+            data: ["targetUID": targetUID]
+        )
         guard response["ok"] as? Bool == true else {
             throw SocialGraphError.server(response["error"] as? String ?? "This relationship is unavailable right now.")
         }
@@ -90,26 +95,6 @@ final class SocialGraphRepository {
         return state
     }
 
-    private func post(path: String, payload: [String: Any]) async throws -> [String: Any] {
-        guard let baseURL = AppInfo.duelFunctionsBaseURL,
-              let user = Auth.auth().currentUser else {
-            throw SocialGraphError.unavailable
-        }
-        let token = try await user.getIDToken()
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw SocialGraphError.unavailable }
-        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        guard (200..<300).contains(http.statusCode) else {
-            throw SocialGraphError.server(body["error"] as? String ?? "Community service failed (\(http.statusCode)).")
-        }
-        return body
-    }
 }
 
 enum SocialGraphError: LocalizedError {
@@ -136,8 +121,8 @@ final class StudioQuestSocialGraphCoordinator: ObservableObject {
 
     private let repository: SocialGraphRepository
 
-    init(repository: SocialGraphRepository = .init()) {
-        self.repository = repository
+    init(repository: SocialGraphRepository? = nil) {
+        self.repository = repository ?? SocialGraphRepository()
     }
 
     func load(section: CommunityConnectionsSection) async {

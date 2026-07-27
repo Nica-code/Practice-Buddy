@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
+const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {onDocumentCreated, onDocumentWritten} = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
@@ -379,6 +380,55 @@ exports.socialRelationship = onRequest({maxInstances: 5}, async (req, res) => {
     res.status(400).json({error: String(error?.message || error)});
   }
 });
+
+// V2 callable endpoints are the App Check-protected client surface. The
+// existing HTTP exports remain temporarily for already-shipped clients and
+// are removed only after adoption is verified.
+exports.socialActionV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const action = String(request.data?.action || "");
+        const targetUID = validateDocumentID(request.data?.targetUID, "Musician");
+        const result = await applySocialAction(auth.uid, targetUID, action, request.data?.reason);
+        return {ok: true, ...result};
+      } catch (error) {
+        logger.warn("socialActionV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.socialConnectionsV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const section = String(request.data?.section || "following");
+        const rows = await socialConnectionRows(auth.uid, section);
+        return {ok: true, section, rows};
+      } catch (error) {
+        logger.warn("socialConnectionsV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.socialRelationshipV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const targetUID = validateDocumentID(request.data?.targetUID, "Musician");
+        const state = await socialRelationshipState(auth.uid, targetUID);
+        return {ok: true, state};
+      } catch (error) {
+        logger.warn("socialRelationshipV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
 
 // A bounded cleanup is used in addition to read-time expiresAt checks. It
 // removes subcollections and inbox references, which Firestore TTL cannot do.
@@ -2227,6 +2277,25 @@ async function requireAuth(req) {
   const uid = String(decoded.uid || "").trim();
   if (!uid) throw new Error("Invalid auth user");
   return {uid, token: decoded};
+}
+
+function requireCallablePermanentAuth(request) {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Sign in to continue.");
+  }
+  if (request.auth.token?.firebase?.sign_in_provider === "anonymous") {
+    throw new HttpsError(
+        "failed-precondition",
+        "Create a permanent profile before using community features.",
+    );
+  }
+  return request.auth;
+}
+
+function asCallableError(error) {
+  if (error instanceof HttpsError) return error;
+  const message = String(error?.message || "The service is unavailable right now.");
+  return new HttpsError("failed-precondition", message);
 }
 
 function parseInviteSource(value) {

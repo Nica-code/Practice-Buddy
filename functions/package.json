@@ -6,7 +6,8 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "test:rules": "firebase emulators:exec --config ../firebase.json --project demo-practiquest --only firestore \"mocha --timeout 30000 test/firestore.rules.test.js\""
   },
   "engines": {
     "node": "22"
@@ -17,7 +18,10 @@
     "firebase-functions": "^7.0.0"
   },
   "devDependencies": {
-    "firebase-functions-test": "^3.4.1"
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.9.0",
+    "firebase-functions-test": "^3.4.1",
+    "mocha": "^11.7.5"
   },
   "private": true
 }

@@ -45,7 +45,7 @@ service cloud.firestore {
     }
 
     function touchesRestrictedUserFieldsOnUpdate() {
-      return request.resource.data.diff(resource.data).changedKeys().hasAny([
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
         "isPro",
         "hasLifetimePro",
         "entitlementTier",
@@ -71,12 +71,12 @@ service cloud.firestore {
     }
 
     function validDisplayNameOnUpdate() {
-      return !request.resource.data.diff(resource.data).changedKeys().hasAny(["displayName"])
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(["displayName"])
         || isValidDisplayName(request.resource.data.displayName);
     }
 
     function changesServerOwnedIdentityFields() {
-      return request.resource.data.diff(resource.data).changedKeys().hasAny([
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
         "handle",
         "dateOfBirth",
         "ageBand",
@@ -90,6 +90,19 @@ service cloud.firestore {
       return isSignedIn()
         && exists(/databases/$(database)/documents/friendships/$(request.auth.uid)/buddies/$(otherUID))
         && exists(/databases/$(database)/documents/friendships/$(otherUID)/buddies/$(request.auth.uid));
+    }
+
+    function isAcceptedFriendPair(participants) {
+      return isSignedIn()
+        && participants is list
+        && participants.size() == 2
+        && participants[0] != participants[1]
+        && request.auth.uid in participants
+        && areAcceptedFriends(
+          participants[0] == request.auth.uid
+            ? participants[1]
+            : participants[0]
+        );
     }
 
     match /users/{uid} {
@@ -222,12 +235,11 @@ service cloud.firestore {
     match /friendChats/{threadId} {
       allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
       allow create: if isSignedIn()
-        && request.auth.uid in request.resource.data.participants
-        && request.resource.data.participants is list
-        && request.resource.data.participants.size() == 2;
+        && isAcceptedFriendPair(request.resource.data.participants);
       allow update, delete: if isSignedIn()
         && request.auth.uid in resource.data.participants
-        && request.resource.data.participants == resource.data.participants;
+        && request.resource.data.participants == resource.data.participants
+        && isAcceptedFriendPair(resource.data.participants);
     }
 
     match /friendChats/{threadId}/messages/{messageId} {
@@ -237,6 +249,9 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && exists(/databases/$(database)/documents/friendChats/$(threadId))
         && request.auth.uid in get(/databases/$(database)/documents/friendChats/$(threadId)).data.participants
+        && isAcceptedFriendPair(
+          get(/databases/$(database)/documents/friendChats/$(threadId)).data.participants
+        )
         && request.resource.data.senderUid == request.auth.uid;
       allow update, delete: if false;
     }
