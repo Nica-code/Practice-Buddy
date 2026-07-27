@@ -78,6 +78,60 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(url.path, "/app/id6759354312")
     }
 
+    func testReleasePrivacyDeclarationsMatchV2Capabilities() throws {
+        XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "NSCalendarsUsageDescription"))
+        XCTAssertEqual(AppInfo.privacyPolicyURL?.host, "practiquest.app")
+        XCTAssertEqual(AppInfo.privacyPolicyURL?.path, "/privacy")
+        XCTAssertEqual(AppInfo.termsOfUseURL?.host, "practiquest.app")
+        XCTAssertEqual(AppInfo.termsOfUseURL?.path, "/terms")
+        let microphoneCopy = try XCTUnwrap(
+            Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") as? String
+        )
+        XCTAssertTrue(microphoneCopy.localizedCaseInsensitiveContains("run-through"))
+        XCTAssertTrue(microphoneCopy.localizedCaseInsensitiveContains("duel"))
+
+        let manifestURL = try XCTUnwrap(
+            Bundle.main.url(forResource: "PrivacyInfo", withExtension: "xcprivacy")
+        )
+        let data = try Data(contentsOf: manifestURL)
+        let root = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+        XCTAssertEqual(root["NSPrivacyTracking"] as? Bool, false)
+
+        let accessed = try XCTUnwrap(root["NSPrivacyAccessedAPITypes"] as? [[String: Any]])
+        let accessedByCategory = Dictionary(
+            uniqueKeysWithValues: accessed.compactMap { entry -> (String, Set<String>)? in
+                guard let category = entry["NSPrivacyAccessedAPIType"] as? String,
+                      let reasons = entry["NSPrivacyAccessedAPITypeReasons"] as? [String] else {
+                    return nil
+                }
+                return (category, Set(reasons))
+            }
+        )
+        XCTAssertEqual(
+            accessedByCategory["NSPrivacyAccessedAPICategoryUserDefaults"],
+            ["CA92.1"]
+        )
+        XCTAssertEqual(
+            accessedByCategory["NSPrivacyAccessedAPICategorySystemBootTime"],
+            ["35F9.1"]
+        )
+
+        let collected = try XCTUnwrap(root["NSPrivacyCollectedDataTypes"] as? [[String: Any]])
+        let collectedTypes = Set(
+            collected.compactMap { $0["NSPrivacyCollectedDataType"] as? String }
+        )
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeName"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeEmailAddress"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypePhotosorVideos"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeEmailsOrTextMessages"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeGameplayContent"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeUserID"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypeDeviceID"))
+        XCTAssertTrue(collectedTypes.contains("NSPrivacyCollectedDataTypePurchaseHistory"))
+    }
+
     func testLaunchConfigurationUsesPersistedDestinationWithoutQAOverrides() throws {
         let suiteName = "StudioQuestFoundationTests.launch.persisted.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

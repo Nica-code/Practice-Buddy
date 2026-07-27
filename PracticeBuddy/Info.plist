@@ -51,10 +51,8 @@
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>NSCalendarsUsageDescription</key>
-	<string>PractiQuest uses your calendar to add scheduled lessons, studio classes, and recitals.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>PractiQuest uses your microphone for tuner, intonation, rhythm, and duel analysis features.</string>
+	<string>PractiQuest uses your microphone for tuning, rhythm and intonation feedback, run-through recordings, and duel attempts.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>PBInviteLinkBaseURL</key>

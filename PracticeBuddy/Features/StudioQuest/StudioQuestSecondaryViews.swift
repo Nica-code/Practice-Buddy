@@ -1239,14 +1239,24 @@ struct StudioQuestSettingsView: View {
                     settingsRow("About PractiQuest", systemImage: "info.circle")
                 }
                 Divider().padding(.vertical, 8)
-                Button("Privacy policy") {
-                    openURL(URL(string: "https://alexmalaimare.com/privacy")!)
+                Button {
+                    if let url = AppInfo.privacyPolicyURL {
+                        openURL(url)
+                    }
+                } label: {
+                    settingsRow("Privacy policy", systemImage: "hand.raised")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Terms of use") {
-                    openURL(URL(string: "https://alexmalaimare.com/terms")!)
+                .buttonStyle(.plain)
+                .disabled(AppInfo.privacyPolicyURL == nil)
+                Button {
+                    if let url = AppInfo.termsOfUseURL {
+                        openURL(url)
+                    }
+                } label: {
+                    settingsRow("Terms of use", systemImage: "doc.text")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
+                .disabled(AppInfo.termsOfUseURL == nil)
             }
         }
     }
