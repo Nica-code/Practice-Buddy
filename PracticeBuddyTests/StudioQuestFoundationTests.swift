@@ -572,6 +572,113 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(900)), 20)
     }
 
+    func testIntonationTargetDegreesRemainCorrectAscendingAndDescending() {
+        let settings = IntonationSettings(
+            exercise: .oneOctaveScale,
+            mode: .major,
+            key: .c,
+            octave: .middle,
+            tempoBPM: 72,
+            referenceHz: 440
+        )
+        let targets = IntonationTargetBuilder.targets(for: settings)
+
+        XCTAssertEqual(
+            targets.map(\.degree),
+            [1, 2, 3, 4, 5, 6, 7, 1, 7, 6, 5, 4, 3, 2, 1]
+        )
+        XCTAssertEqual(targets.map(\.isDescending).filter { $0 }.count, 7)
+    }
+
+    func testIntonationArpeggioUsesRootThirdFifthInBothDirections() {
+        let settings = IntonationSettings(
+            exercise: .arpeggio,
+            mode: .minor,
+            key: .a,
+            octave: .middle,
+            tempoBPM: 72,
+            referenceHz: 442
+        )
+
+        XCTAssertEqual(
+            IntonationTargetBuilder.targets(for: settings).map(\.degree),
+            [1, 3, 5, 1, 5, 3, 1]
+        )
+    }
+
+    func testIntonationScorerUsesSyntheticPitchStreamsDeterministically() {
+        let settings = IntonationSettings(
+            exercise: .arpeggio,
+            mode: .major,
+            key: .g,
+            octave: .middle,
+            tempoBPM: 72,
+            referenceHz: 440
+        )
+        let targets = IntonationTargetBuilder.targets(for: settings)
+        let samples = targets.map { _ in
+            [
+                IntonationPitchSample(cents: 4, timeInNote: 0.20),
+                IntonationPitchSample(cents: 6, timeInNote: 0.30),
+                IntonationPitchSample(cents: 5, timeInNote: 0.40),
+                IntonationPitchSample(cents: 3, timeInNote: 0.50)
+            ]
+        }
+
+        let result = IntonationScorer.score(targets: targets, samples: samples)
+
+        XCTAssertEqual(result.signalCoverage, 1)
+        XCTAssertEqual(result.meanOffsetCents, 4.5, accuracy: 0.001)
+        XCTAssertGreaterThan(result.centeringScore, 95)
+        XCTAssertGreaterThan(result.stabilityScore, 95)
+        XCTAssertGreaterThan(result.overallScore, 85)
+    }
+
+    func testIntonationRunStateDistinguishesNoSignalAndStopsTiming() {
+        let start = Date(timeIntervalSince1970: 90_000)
+        var state = IntonationRunState(
+            settings: IntonationSettings(
+                exercise: .arpeggio,
+                mode: .major,
+                key: .c,
+                octave: .middle,
+                tempoBPM: 72,
+                referenceHz: 440
+            )
+        )
+        state.beginListening(at: start)
+        state.finish(at: start.addingTimeInterval(8))
+
+        XCTAssertEqual(state.phase, .insufficientSignal)
+        XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(500)), 8)
+        XCTAssertEqual(state.result?.signalCoverage, 0)
+    }
+
+    func testIntonationRunStatePreservesFractionalTimeAcrossNotes() {
+        let start = Date(timeIntervalSince1970: 90_100)
+        var state = IntonationRunState(
+            settings: IntonationSettings(
+                exercise: .arpeggio,
+                mode: .major,
+                key: .c,
+                octave: .middle,
+                tempoBPM: 100,
+                referenceHz: 440
+            )
+        )
+        state.beginListening(at: start)
+        state.advanceNote(at: start.addingTimeInterval(0.6))
+        state.advanceNote(at: start.addingTimeInterval(1.2))
+        state.advanceNote(at: start.addingTimeInterval(1.8))
+
+        XCTAssertEqual(
+            state.elapsedDuration(at: start.addingTimeInterval(1.8)),
+            1.8,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(1.8)), 1)
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

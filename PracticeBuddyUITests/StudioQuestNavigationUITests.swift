@@ -340,4 +340,51 @@ final class StudioQuestNavigationUITests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["Try again"].exists)
     }
+
+    func testIntonationRuntimePausesAndReachesAResult() {
+        let app = launch(
+            route: "intonation",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let pause = app.buttons["intonation.pause"]
+        XCTAssertTrue(
+            pause.waitForExistence(timeout: 8),
+            "Intonation running fixture did not load"
+        )
+        pause.tap()
+        XCTAssertTrue(app.buttons["intonation.pause"].waitForExistence(timeout: 4))
+        app.buttons["intonation.pause"].tap()
+
+        let finish = app.buttons["intonation.finish"]
+        XCTAssertTrue(
+            reveal(finish, in: app, maximumSwipes: 8),
+            "Intonation finish action was hidden by the Practice Dock"
+        )
+        finish.tap()
+        XCTAssertTrue(
+            app.buttons["intonation.save"].waitForExistence(timeout: 6),
+            "Finishing Intonation did not produce a savable result"
+        )
+    }
+
+    func testIntonationPermissionDeniedStateExplainsRecovery() {
+        let app = launch(
+            route: "intonation",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "dark",
+                "--qa-tool-state", "permissionDenied"
+            ]
+        )
+
+        XCTAssertTrue(
+            app.staticTexts["Microphone access is off"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["Try again"].exists)
+    }
 }

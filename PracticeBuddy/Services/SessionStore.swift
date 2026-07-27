@@ -329,6 +329,39 @@ final class SessionStore: ObservableObject {
                     toolVersion: payload.toolVersion
                 )
             )
+        case .intonation:
+            guard let data = result.payloadJSON.data(using: .utf8) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let payload = try JSONDecoder().decode(
+                IntonationResultPayload.self,
+                from: data
+            )
+            let suggestions = payload.result.recommendations.joined(separator: "|")
+            let noteData = try JSONEncoder().encode(payload.result.noteScores)
+            context.insert(
+                ScaleIntonationTakeModel(
+                    id: result.id,
+                    date: payload.completedAt,
+                    exerciseTypeRaw: payload.settings.exercise.rawValue,
+                    keyRaw: payload.settings.key.rawValue,
+                    modeRaw: payload.settings.mode.rawValue,
+                    baseOctave: payload.settings.octave.rawValue,
+                    referenceHz: payload.settings.referenceHz,
+                    tempoBPM: payload.settings.tempoBPM,
+                    noteCount: payload.result.noteScores.count,
+                    overallScore: payload.result.overallScore,
+                    centeringScore: payload.result.centeringScore,
+                    stabilityScore: payload.result.stabilityScore,
+                    consistencyScore: payload.result.consistencyScore,
+                    meanOffsetCents: payload.result.meanOffsetCents,
+                    suggestionsRaw: suggestions,
+                    perNoteJSON: String(data: noteData, encoding: .utf8) ?? "",
+                    parentSessionID: payload.parentSessionID,
+                    launchSource: payload.launchSource.rawValue,
+                    toolVersion: payload.toolVersion
+                )
+            )
         default:
             break
         }
