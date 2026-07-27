@@ -7249,6 +7249,22 @@
         }
       }
     },
+    "Practice with me on PractiQuest": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PractiQuest에서 저와 함께 연습해보세요"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practicați cu mine pe PractiQuest"
+          }
+        }
+      }
+    },
     "Practiced": {
       "localizations": {
         "ko": {
@@ -9489,6 +9505,22 @@
         }
       }
     },
+    "Share": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유하다"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuie"
+          }
+        }
+      }
+    },
     "Share a Practice Moment": {
       "localizations": {
         "ko": {
@@ -9533,6 +9565,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Distribuiți activitatea prietenilor"
+          }
+        }
+      }
+    },
+    "Share friend invite %@": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "친구 초대 공유 %@"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuie invitația unui prieten %@"
+          }
+        }
+      }
+    },
+    "Share my friend code": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 친구 코드 공유"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuie codul prietenului meu"
+          }
+        }
+      }
+    },
+    "Share my friend invite %@": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 친구 초대 공유 %@"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribuie invitația prietenului meu %@"
           }
         }
       }
@@ -11661,6 +11741,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Folosește fereastra de istoric"
+          }
+        }
+      }
+    },
+    "Use my private friend invite to connect with me on PractiQuest.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 개인 친구 초대를 사용하여 PractiQuest에서 나와 연결하세요."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folosiți invitația prietenului meu privat pentru a intra în legătură cu mine pe PractiQuest."
           }
         }
       }

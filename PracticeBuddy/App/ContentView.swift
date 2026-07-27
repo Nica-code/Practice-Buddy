@@ -13,11 +13,6 @@ struct ContentView: View {
         let message: String
     }
 
-    private enum IncomingLinkAction {
-        case addBuddy(friendCode: String)
-        case openPracticeStudio
-    }
-
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -33,6 +28,7 @@ struct ContentView: View {
     #endif
     @AppStorage("practiquest.community.shareActivity") private var shareFriendActivity = true
     @AppStorage("practiquest.appearance") private var studioQuestAppearance = "system"
+    @AppStorage("practiquest.pendingFriendInviteCode") private var pendingFriendInviteCode = ""
 
     @StateObject private var store = SessionStore()
     @StateObject private var journeyManager = JourneyProgressManager()
@@ -47,6 +43,7 @@ struct ContentView: View {
     @StateObject private var buddiesManager = BuddiesViewModel()
     @StateObject private var friendActivityPublisher = FriendActivityPublisher()
     @StateObject private var identityUpgrade = IdentityUpgradeCoordinator()
+    @State private var isSubmittingPendingInvite = false
 
     @State private var didInit = false
     @State private var sessionsCancellable: AnyCancellable?
@@ -186,6 +183,7 @@ struct ContentView: View {
                     upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                 )
             }
+            resumePendingFriendInviteIfReady()
         }
         .onChange(of: firebase.isAnonymousUser) { _, _ in
             refreshRuntimePipelines(forceUserPipeline: false)
@@ -196,6 +194,7 @@ struct ContentView: View {
                     upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                 )
             }
+            resumePendingFriendInviteIfReady()
         }
         .onChange(of: purchaseManager.hasAdFree) { _, _ in
             if purchaseManager.isPro {
@@ -668,66 +667,66 @@ struct ContentView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        guard let action = incomingLinkAction(from: url) else { return }
-
-        guard !firebase.isAnonymousUser, firebase.currentUserID != nil else {
-            inviteJoinAlert = InviteJoinAlert(
-                title: "Sign In Required",
-                message: "Please sign in first, then open the buddy invite link again."
-            )
-            return
-        }
+        guard let action = IncomingLinkParser.action(from: url) else { return }
 
         switch action {
         case .openPracticeStudio:
             practiceCoordinator.quickStart()
         case .addBuddy(let friendCode):
-            Task {
-                do {
-                    let profile = try await buddiesRepository.ensureCurrentUserProfile()
-                    _ = try await buddiesRepository.sendInvite(from: profile, friendCode: friendCode)
-                    await MainActor.run {
-                        PBGrowthMetrics.record(.buddyInviteAutoSent)
-                        appRouter.replacePath(with: .communityFriends, in: .community)
-                        inviteJoinAlert = InviteJoinAlert(
-                            title: "Friend Request Sent",
-                            message: "Your buddy request is now pending."
-                        )
-                    }
-                } catch {
-                    let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    await MainActor.run {
-                        inviteJoinAlert = InviteJoinAlert(
-                            title: "Could Not Send Request",
-                            message: msg
-                        )
-                    }
+            guard !firebase.isAnonymousUser, firebase.currentUserID != nil else {
+                pendingFriendInviteCode = friendCode
+                appRouter.replacePath(with: .accountSetup, in: .community)
+                inviteJoinAlert = InviteJoinAlert(
+                    title: "Keep This Invite",
+                    message: "Create or link your account to connect with this musician. PractiQuest will finish the request after sign-in."
+                )
+                return
+            }
+            submitFriendInvite(code: friendCode)
+        }
+    }
+
+    private func submitFriendInvite(code: String) {
+        guard !isSubmittingPendingInvite else { return }
+        guard let friendCode = IncomingLinkParser.normalizedFriendCode(code) else {
+            pendingFriendInviteCode = ""
+            return
+        }
+        isSubmittingPendingInvite = true
+        Task {
+            do {
+                let profile = try await buddiesRepository.ensureCurrentUserProfile()
+                _ = try await buddiesRepository.sendInvite(from: profile, friendCode: friendCode)
+                await MainActor.run {
+                    isSubmittingPendingInvite = false
+                    pendingFriendInviteCode = ""
+                    PBGrowthMetrics.record(.buddyInviteAutoSent)
+                    appRouter.replacePath(with: .communityFriends, in: .community)
+                    inviteJoinAlert = InviteJoinAlert(
+                        title: "Friend Request Sent",
+                        message: "Your request is now pending."
+                    )
+                }
+            } catch {
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                await MainActor.run {
+                    isSubmittingPendingInvite = false
+                    pendingFriendInviteCode = friendCode
+                    inviteJoinAlert = InviteJoinAlert(
+                        title: "Could Not Send Request",
+                        message: "\(msg) Your invite is saved so you can try again."
+                    )
                 }
             }
         }
     }
 
-    private func incomingLinkAction(from url: URL) -> IncomingLinkAction? {
-        if url.scheme?.lowercased() == "practicebuddy",
-           url.host?.lowercased() == "practice" {
-            return .openPracticeStudio
+    private func resumePendingFriendInviteIfReady() {
+        guard !firebase.isAnonymousUser, firebase.currentUserID != nil,
+              !pendingFriendInviteCode.isEmpty else {
+            return
         }
-        if let friendCode = buddyInviteCode(from: url) {
-            return .addBuddy(friendCode: friendCode)
-        }
-        return nil
-    }
-
-    private func buddyInviteCode(from url: URL) -> String? {
-        guard let scheme = url.scheme?.lowercased(), scheme == "practicebuddy" else { return nil }
-        guard let host = url.host?.lowercased(), host == "add-buddy" else { return nil }
-        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let code = components.queryItems?.first(where: { $0.name.lowercased() == "code" })?.value,
-           !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return code.uppercased()
-        }
-        let pathCode = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return pathCode.isEmpty ? nil : pathCode.uppercased()
+        submitFriendInvite(code: pendingFriendInviteCode)
     }
 
     private func applyNotificationRoute(_ route: PBNotificationRoute) {

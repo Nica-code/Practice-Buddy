@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f5f6fa" />
+  <title>Musician Invite · PractiQuest</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: #f5f6fa;
+      --surface: #ffffff;
+      --text: #151622;
+      --secondary: #666a78;
+      --line: #e2e4ec;
+      --brand: #315cff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #0c0d12;
+        --surface: #171820;
+        --text: #f7f7fb;
+        --secondary: #a7a9b5;
+        --line: #2b2d38;
+        --brand: #7890ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: var(--background);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(100%, 480px);
+      padding: 32px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--surface);
+      box-shadow: 0 18px 60px rgba(22, 24, 40, 0.09);
+    }
+    .mark {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      background: var(--brand);
+      color: white;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+    h1 {
+      margin: 24px 0 10px;
+      font-size: clamp(28px, 8vw, 40px);
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+    }
+    p {
+      margin: 0;
+      color: var(--secondary);
+      font-size: 17px;
+      line-height: 1.5;
+    }
+    .code {
+      display: inline-block;
+      margin: 22px 0;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: var(--background);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    a {
+      min-height: 50px;
+      display: grid;
+      place-items: center;
+      padding: 12px 18px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      color: var(--text);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    a.primary {
+      border-color: var(--brand);
+      background: var(--brand);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">PQ</div>
+    <h1>Practice together.</h1>
+    <p id="message">A musician invited you to connect privately on PractiQuest.</p>
+    <div id="code" class="code">Checking invite…</div>
+    <div class="actions">
+      <a id="openApp" class="primary" href="#">Open PractiQuest</a>
+      <a href="https://apps.apple.com/app/id6744359618">Get PractiQuest</a>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var code = (new URLSearchParams(window.location.search).get("code") || "")
+        .trim()
+        .toUpperCase();
+      var valid = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code);
+      var codeElement = document.getElementById("code");
+      var messageElement = document.getElementById("message");
+      var openApp = document.getElementById("openApp");
+
+      if (!valid) {
+        codeElement.textContent = "Invalid invite";
+        messageElement.textContent = "This invite is incomplete. Ask your friend to share a new link.";
+        openApp.hidden = true;
+        return;
+      }
+
+      codeElement.textContent = code;
+      openApp.href = "practicebuddy://add-buddy?code=" + encodeURIComponent(code);
+    })();
+  </script>
+</body>
+</html>

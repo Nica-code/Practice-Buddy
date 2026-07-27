@@ -66,6 +66,19 @@ enum AppInfo {
         return nil
     }
 
+    static func buddyInviteURL(friendCode: String) -> URL? {
+        guard let friendCode = IncomingLinkParser.normalizedFriendCode(friendCode),
+              let baseURL = inviteLinkBaseURL else {
+            return nil
+        }
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("invite"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "code", value: friendCode)]
+        return components?.url
+    }
+
     static var privacyPolicyURL: URL? {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "PBPrivacyPolicyURL") as? String {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -163,5 +176,68 @@ enum AppInfo {
             if ["0", "false", "no", "off"].contains(normalized) { return false }
         }
         return defaultValue
+    }
+}
+
+enum IncomingLinkAction: Equatable {
+    case addBuddy(friendCode: String)
+    case openPracticeStudio
+}
+
+enum IncomingLinkParser {
+    private static let canonicalInviteHost = "practicebuddytracker.web.app"
+
+    static func action(
+        from url: URL,
+        trustedInviteHosts: Set<String> = [canonicalInviteHost]
+    ) -> IncomingLinkAction? {
+        let scheme = url.scheme?.lowercased()
+        let host = url.host?.lowercased()
+
+        if scheme == "practicebuddy", host == "practice" {
+            return .openPracticeStudio
+        }
+
+        if scheme == "practicebuddy", host == "add-buddy",
+           let code = inviteCode(from: url) {
+            return .addBuddy(friendCode: code)
+        }
+
+        guard scheme == "https",
+              let host,
+              trustedInviteHosts.map({ $0.lowercased() }).contains(host),
+              normalizedPath(url.path) == "/invite",
+              let code = inviteCode(from: url) else {
+            return nil
+        }
+        return .addBuddy(friendCode: code)
+    }
+
+    static func normalizedFriendCode(_ rawCode: String) -> String? {
+        let code = rawCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard code.range(
+            of: #"^[A-Z0-9]{4}-[A-Z0-9]{4}$"#,
+            options: .regularExpression
+        ) != nil else {
+            return nil
+        }
+        return code
+    }
+
+    private static func inviteCode(from url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let value = components.queryItems?
+                .first(where: { $0.name.lowercased() == "code" })?
+                .value else {
+            return nil
+        }
+        return normalizedFriendCode(value)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmed.isEmpty ? "/" : "/\(trimmed.lowercased())"
     }
 }

@@ -5,6 +5,13 @@
         "appIDs": ["73J84HKXBC.com.alexmalaimare.practicebuddy"],
         "components": [
           {
+            "/": "/invite",
+            "?": {
+              "code": "????-????"
+            },
+            "comment": "PractiQuest musician friend invites"
+          },
+          {
             "/": "/join-studio",
             "?": {
               "code": "*"

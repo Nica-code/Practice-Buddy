@@ -763,17 +763,27 @@ struct StudioQuestProfileView: View {
                 profileFields
                 publicPreview
                 if let code = buddies.myProfile?.friendCode, !code.isEmpty {
-                    StudioQuestRowSurface {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Friend code").font(.caption).foregroundStyle(.secondary)
-                                Text(code).font(.headline.monospaced())
-                            }
-                            Spacer()
-                            ShareLink(item: code) {
-                                Image(systemName: "square.and.arrow.up")
+                    if let inviteURL = AppInfo.buddyInviteURL(friendCode: code) {
+                        ShareLink(
+                            item: inviteURL,
+                            subject: Text("Practice with me on PractiQuest"),
+                            message: Text("Use my private friend invite to connect with me on PractiQuest.")
+                        ) {
+                            StudioQuestRowSurface {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Friend code").font(.caption).foregroundStyle(.secondary)
+                                        Text(code).font(.headline.monospaced())
+                                    }
+                                    Spacer()
+                                    Label("Share", systemImage: "square.and.arrow.up")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                }
                             }
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Share friend invite \(code)")
                     }
                 }
                 if let statusMessage {

@@ -1538,5 +1538,17 @@
   "ro:A permanent profile is required only for community, duels, and cloud-linked identity. Private practice remains available without it.": "Un profil permanent este necesar numai pentru comunitate, dueluri și identitate legată de cloud. Practica privată rămâne disponibilă fără ea.",
   "ro:Reconnect your profile, progress, and community.": "Reconectați-vă profilul, progresul și comunitatea.",
   "ro:Preparing your practice world…": "Îți pregătești lumea de practică...",
-  "ro:Use at least 8 characters with at least one letter and one number.": "Utilizați cel puțin 8 caractere cu cel puțin o literă și un număr."
+  "ro:Use at least 8 characters with at least one letter and one number.": "Utilizați cel puțin 8 caractere cu cel puțin o literă și un număr.",
+  "ko:Share": "공유하다",
+  "ko:Share my friend code": "내 친구 코드 공유",
+  "ko:Use my private friend invite to connect with me on PractiQuest.": "내 개인 친구 초대를 사용하여 PractiQuest에서 나와 연결하세요.",
+  "ko:Share friend invite %@": "친구 초대 공유 %@",
+  "ko:Share my friend invite %@": "내 친구 초대 공유 %@",
+  "ko:Practice with me on PractiQuest": "PractiQuest에서 저와 함께 연습해보세요",
+  "ro:Share": "Distribuie",
+  "ro:Share my friend code": "Distribuie codul prietenului meu",
+  "ro:Share my friend invite %@": "Distribuie invitația prietenului meu %@",
+  "ro:Practice with me on PractiQuest": "Practicați cu mine pe PractiQuest",
+  "ro:Share friend invite %@": "Distribuie invitația unui prieten %@",
+  "ro:Use my private friend invite to connect with me on PractiQuest.": "Folosiți invitația prietenului meu privat pentru a intra în legătură cu mine pe PractiQuest."
 }

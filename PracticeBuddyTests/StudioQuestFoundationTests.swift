@@ -4,6 +4,52 @@ import SwiftData
 
 @MainActor
 final class StudioQuestFoundationTests: XCTestCase {
+    func testIncomingLinkParserAcceptsValidatedCustomFriendInvite() throws {
+        let url = try XCTUnwrap(URL(string: "practicebuddy://add-buddy?code=ab12-cd34"))
+
+        XCTAssertEqual(
+            IncomingLinkParser.action(from: url),
+            .addBuddy(friendCode: "AB12-CD34")
+        )
+    }
+
+    func testIncomingLinkParserAcceptsTrustedUniversalFriendInvite() throws {
+        let url = try XCTUnwrap(
+            URL(string: "https://practicebuddytracker.web.app/invite?code=AB12-CD34")
+        )
+
+        XCTAssertEqual(
+            IncomingLinkParser.action(from: url),
+            .addBuddy(friendCode: "AB12-CD34")
+        )
+    }
+
+    func testIncomingLinkParserRejectsUntrustedOrMalformedFriendInvites() throws {
+        let malicious = try XCTUnwrap(
+            URL(string: "https://practicebuddytracker.web.app.evil.example/invite?code=AB12-CD34")
+        )
+        let malformed = try XCTUnwrap(
+            URL(string: "https://practicebuddytracker.web.app/invite?code=not-a-code")
+        )
+
+        XCTAssertNil(IncomingLinkParser.action(from: malicious))
+        XCTAssertNil(IncomingLinkParser.action(from: malformed))
+    }
+
+    func testBuddyInviteURLUsesThePublicUniversalLinkShape() throws {
+        let url = try XCTUnwrap(AppInfo.buddyInviteURL(friendCode: "ab12-cd34"))
+
+        XCTAssertEqual(url.host, "practicebuddytracker.web.app")
+        XCTAssertEqual(url.path, "/invite")
+        XCTAssertEqual(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "code" })?
+                .value,
+            "AB12-CD34"
+        )
+    }
+
     func testLaunchConfigurationUsesPersistedDestinationWithoutQAOverrides() throws {
         let suiteName = "StudioQuestFoundationTests.launch.persisted.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

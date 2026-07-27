@@ -572,6 +572,20 @@ struct StudioQuestConnectionsView: View {
                                 }
                                 .buttonStyle(StudioQuestPrimaryButtonStyle())
                                 .disabled(inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                if let myCode = buddies.myProfile?.friendCode,
+                                   let inviteURL = AppInfo.buddyInviteURL(friendCode: myCode) {
+                                    ShareLink(
+                                        item: inviteURL,
+                                        subject: Text("Practice with me on PractiQuest"),
+                                        message: Text("Use my private friend invite to connect with me on PractiQuest.")
+                                    ) {
+                                        Label("Share my friend code", systemImage: "square.and.arrow.up")
+                                            .frame(maxWidth: .infinity)
+                                            .frame(minHeight: 44)
+                                    }
+                                    .buttonStyle(StudioQuestSecondaryButtonStyle())
+                                    .accessibilityLabel("Share my friend invite \(myCode)")
+                                }
                             }
                         }
                         if let status = buddies.statusMessage, !status.isEmpty {
