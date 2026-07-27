@@ -97,6 +97,7 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+c152689 Prepare PractiQuest 2.0 release metadata
 50fdb9b Complete App Store privacy declarations
 bd88167 Correct App Store identity and legacy Pro access
 43e54b0 Harden App Store export contents
