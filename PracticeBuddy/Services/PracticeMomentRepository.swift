@@ -5,10 +5,10 @@ import FirebaseFirestore
 
 final class PracticeMomentRepository {
     private let db = Firestore.firestore()
-    private let session: URLSession
+    private let callable: FirebaseCallableTransport
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
+        self.callable = callable
     }
 
     func fetchFollowingFeed(uid: String, limit: Int = 20) async throws -> MomentFeedPage {
@@ -51,11 +51,9 @@ final class PracticeMomentRepository {
         audience: MomentAudience,
         loadout: AvatarLoadout
     ) async throws -> PracticeMoment {
-        guard let baseURL = AppInfo.duelFunctionsBaseURL,
-              let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             throw PracticeMomentRepositoryError.unavailable
         }
-        let token = try await user.getIDToken()
         let payload: [String: Any] = [
             "sessionID": sessionID.uuidString,
             "durationSeconds": max(0, durationSeconds),
@@ -66,7 +64,7 @@ final class PracticeMomentRepository {
             "audience": audience.rawValue,
             "avatarLoadout": avatarPayload(loadout)
         ]
-        let response = try await post(baseURL.appendingPathComponent("practiceMomentCreate"), token: token, payload: payload)
+        let response = try await callable.call("practiceMomentCreateV2", data: payload)
         guard response["ok"] as? Bool == true,
               let id = response["momentID"] as? String,
               let moment = try await fetchMoment(id: id) else {
@@ -76,37 +74,16 @@ final class PracticeMomentRepository {
     }
 
     func react(momentID: String, kind: MomentReactionKind) async throws {
-        guard let baseURL = AppInfo.duelFunctionsBaseURL,
-              let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             throw PracticeMomentRepositoryError.unavailable
         }
-        let token = try await user.getIDToken()
-        let response = try await post(
-            baseURL.appendingPathComponent("practiceMomentReact"),
-            token: token,
-            payload: ["momentID": momentID, "reaction": kind.rawValue]
+        let response = try await callable.call(
+            "practiceMomentReactV2",
+            data: ["momentID": momentID, "reaction": kind.rawValue]
         )
         guard response["ok"] as? Bool == true else {
             throw PracticeMomentRepositoryError.server(response["error"] as? String ?? "Couldn’t save that reaction.")
         }
-    }
-
-    private func post(_ url: URL, token: String, payload: [String: Any]) async throws -> [String: Any] {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw PracticeMomentRepositoryError.server("Invalid response.")
-        }
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        guard (200..<300).contains(http.statusCode) else {
-            throw PracticeMomentRepositoryError.server(json["error"] as? String ?? "Moment service failed (\(http.statusCode)).")
-        }
-        return json
     }
 
     private func parseMoment(id: String, data: [String: Any]?) -> PracticeMoment? {

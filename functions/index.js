@@ -131,54 +131,20 @@ exports.pushTestNotification = onRequest(async (req, res) => {
 
   try {
     const uid = await requireUID(req);
-    const route = String(req.body?.route || ROUTE_SOCIAL_CHAT).trim().toLowerCase();
-    let data = {
-      pb_route: ROUTE_SOCIAL_CHAT,
-      pb_type: TYPE_CHAT_MESSAGE,
-    };
-    let category = "pb.message";
-    let prefKey = "notificationMessages";
-    let title = "Test Notification";
-    let body = "Push notifications are configured correctly.";
-
-    if (route === ROUTE_PLAY_DUEL) {
-      data = {
-        pb_route: ROUTE_PLAY_DUEL,
-        pb_type: TYPE_DUEL,
-        challengeId: String(req.body?.challengeId || ""),
-      };
-      category = "pb.duel";
-      prefKey = "notificationDuels";
-      title = "Test Duel Notification";
-      body = "Open Play to verify duel deep-link routing.";
-    } else if (route === ROUTE_SOCIAL_FRIEND_REQUESTS) {
-      data = {
-        pb_route: ROUTE_SOCIAL_FRIEND_REQUESTS,
-        pb_type: TYPE_FRIEND_REQUEST,
-      };
-      category = "pb.friend_request";
-      prefKey = "notificationFriendRequests";
-      title = "Test Friend Request Notification";
-      body = "Open Social to verify friend-request routing.";
-    }
-
-    const result = await pushToUser(uid, {title, body, prefKey, data, category});
-    if (!result.sent) {
-      const detail = result.failureCodes?.length
-        ? `Firebase failure codes: ${result.failureCodes.join(", ")}`
-        : result.detail || null;
-      res.status(409).json({
-        ok: false,
-        error: `Push test was not delivered: ${result.reason}${detail ? ` (${detail})` : ""}`,
-        reason: result.reason,
-        detail,
-        failureCodes: result.failureCodes || [],
-      });
-      return;
-    }
+    const result = await sendPushTestNotification(uid, req.body || {});
     res.status(200).json({ok: true, ...result});
   } catch (error) {
     logger.error("pushTestNotification failed", error);
+    if (error?.reason) {
+      res.status(409).json({
+        ok: false,
+        error: String(error.message || error),
+        reason: error.reason,
+        detail: error.detail || null,
+        failureCodes: error.failureCodes || [],
+      });
+      return;
+    }
     res.status(400).json({error: String(error.message || error)});
   }
 });
@@ -425,6 +391,130 @@ exports.socialRelationshipV2 = onCall(
         return {ok: true, state};
       } catch (error) {
         logger.warn("socialRelationshipV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.identityCompleteProfileV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const input = parseIdentityInput(request.data || {});
+        const output = await completeIdentityProfile(auth.uid, input, {allowExisting: true});
+        return {ok: true, ...output};
+      } catch (error) {
+        logger.warn("identityCompleteProfileV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.identityChangeHandleV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const handle = validateHandle(request.data?.handle);
+        const output = await changeHandle(auth.uid, handle);
+        return {ok: true, ...output};
+      } catch (error) {
+        logger.warn("identityChangeHandleV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.identityUpdatePrivacyV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        await updateIdentityPrivacy(auth.uid, parseProfilePrivacy(request.data?.privacy));
+        return {ok: true};
+      } catch (error) {
+        logger.warn("identityUpdatePrivacyV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.friendInviteByCodeV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const code = String(request.data?.friendCode || "").trim().toUpperCase();
+        if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) {
+          throw new Error("Enter a valid friend code.");
+        }
+        const output = await createFriendInviteByCode(auth.uid, code);
+        return {ok: true, ...output};
+      } catch (error) {
+        logger.warn("friendInviteByCodeV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.practiceMomentCreateV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const input = parseMomentInput(request.data || {});
+        const result = await createPracticeMoment(auth.uid, input);
+        return {ok: true, ...result};
+      } catch (error) {
+        logger.warn("practiceMomentCreateV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.practiceMomentReactV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 5},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const momentID = validateDocumentID(request.data?.momentID, "Moment");
+        const reaction = String(request.data?.reaction || "");
+        if (!VALID_MOMENT_REACTIONS.has(reaction)) {
+          throw new Error("Choose a valid reaction.");
+        }
+        await reactToPracticeMoment(auth.uid, momentID, reaction);
+        return {ok: true};
+      } catch (error) {
+        logger.warn("practiceMomentReactV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.deleteAccountV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 3},
+    async (request) => {
+      try {
+        const auth = requireCallableAuth(request);
+        await deleteAccountAndData(auth.uid);
+        return {ok: true};
+      } catch (error) {
+        logger.error("deleteAccountV2 failed", error);
+        throw asCallableError(error);
+      }
+    },
+);
+
+exports.pushTestNotificationV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 3},
+    async (request) => {
+      try {
+        const auth = requireCallableAuth(request);
+        const result = await sendPushTestNotification(auth.uid, request.data || {});
+        return {ok: true, ...result};
+      } catch (error) {
+        logger.error("pushTestNotificationV2 failed", error);
         throw asCallableError(error);
       }
     },
@@ -2280,14 +2370,19 @@ async function requireAuth(req) {
 }
 
 function requireCallablePermanentAuth(request) {
-  if (!request.auth?.uid) {
-    throw new HttpsError("unauthenticated", "Sign in to continue.");
-  }
-  if (request.auth.token?.firebase?.sign_in_provider === "anonymous") {
+  const auth = requireCallableAuth(request);
+  if (auth.token?.firebase?.sign_in_provider === "anonymous") {
     throw new HttpsError(
         "failed-precondition",
         "Create a permanent profile before using community features.",
     );
+  }
+  return auth;
+}
+
+function requireCallableAuth(request) {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Sign in to continue.");
   }
   return request.auth;
 }
@@ -2296,6 +2391,53 @@ function asCallableError(error) {
   if (error instanceof HttpsError) return error;
   const message = String(error?.message || "The service is unavailable right now.");
   return new HttpsError("failed-precondition", message);
+}
+
+async function sendPushTestNotification(uid, input) {
+  const route = String(input?.route || ROUTE_SOCIAL_CHAT).trim().toLowerCase();
+  let data = {
+    pb_route: ROUTE_SOCIAL_CHAT,
+    pb_type: TYPE_CHAT_MESSAGE,
+  };
+  let category = "pb.message";
+  let prefKey = "notificationMessages";
+  let title = "Test Notification";
+  let body = "Push notifications are configured correctly.";
+
+  if (route === ROUTE_PLAY_DUEL) {
+    data = {
+      pb_route: ROUTE_PLAY_DUEL,
+      pb_type: TYPE_DUEL,
+      challengeId: String(input?.challengeId || ""),
+    };
+    category = "pb.duel";
+    prefKey = "notificationDuels";
+    title = "Test Duel Notification";
+    body = "Open Play to verify duel deep-link routing.";
+  } else if (route === ROUTE_SOCIAL_FRIEND_REQUESTS) {
+    data = {
+      pb_route: ROUTE_SOCIAL_FRIEND_REQUESTS,
+      pb_type: TYPE_FRIEND_REQUEST,
+    };
+    category = "pb.friend_request";
+    prefKey = "notificationFriendRequests";
+    title = "Test Friend Request Notification";
+    body = "Open Social to verify friend-request routing.";
+  }
+
+  const result = await pushToUser(uid, {title, body, prefKey, data, category});
+  if (result.sent) return result;
+
+  const detail = result.failureCodes?.length
+    ? `Firebase failure codes: ${result.failureCodes.join(", ")}`
+    : result.detail || null;
+  const error = new Error(
+      `Push test was not delivered: ${result.reason}${detail ? ` (${detail})` : ""}`,
+  );
+  error.reason = result.reason;
+  error.detail = detail;
+  error.failureCodes = result.failureCodes || [];
+  throw error;
 }
 
 function parseInviteSource(value) {

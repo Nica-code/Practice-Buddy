@@ -121,6 +121,11 @@ final class FirebaseBuddiesRepository {
     private let invitesCollection = "invites"
     private let friendshipsCollection = "friendships"
     private let chatThreadsCollection = "friendChats"
+    private let callable: FirebaseCallableTransport
+
+    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
+        self.callable = callable
+    }
 
     func currentUserID() -> String? {
         Auth.auth().currentUser?.uid
@@ -351,22 +356,10 @@ final class FirebaseBuddiesRepository {
     func sendInvite(from myProfile: FirebaseUserProfile, friendCode rawCode: String) async throws -> String {
         let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !code.isEmpty else { throw FirebaseBuddiesError.invalidFriendCode }
-        guard let baseURL = AppInfo.duelFunctionsBaseURL,
-              let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             throw FirebaseBuddiesError.server("Friend requests are unavailable in this build.")
         }
-        let token = try await user.getIDToken()
-        var request = URLRequest(url: baseURL.appendingPathComponent("friendInviteByCode"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["friendCode": code])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw FirebaseBuddiesError.server(payload["error"] as? String ?? "Couldn’t send the friend request.")
-        }
+        let payload = try await callable.call("friendInviteByCodeV2", data: ["friendCode": code])
         guard payload["ok"] as? Bool == true,
               let targetUID = payload["targetUID"] as? String,
               !targetUID.isEmpty else {

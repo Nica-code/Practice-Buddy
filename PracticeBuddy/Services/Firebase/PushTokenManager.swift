@@ -19,7 +19,7 @@ final class PushTokenManager {
     static let shared = PushTokenManager()
 
     private var db: Firestore { Firestore.firestore() }
-    private let urlSession = URLSession.shared
+    private lazy var callable: FirebaseCallableTransport = FirebaseCallableClient()
     private var pendingToken: (value: String, kind: TokenKind)?
     private var lastPersistedTokenByUIDAndKind: [String: String] = [:]
     private var lastNotificationPrefsFingerprintByUID: [String: String] = [:]
@@ -150,14 +150,7 @@ final class PushTokenManager {
     }
 
     func sendTestPushNotification(route: String = "social_chat") async throws {
-        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
-            throw NSError(
-                domain: "PracticeBuddy.Push",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
-            )
-        }
-        guard let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             throw NSError(
                 domain: "PracticeBuddy.Push",
                 code: -1,
@@ -165,29 +158,12 @@ final class PushTokenManager {
             )
         }
 
-        let token = try await user.getIDToken()
-        let endpoint = baseURL.appendingPathComponent("pushTestNotification")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 20
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["route": route], options: [])
-
-        let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        let response = try await callable.call("pushTestNotificationV2", data: ["route": route])
+        guard response["ok"] as? Bool == true else {
+            let message = (response["error"] as? String) ?? "Push test failed."
             throw NSError(
                 domain: "PracticeBuddy.Push",
                 code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid push test response."]
-            )
-        }
-        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
-        guard (200..<300).contains(http.statusCode), (json?["ok"] as? Bool) == true else {
-            let message = (json?["error"] as? String) ?? "Push test failed (\(http.statusCode))."
-            throw NSError(
-                domain: "PracticeBuddy.Push",
-                code: http.statusCode,
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
         }

@@ -10,12 +10,12 @@ final class IdentityUpgradeCoordinator: ObservableObject {
     @Published private(set) var statusMessage: String?
 
     private let db = Firestore.firestore()
-    private let urlSession: URLSession
+    private let callable: FirebaseCallableTransport
     private var configuredUID: String?
     private var isAnonymous = true
 
-    init(urlSession: URLSession = .shared) {
-        self.urlSession = urlSession
+    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
+        self.callable = callable
     }
 
     var blocksOnlineFeatures: Bool {
@@ -82,7 +82,7 @@ final class IdentityUpgradeCoordinator: ObservableObject {
         privacy: ProfilePrivacy
     ) async -> Bool {
         guard let uid = configuredUID,
-              let user = Auth.auth().currentUser else {
+              Auth.auth().currentUser != nil else {
             state = .failed("Sign in before completing your profile.")
             return false
         }
@@ -102,13 +102,7 @@ final class IdentityUpgradeCoordinator: ObservableObject {
             state = .failed("Choose your main instrument.")
             return false
         }
-        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
-            state = .failed("Profile setup is unavailable in this build.")
-            return false
-        }
-
         do {
-            let token = try await user.getIDToken()
             let payload: [String: Any] = [
                 "displayName": displayName,
                 "handle": handle,
@@ -122,7 +116,7 @@ final class IdentityUpgradeCoordinator: ObservableObject {
                     "showMomentsToFollowers": privacy.showMomentsToFollowers
                 ]
             ]
-            let response = try await post(baseURL.appendingPathComponent("identityCompleteProfile"), token: token, payload: payload)
+            let response = try await callable.call("identityCompleteProfileV2", data: payload)
             guard response["ok"] as? Bool == true else {
                 throw IdentityCoordinatorError.server(response["error"] as? String ?? "Profile setup failed.")
             }
@@ -152,16 +146,13 @@ final class IdentityUpgradeCoordinator: ObservableObject {
     }
 
     func changeHandle(_ rawHandle: String) async -> Bool {
-        guard let user = Auth.auth().currentUser,
-              let baseURL = AppInfo.duelFunctionsBaseURL else { return false }
+        guard Auth.auth().currentUser != nil else { return false }
         let handle = StudioQuestIdentityValidator.normalizedHandle(rawHandle)
         guard StudioQuestIdentityValidator.validateHandle(handle).isValid else { return false }
         do {
-            let token = try await user.getIDToken()
-            let response = try await post(
-                baseURL.appendingPathComponent("identityChangeHandle"),
-                token: token,
-                payload: ["handle": handle]
+            let response = try await callable.call(
+                "identityChangeHandleV2",
+                data: ["handle": handle]
             )
             guard response["ok"] as? Bool == true else {
                 statusMessage = response["error"] as? String ?? "Couldn’t update your handle."
@@ -181,17 +172,14 @@ final class IdentityUpgradeCoordinator: ObservableObject {
     }
 
     func updatePrivacy(_ privacy: ProfilePrivacy) async -> Bool {
-        guard let user = Auth.auth().currentUser,
-              let baseURL = AppInfo.duelFunctionsBaseURL else {
+        guard Auth.auth().currentUser != nil else {
             statusMessage = "Privacy settings are unavailable in this build."
             return false
         }
         do {
-            let token = try await user.getIDToken()
-            let response = try await post(
-                baseURL.appendingPathComponent("identityUpdatePrivacy"),
-                token: token,
-                payload: ["privacy": privacyPayload(privacy)]
+            let response = try await callable.call(
+                "identityUpdatePrivacyV2",
+                data: ["privacy": privacyPayload(privacy)]
             )
             guard response["ok"] as? Bool == true else {
                 statusMessage = response["error"] as? String ?? "Couldn’t update privacy settings."
@@ -207,24 +195,6 @@ final class IdentityUpgradeCoordinator: ObservableObject {
             statusMessage = userFacing(error)
             return false
         }
-    }
-
-    private func post(_ url: URL, token: String, payload: [String: Any]) async throws -> [String: Any] {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw IdentityCoordinatorError.server("Invalid server response.")
-        }
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        guard (200..<300).contains(http.statusCode) else {
-            throw IdentityCoordinatorError.server(json["error"] as? String ?? "Profile service failed (\(http.statusCode)).")
-        }
-        return json
     }
 
     private func privacyPayload(_ privacy: ProfilePrivacy) -> [String: Bool] {
