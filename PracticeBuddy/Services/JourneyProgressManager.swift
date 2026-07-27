@@ -1954,7 +1954,7 @@ final class DuelLeagueManager: ObservableObject {
     private var leaderboardCache: [DuelLeaderboardScope: (seasonKey: String, rows: [DuelLeaderboardRow], fetchedAt: Date)] = [:]
     private let targetCandidatesRefreshCooldown: TimeInterval = 30
     private let leaderboardRefreshCooldown: TimeInterval = 60 * 60 * 24
-    private let urlSession = URLSession.shared
+    private lazy var callable: FirebaseCallableTransport = FirebaseCallableClient()
     private var didReceiveInitialChallengeSnapshot = false
     private var priorChallengeStatusByID: [String: DuelChallengeStatus] = [:]
     private var inFlightActionKeys: Set<String> = []
@@ -2756,53 +2756,26 @@ final class DuelLeagueManager: ObservableObject {
     }
 
     private func callDuelEndpoint(name: String, body: [String: Any]) async throws -> [String: Any] {
-        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
-            throw NSError(
-                domain: "PracticeBuddy.Duel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
-            )
-        }
-        guard let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             throw NSError(
                 domain: "PracticeBuddy.Duel",
                 code: -1,
                 userInfo: [NSLocalizedDescriptionKey: "No authenticated user."]
             )
         }
-        let idToken = try await user.getIDToken()
-        let endpoint = baseURL.appendingPathComponent(name)
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 20
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        PBLog.firebase.info("Duel endpoint request name=\(name, privacy: .public)")
-
-        let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        let callableName = "\(name)V2"
+        PBLog.firebase.info("Duel callable request name=\(callableName, privacy: .public)")
+        let response = try await callable.call(callableName, data: body)
+        guard response["ok"] as? Bool == true else {
+            let message = response["error"] as? String ?? "The duel service returned an invalid response."
             throw NSError(
                 domain: "PracticeBuddy.Duel",
                 code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid server response."]
+                userInfo: [NSLocalizedDescriptionKey: message]
             )
         }
-
-        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
-        if (200..<300).contains(http.statusCode) {
-            PBLog.firebase.info("Duel endpoint success name=\(name, privacy: .public) code=\(http.statusCode, privacy: .public)")
-            return json ?? [:]
-        }
-
-        let errorMessage = (json?["error"] as? String) ?? "Request failed (\(http.statusCode))."
-        PBLog.firebase.error("Duel endpoint failure name=\(name, privacy: .public) code=\(http.statusCode, privacy: .public) error=\(errorMessage, privacy: .public)")
-        throw NSError(
-            domain: "PracticeBuddy.Duel",
-            code: http.statusCode,
-            userInfo: [NSLocalizedDescriptionKey: errorMessage]
-        )
+        PBLog.firebase.info("Duel callable success name=\(callableName, privacy: .public)")
+        return response
     }
 
     private func currentSeasonKey() -> String {

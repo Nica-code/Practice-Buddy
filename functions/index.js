@@ -42,6 +42,7 @@ const VALID_MOMENT_TAGS = new Set([
 ]);
 const VALID_MOMENT_AUDIENCES = new Set(["friends", "followers"]);
 const VALID_MOMENT_REACTIONS = new Set(["bravo", "inspired", "strongWork", "practiceTogether"]);
+const INTERNAL_CALLABLE_AUTH = Symbol("internalCallableAuth");
 
 exports.syncEntitlements = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -548,7 +549,7 @@ exports.syncPublicProfileProjection = onDocumentWritten("users/{uid}", async (ev
   await db.collection("publicProfiles").doc(uid).set(publicProjectionForUser(user), {merge: true});
 });
 
-exports.duelQueueJoin = onRequest(async (req, res) => {
+const duelQueueJoinHandler = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
     return;
@@ -712,9 +713,10 @@ exports.duelQueueJoin = onRequest(async (req, res) => {
     logger.error("duelQueueJoin failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
-});
+};
+exports.duelQueueJoin = onRequest(duelQueueJoinHandler);
 
-exports.duelQueueCancel = onRequest(async (req, res) => {
+const duelQueueCancelHandler = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
     return;
@@ -740,9 +742,10 @@ exports.duelQueueCancel = onRequest(async (req, res) => {
     logger.error("duelQueueCancel failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
-});
+};
+exports.duelQueueCancel = onRequest(duelQueueCancelHandler);
 
-exports.duelInvite = onRequest(async (req, res) => {
+const duelInviteHandler = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
     return;
@@ -875,9 +878,10 @@ exports.duelInvite = onRequest(async (req, res) => {
     logger.error("duelInvite failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
-});
+};
+exports.duelInvite = onRequest(duelInviteHandler);
 
-exports.duelRespond = onRequest(async (req, res) => {
+const duelRespondHandler = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
     return;
@@ -1070,9 +1074,10 @@ exports.duelRespond = onRequest(async (req, res) => {
     logger.error("duelRespond failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
-});
+};
+exports.duelRespond = onRequest(duelRespondHandler);
 
-exports.duelSubmitAttempt = onRequest(async (req, res) => {
+const duelSubmitAttemptHandler = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "Method not allowed"});
     return;
@@ -1185,7 +1190,14 @@ exports.duelSubmitAttempt = onRequest(async (req, res) => {
     logger.error("duelSubmitAttempt failed", error);
     res.status(400).json({error: String(error.message || error)});
   }
-});
+};
+exports.duelSubmitAttempt = onRequest(duelSubmitAttemptHandler);
+
+exports.duelQueueJoinV2 = appCheckedDuelCallable("duelQueueJoinV2", duelQueueJoinHandler);
+exports.duelQueueCancelV2 = appCheckedDuelCallable("duelQueueCancelV2", duelQueueCancelHandler);
+exports.duelInviteV2 = appCheckedDuelCallable("duelInviteV2", duelInviteHandler);
+exports.duelRespondV2 = appCheckedDuelCallable("duelRespondV2", duelRespondHandler);
+exports.duelSubmitAttemptV2 = appCheckedDuelCallable("duelSubmitAttemptV2", duelSubmitAttemptHandler);
 
 exports.duelSettleSweep = onSchedule(
     {
@@ -2360,6 +2372,10 @@ async function requireUID(req) {
 }
 
 async function requireAuth(req) {
+  const internalAuth = req[INTERNAL_CALLABLE_AUTH];
+  if (internalAuth?.uid) {
+    return {uid: internalAuth.uid, token: internalAuth.token || {}};
+  }
   const authHeader = req.get("Authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : "";
   if (!token) throw new Error("Missing auth token");
@@ -2391,6 +2407,53 @@ function asCallableError(error) {
   if (error instanceof HttpsError) return error;
   const message = String(error?.message || "The service is unavailable right now.");
   return new HttpsError("failed-precondition", message);
+}
+
+function appCheckedDuelCallable(name, handler) {
+  return onCall(
+      {enforceAppCheck: true, maxInstances: 5},
+      async (request) => {
+        try {
+          const auth = requireCallablePermanentAuth(request);
+          return await invokeSharedHTTPHandler(handler, request.data || {}, auth);
+        } catch (error) {
+          logger.warn(`${name} failed`, {error: String(error?.message || error)});
+          throw asCallableError(error);
+        }
+      },
+  );
+}
+
+async function invokeSharedHTTPHandler(handler, body, auth) {
+  let statusCode = 200;
+  let responsePayload = null;
+  const request = {
+    method: "POST",
+    body,
+    [INTERNAL_CALLABLE_AUTH]: auth,
+    get: () => "",
+  };
+  const response = {
+    status(code) {
+      statusCode = Number(code) || 500;
+      return this;
+    },
+    json(payload) {
+      responsePayload = payload;
+      return this;
+    },
+  };
+
+  await handler(request, response);
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error(
+        String(responsePayload?.error || `The duel service failed (${statusCode}).`),
+    );
+  }
+  if (!responsePayload || responsePayload.ok !== true) {
+    throw new Error("The duel service returned an invalid response.");
+  }
+  return responsePayload;
 }
 
 async function sendPushTestNotification(uid, input) {
