@@ -892,6 +892,22 @@ final class StudioQuestFoundationTests: XCTestCase {
         )
     }
 
+    func testProductionFeatureFlagsFailClosedForPublicExploreAndPreserveMissingValues() {
+        let defaults = StudioQuestFeatureFlagSnapshot.productionDefaults
+        let updated = defaults.applying([
+            "practiceMoments": false,
+            "publicExplore": true,
+            "unknownFlag": true
+        ])
+
+        XCTAssertFalse(updated.practiceMoments)
+        XCTAssertTrue(updated.publicExplore)
+        XCTAssertTrue(updated.identityUpgradeRequired)
+        XCTAssertTrue(updated.smartCoach)
+        XCTAssertTrue(updated.newAvatarRenderer)
+        XCTAssertFalse(defaults.publicExplore)
+    }
+
     func testSocialActionsUseTheAppCheckCallableSurface() async throws {
         let transport = SocialCallableTransportStub(responses: [
             "socialActionV2": ["ok": true, "status": "requested"]

@@ -12,6 +12,7 @@ import FirebaseMessaging
 struct PracticeBuddyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var firebase: FirebaseBootstrap
+    @StateObject private var featureFlags: StudioQuestFeatureFlags
     @StateObject private var purchaseManager: PurchaseManager
     @StateObject private var adsManager: PBAdsManager
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
@@ -19,6 +20,7 @@ struct PracticeBuddyApp: App {
     init() {
         PBSwiftDataBootstrap.ensureApplicationSupportDirectory()
         _firebase = StateObject(wrappedValue: FirebaseBootstrap())
+        _featureFlags = StateObject(wrappedValue: StudioQuestFeatureFlags())
         _purchaseManager = StateObject(wrappedValue: PurchaseManager())
         _adsManager = StateObject(wrappedValue: PBAdsManager())
         UNUserNotificationCenter.current().delegate = PBNotificationDelegate.shared
@@ -32,10 +34,12 @@ struct PracticeBuddyApp: App {
                 .environment(\.locale, Locale(identifier: appLanguage.localeIdentifier))
                 .task {
                     await firebase.start()
+                    await featureFlags.refresh()
                 }
         }
         .modelContainer(for: [PracticeSessionModel.self, LoopPracticeLogModel.self, PracticePlanLogModel.self, RhythmAccuracyTakeModel.self, RunThroughModel.self, ScaleIntonationTakeModel.self])
         .environmentObject(firebase)
+        .environmentObject(featureFlags)
         .environmentObject(purchaseManager)
         .environmentObject(adsManager)
     }

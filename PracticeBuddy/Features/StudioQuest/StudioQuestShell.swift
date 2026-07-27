@@ -5,6 +5,7 @@ struct StudioQuestShell: View {
 
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var featureFlags: StudioQuestFeatureFlags
     @Environment(\.scenePhase) private var scenePhase
     @State private var dockHeight: CGFloat = 58
 
@@ -48,12 +49,21 @@ struct StudioQuestShell: View {
             }
             .environmentObject(router)
         }
-        .sheet(item: $coordinator.momentPrompt) { prompt in
+        .sheet(item: momentPromptBinding) { prompt in
             StudioQuestPracticeMomentComposer(prompt: prompt)
         }
         .onChange(of: scenePhase) { _, phase in
             coordinator.handleScenePhase(isActive: phase == .active)
         }
+    }
+
+    private var momentPromptBinding: Binding<PracticeMomentPrompt?> {
+        Binding(
+            get: {
+                featureFlags.snapshot.practiceMoments ? coordinator.momentPrompt : nil
+            },
+            set: { coordinator.momentPrompt = $0 }
+        )
     }
 
     private func destinationStack<Root: View>(_ root: Root, destination: AppDestination) -> some View {
@@ -68,6 +78,7 @@ struct StudioQuestShell: View {
 
 struct StudioQuestRouteView: View {
     let route: AppRoute
+    @EnvironmentObject private var featureFlags: StudioQuestFeatureFlags
 
     var body: some View {
         switch route {
@@ -124,7 +135,14 @@ struct StudioQuestRouteView: View {
         case .questDetail(let quest):
             QuestDetailSheet(quest: quest)
         case .smartCoach:
-            SmartPracticePlanGeneratorView()
+            if featureFlags.snapshot.smartCoach {
+                SmartPracticePlanGeneratorView()
+            } else {
+                StudioQuestUnavailableFeatureView(
+                    title: "Smart Coach is temporarily unavailable",
+                    message: "Your practice history and saved plans are safe. Try again later."
+                )
+            }
         case .communityFeed:
             StudioQuestCommunityFeedView()
         case .communityConnections(let section):
@@ -134,9 +152,16 @@ struct StudioQuestRouteView: View {
         case .practiceMoment(let momentID):
             StudioQuestMomentDetailView(momentID: momentID)
         case .practiceMomentComposer(let sessionID):
-            StudioQuestPracticeMomentComposer(
-                prompt: PracticeMomentPrompt(sessionID: sessionID, eligibleAt: .now)
-            )
+            if featureFlags.snapshot.practiceMoments {
+                StudioQuestPracticeMomentComposer(
+                    prompt: PracticeMomentPrompt(sessionID: sessionID, eligibleAt: .now)
+                )
+            } else {
+                StudioQuestUnavailableFeatureView(
+                    title: "Practice Moments are paused",
+                    message: "Private practice and your saved history remain available."
+                )
+            }
         case .shareCard(let sessionID):
             StudioQuestShareCardView(sessionID: sessionID)
         case .communityFriends:
@@ -146,6 +171,33 @@ struct StudioQuestRouteView: View {
         case .communityMessages(let friendUID, let threadID):
             StudioQuestConversationRouteView(friendUID: friendUID, threadID: threadID)
         }
+    }
+}
+
+private struct StudioQuestUnavailableFeatureView: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        StudioQuestScrollPage {
+            VStack(spacing: StudioQuestTokens.Spacing.md) {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                Text(title)
+                    .font(StudioQuestTokens.Typography.cardTitle)
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(StudioQuestTokens.Spacing.xl)
+            .frame(maxWidth: .infinity, minHeight: 220)
+            .studioQuestSurface()
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

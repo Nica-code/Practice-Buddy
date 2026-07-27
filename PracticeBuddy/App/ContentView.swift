@@ -22,6 +22,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var firebase: FirebaseBootstrap
+    @EnvironmentObject private var featureFlags: StudioQuestFeatureFlags
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @EnvironmentObject private var adsManager: PBAdsManager
 
@@ -102,7 +103,8 @@ struct ContentView: View {
             Task {
                 await identityUpgrade.configure(
                     uid: firebase.currentUserID,
-                    isAnonymous: firebase.isAnonymousUser
+                    isAnonymous: firebase.isAnonymousUser,
+                    upgradeRequired: featureFlags.snapshot.identityUpgradeRequired
                 )
             }
             #if DEBUG

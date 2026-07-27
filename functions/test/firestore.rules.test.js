@@ -74,6 +74,22 @@ describe("PractiQuest Firestore security rules", () => {
     );
   });
 
+  it("allows read-only production feature flags without exposing a write path", async () => {
+    await seed(async (firestore) => {
+      await setDoc(doc(firestore, "appConfig/practiquestV2"), {
+        practiceMoments: true,
+        publicExplore: false,
+      });
+    });
+
+    await assertSucceeds(
+        getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), "appConfig/practiquestV2")),
+    );
+    await assertFails(setDoc(doc(firestoreFor("alice"), "appConfig/practiquestV2"), {
+      publicExplore: true,
+    }, {merge: true}));
+  });
+
   it("prevents clients from granting themselves entitlements", async () => {
     await assertSucceeds(setDoc(doc(firestoreFor("alice"), "users/alice"), {
       displayName: "Alice",
