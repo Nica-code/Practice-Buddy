@@ -293,4 +293,51 @@ final class StudioQuestNavigationUITests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["Try again"].exists)
     }
+
+    func testRhythmAccuracyRuntimePausesAndReachesAResult() {
+        let app = launch(
+            route: "rhythm",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let pause = app.buttons["rhythm.pause"]
+        XCTAssertTrue(
+            pause.waitForExistence(timeout: 8),
+            "Rhythm Accuracy running fixture did not load"
+        )
+        pause.tap()
+        XCTAssertTrue(app.buttons["rhythm.pause"].waitForExistence(timeout: 4))
+        app.buttons["rhythm.pause"].tap()
+
+        let finish = app.buttons["rhythm.finish"]
+        XCTAssertTrue(
+            reveal(finish, in: app, maximumSwipes: 8),
+            "Rhythm Accuracy finish action was hidden by the Practice Dock"
+        )
+        finish.tap()
+        XCTAssertTrue(
+            app.buttons["rhythm.save"].waitForExistence(timeout: 6),
+            "Finishing Rhythm Accuracy did not produce a savable result"
+        )
+    }
+
+    func testRhythmAccuracyPermissionDeniedStateExplainsRecovery() {
+        let app = launch(
+            route: "rhythm",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "dark",
+                "--qa-tool-state", "permissionDenied"
+            ]
+        )
+
+        XCTAssertTrue(
+            app.staticTexts["Microphone access is off"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["Try again"].exists)
+    }
 }

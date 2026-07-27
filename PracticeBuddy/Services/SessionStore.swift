@@ -305,6 +305,30 @@ final class SessionStore: ObservableObject {
                     toolVersion: payload.toolVersion
                 )
             )
+        case .rhythm:
+            guard let data = result.payloadJSON.data(using: .utf8) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let payload = try JSONDecoder().decode(
+                RhythmAccuracyResultPayload.self,
+                from: data
+            )
+            let detailData = try JSONEncoder().encode(payload.summary)
+            context.insert(
+                RhythmAccuracyTakeModel(
+                    id: result.id,
+                    date: payload.completedAt,
+                    bpm: payload.settings.bpm,
+                    beatsAnalyzed: payload.summary.beatsAnalyzed,
+                    averageOffsetMs: payload.summary.averageOffsetMs,
+                    grooveScore: payload.summary.grooveScore,
+                    usedMetronome: payload.settings.pulseMode == .audibleHeadphones,
+                    detailJSON: String(data: detailData, encoding: .utf8) ?? "",
+                    parentSessionID: payload.parentSessionID,
+                    launchSource: payload.launchSource.rawValue,
+                    toolVersion: payload.toolVersion
+                )
+            )
         default:
             break
         }

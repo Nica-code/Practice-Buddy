@@ -441,6 +441,137 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
+    func testRhythmScorerClassifiesCenteredEarlyAndLateTakes() {
+        let centered = RhythmAccuracyScorer.summary(
+            for: [-12, 4, 8, -6, 14, -10, 2, 0]
+        )
+        XCTAssertEqual(centered.tendency, .centered)
+        XCTAssertEqual(centered.centeredCount, 8)
+        XCTAssertGreaterThanOrEqual(centered.grooveScore, 90)
+
+        let early = RhythmAccuracyScorer.summary(
+            for: [-72, -61, -54, -80, -65, -58, -77, -69]
+        )
+        XCTAssertEqual(early.tendency, .early)
+        XCTAssertEqual(early.earlyCount, 8)
+        XCTAssertLessThan(early.averageOffsetMs, 0)
+
+        let late = RhythmAccuracyScorer.summary(
+            for: [72, 61, 54, 80, 65, 58, 77, 69]
+        )
+        XCTAssertEqual(late.tendency, .late)
+        XCTAssertEqual(late.lateCount, 8)
+        XCTAssertGreaterThan(late.averageOffsetMs, 0)
+    }
+
+    func testRhythmGridOffsetUsesTheNearestBeat() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(
+                RhythmAccuracyScorer.offsetMilliseconds(
+                    onsetHostSeconds: 10.522,
+                    gridAnchorHostSeconds: 10,
+                    beatInterval: 0.5
+                )
+            ),
+            22,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                RhythmAccuracyScorer.offsetMilliseconds(
+                    onsetHostSeconds: 10.982,
+                    gridAnchorHostSeconds: 10,
+                    beatInterval: 0.5
+                )
+            ),
+            -18,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            RhythmAccuracyScorer.offsetMilliseconds(
+                onsetHostSeconds: 9.9,
+                gridAnchorHostSeconds: 10,
+                beatInterval: 0.5
+            )
+        )
+    }
+
+    func testRhythmOnsetDetectorRequiresANewThresholdCrossingAndRefractoryGap() {
+        var detector = RhythmOnsetDetector(
+            threshold: 0.02,
+            refractorySeconds: 0.08
+        )
+
+        XCTAssertFalse(detector.detectOnset(samples: [0.01], at: 1))
+        XCTAssertTrue(detector.detectOnset(samples: [0.03], at: 1.01))
+        XCTAssertFalse(detector.detectOnset(samples: [0.04], at: 1.02))
+        XCTAssertFalse(detector.detectOnset(samples: [0.01], at: 1.03))
+        XCTAssertFalse(detector.detectOnset(samples: [0.03], at: 1.05))
+        XCTAssertFalse(detector.detectOnset(samples: [0.01], at: 1.06))
+        XCTAssertTrue(detector.detectOnset(samples: [0.03], at: 1.10))
+    }
+
+    func testRhythmCalibrationThresholdIsAdaptiveAndBounded() {
+        XCTAssertEqual(RhythmCalibrationThreshold.value(from: []), 0.02)
+        XCTAssertEqual(
+            RhythmCalibrationThreshold.value(from: [0.001, 0.002, 0.003]),
+            0.012
+        )
+        XCTAssertEqual(
+            RhythmCalibrationThreshold.value(from: [0.05, 0.06, 0.08]),
+            0.15,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RhythmCalibrationThreshold.value(from: [0.2, 0.4, 0.8]),
+            0.25
+        )
+    }
+
+    func testRhythmRunStateSeparatesInsufficientInputFromPoorTiming() {
+        var insufficient = RhythmAccuracyRunState(
+            settings: RhythmAccuracySettings(
+                bpm: 80,
+                targetBeats: 8,
+                pulseMode: .visualHaptic
+            )
+        )
+        insufficient.beginListening()
+        insufficient.register(offsetMilliseconds: 4)
+        insufficient.register(offsetMilliseconds: -7)
+        insufficient.finish()
+        XCTAssertEqual(insufficient.phase, .insufficientInput)
+        XCTAssertNil(insufficient.summary)
+
+        var inaccurate = RhythmAccuracyRunState(settings: insufficient.settings)
+        inaccurate.beginListening()
+        for offset in [180, -210, 165, -190] {
+            inaccurate.register(offsetMilliseconds: Double(offset))
+        }
+        inaccurate.finish()
+        XCTAssertEqual(inaccurate.phase, .result)
+        XCTAssertNotNil(inaccurate.summary)
+        XCTAssertLessThan(inaccurate.summary?.grooveScore ?? 100, 25)
+    }
+
+    func testRhythmRunStatePauseResumeExcludesPausedTime() {
+        let start = Date(timeIntervalSince1970: 80_000)
+        var state = RhythmAccuracyRunState(
+            settings: RhythmAccuracySettings(
+                bpm: 80,
+                targetBeats: 16,
+                pulseMode: .visualHaptic
+            )
+        )
+        state.beginListening(at: start)
+        state.pause(at: start.addingTimeInterval(12))
+        XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(500)), 12)
+
+        state.beginListening(at: start.addingTimeInterval(500))
+        state.finish(at: start.addingTimeInterval(508))
+        XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(900)), 20)
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

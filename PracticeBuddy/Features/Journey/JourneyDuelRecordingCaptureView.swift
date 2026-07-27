@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AVFoundation
 
 struct DuelRecordingCaptureView: View {
     let challenge: DuelChallenge
@@ -37,7 +38,7 @@ struct DuelRecordingCaptureView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @StateObject private var tuner = TunerEngine()
-    @StateObject private var rhythmEngine = RhythmAccuracyEngine()
+    @StateObject private var rhythmEngine = DuelRhythmAccuracyEngine()
     @StateObject private var metronome = MetronomeEngine()
 
     @State private var phase: Phase = .ready
@@ -699,5 +700,91 @@ struct DuelRecordingCaptureView: View {
         let mean = values.reduce(0, +) / Double(values.count)
         let variance = values.reduce(0) { $0 + pow($1 - mean, 2) } / Double(values.count)
         return sqrt(variance)
+    }
+}
+
+/// Compatibility signal collector for the existing duel capture flow. The
+/// standalone Rhythm Accuracy tool uses `RhythmOnsetEngine` and the shared
+/// practice audio coordinator; the duel flow will move to that ownership model
+/// when its combined pitch/rhythm recorder is rebuilt.
+@MainActor
+final class DuelRhythmAccuracyEngine: ObservableObject {
+    @Published private(set) var summary: RhythmAccuracySummary?
+
+    private let engine = AVAudioEngine()
+    private var startHostSeconds: TimeInterval?
+    private var beatInterval: TimeInterval = 0.75
+    private var targetBeats = 16
+    private var offsetsMs: [Double] = []
+    private var detector = RhythmOnsetDetector()
+    private var tapInstalled = false
+
+    func start(bpm: Int, targetBeats: Int) {
+        stop(clear: true)
+        self.targetBeats = max(1, targetBeats)
+        beatInterval = 60 / Double(min(max(bpm, 40), 220))
+        startHostSeconds = nil
+
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+        input.installTap(
+            onBus: 0,
+            bufferSize: 1_024,
+            format: format
+        ) { [weak self] buffer, time in
+            guard let self,
+                  let channel = buffer.floatChannelData?[0] else { return }
+            let samples = Array(
+                UnsafeBufferPointer(
+                    start: channel,
+                    count: Int(buffer.frameLength)
+                )
+            )
+            let hostSeconds = AVAudioTime.seconds(forHostTime: time.hostTime)
+            Task { @MainActor [weak self] in
+                self?.process(samples: samples, hostSeconds: hostSeconds)
+            }
+        }
+        tapInstalled = true
+        try? engine.start()
+    }
+
+    func stop(clear: Bool) {
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        engine.stop()
+        if clear {
+            offsetsMs = []
+            summary = nil
+            detector = RhythmOnsetDetector()
+        } else if !offsetsMs.isEmpty {
+            summary = RhythmAccuracyScorer.summary(for: offsetsMs)
+        }
+    }
+
+    private func process(
+        samples: [Float],
+        hostSeconds: TimeInterval
+    ) {
+        guard offsetsMs.count < targetBeats,
+              detector.detectOnset(samples: samples, at: hostSeconds) else {
+            return
+        }
+        if startHostSeconds == nil {
+            startHostSeconds = hostSeconds
+        }
+        guard let startHostSeconds,
+              let offset = RhythmAccuracyScorer.offsetMilliseconds(
+                onsetHostSeconds: hostSeconds,
+                gridAnchorHostSeconds: startHostSeconds,
+                beatInterval: beatInterval
+              ) else { return }
+        offsetsMs.append(offset)
+        if offsetsMs.count >= targetBeats {
+            summary = RhythmAccuracyScorer.summary(for: offsetsMs)
+        }
     }
 }
