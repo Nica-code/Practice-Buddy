@@ -209,14 +209,24 @@ Client provider behavior:
 
 Rollout:
 
-1. [ ] Register App Attest and DeviceCheck for the iOS app in Firebase Console.
-2. [ ] Add only required simulator/CI debug tokens.
-3. [ ] Run internal builds and inspect App Check request metrics.
-4. [ ] Confirm V2 callable valid/invalid traffic is expected.
-5. [ ] Keep already-coded callable enforcement enabled.
-6. [ ] Enable Firestore/Storage enforcement only after metrics show legitimate
+1. [x] Register App Attest for the iOS app in Firebase Console.
+2. [ ] Register DeviceCheck using an Apple DeviceCheck `.p8` private key and its
+       Key ID. Team ID is `73J84HKXBC`; never commit the private key.
+3. [ ] Add only required simulator/CI debug tokens.
+4. [ ] Run internal builds and inspect App Check request metrics.
+5. [ ] Confirm V2 callable valid/invalid traffic is expected.
+6. [ ] Keep already-coded callable enforcement enabled.
+7. [ ] Enable Firestore/Storage enforcement only after metrics show legitimate
        production/TestFlight clients are accepted.
-7. [ ] Monitor errors and support signals during staged rollout.
+8. [ ] Monitor errors and support signals during staged rollout.
+
+Observed on 2026-07-27:
+
+- App Attest registered for `com.alexmalaimare.practicebuddy`;
+- DeviceCheck not registered;
+- Cloud Firestore and Authentication in Monitoring;
+- both currently show 0% verified / 100% unverified traffic;
+- Storage product enforcement is not enabled.
 
 Never commit debug tokens.
 

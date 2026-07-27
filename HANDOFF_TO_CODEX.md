@@ -20,6 +20,8 @@ The latest exact run passed:
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
 - signed generic iOS build passed for the app and Live Activity extension
+- clean App Store archive/export passed; exported IPA contains no repository
+  Markdown or internal planning documents
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
@@ -85,6 +87,7 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+8b0e6c2 Record staged Firebase production rollout
 4d0955a Enforce callable rate limits
 ee26541 Refresh launch state and release runbooks
 d3bd68a Complete secure musician invite links
@@ -100,13 +103,15 @@ d8d82b0 Retire legacy theme compatibility and expand launch QA
 The simulator implementation is past the main functional rewrite. The next
 priority is release operations, in this order:
 
-1. create/verify the Pro product in App Store Connect;
-2. make an internal TestFlight build;
-3. verify App Check and migration behavior on a physical device;
-4. coordinate the owner-only Firestore-rule cutover with the v2 client;
-5. execute the complete physical-device checklist;
-6. fix any device-only defects;
-7. recapture final App Store screenshots and finish metadata.
+1. sign in to App Store Connect and create/verify the Pro product;
+2. register DeviceCheck in Firebase Console using the Apple `.p8` key and Key
+   ID; App Attest is already registered;
+3. upload an internal TestFlight build from the clean archive/export path;
+4. verify App Check and migration behavior on a physical device;
+5. coordinate the owner-only Firestore-rule cutover with the v2 client;
+6. execute the complete physical-device checklist;
+7. fix any device-only defects;
+8. recapture final App Store screenshots and finish metadata.
 
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
@@ -139,6 +144,37 @@ break the shipped binary. Coordinate the rule change with TestFlight/App Store
 migration; do not deploy it casually or fold it into an unrelated Firebase
 command.
 
+## Release archive and App Check state
+
+The clean build-31 release artifacts are:
+
+```text
+/private/tmp/PractiQuest-2.0.0-31-clean.xcarchive
+/private/tmp/PractiQuest-2.0.0-31-clean-export/PracticeBuddy.ipa
+```
+
+The first export exposed a filesystem-synchronized-target packaging defect:
+seven repository Markdown files were copied into the app bundle. The app-target
+membership exceptions now exclude them. A fresh signed generic build, archive,
+export, and 88-test suite all passed, and the clean IPA contains no `.md` files.
+Do not remove those membership exceptions as “unused.”
+
+Firebase Console inspection confirmed:
+
+- App Attest is registered for `com.alexmalaimare.practicebuddy`;
+- DeviceCheck is not registered because its Apple `.p8` private key and Key ID
+  are external credentials, not repository data;
+- Cloud Firestore and Authentication App Check are in Monitoring and currently
+  show 0% verified traffic;
+- Storage enforcement is not enabled.
+
+Do not describe DeviceCheck fallback as operational or enable broader product
+enforcement until the credential is registered and valid TestFlight/device
+traffic appears in metrics.
+
+App Store Connect is awaiting user sign-in. The connected iPhone is currently
+offline in Xcode, so no physical-device checklist item is verified.
+
 ## Landmines
 
 - CoreSimulator may hang after compiling. Use the reset sequence in
@@ -151,6 +187,8 @@ command.
 - Legacy HTTP endpoints, legacy Ad-Free SKU handling, legacy avatar ID, and
   `/join-studio` are compatibility seams, not accidental dead code.
 - The Pro product does not exist merely because its identifier is in code.
+- The development-signed archive is not itself distribution proof. The
+  successful `app-store-connect` export is the distribution packaging check.
 - Do not say Firebase is deployed, App Check enforcement is observed, or
   physical-device behavior is verified until those steps actually occur.
 

@@ -17,6 +17,8 @@ Before code:
 - UI: 30/30
 - Firebase rules: 10/10
 - Function contracts: 3/3
+- Clean App Store archive/export: passed; exported IPA contains no internal
+  Markdown resources
 - Firebase deployed from this branch: indexes, Functions, Hosting, and Storage
   are live from `3898fe9`; owner-only Firestore rules are held for client cutover
 
@@ -100,6 +102,14 @@ Do not deploy without following:
 Never claim Firebase, App Check monitoring/enforcement, TestFlight,
 physical-device behavior, or App Store submission is complete until it actually
 is.
+
+App Attest is registered, but DeviceCheck still requires the Apple `.p8` key and
+Key ID. Firestore and Authentication App Check remain in Monitoring with no
+verified device traffic yet. Do not enable broader product enforcement early.
+
+The app target is a filesystem-synchronized root group. Keep the explicit
+Markdown membership exceptions in `PracticeBuddy.xcodeproj/project.pbxproj`;
+without them, internal repository documents are copied into the IPA.
 
 Do not deploy `firestore.rules` before reading the rollout state in
 `PROJECT_STATE.md`. App Store build 1.0.5 (30) directly queries `users`, while

@@ -15,8 +15,11 @@ Internal Xcode target/scheme: `PracticeBuddy`
 - Function contract tests: 3/3 passed.
 - Signed generic iOS build: passed for the `PracticeBuddy` scheme, including
   `PracticeBuddyLiveActivityExtension`.
+- Clean App Store archive and `app-store-connect` export: passed. The exported
+  IPA was inspected and contains no repository Markdown/internal planning files.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `8b0e6c2` — staged Firebase rollout record and compatibility hold.
   - `4d0955a` — callable rate limits and client recovery copy.
   - `ee26541` — release state and operational runbooks.
   - `99e4ae6` — StoreKit and trial entitlement trust hardening.
@@ -127,6 +130,12 @@ Key safeguards include:
   Check-enforced V2 callable functions.
 - App Attest is preferred on production-capable devices with DeviceCheck
   fallback; simulator/debug uses Firebase's debug provider.
+- Firebase Console currently has App Attest registered for
+  `com.alexmalaimare.practicebuddy`. DeviceCheck is not registered because the
+  required Apple `.p8` key and Key ID are not available in the repository.
+- Firestore and Authentication App Check remain in Monitoring and currently
+  report 0% verified traffic. Do not enable broader product enforcement until a
+  TestFlight/physical-device build produces accepted requests.
 - Legacy HTTP endpoints remain only for the shipped-client compatibility window.
 - Firestore indexes are committed.
 - Rules tests cover private data, public projections, minors, relationships,
@@ -187,18 +196,40 @@ See:
 External/operational work still required:
 
 1. Create `com.alexmalaimare.practiquest.pro.monthly` in App Store Connect.
-2. Coordinate the owner-only Firestore-rule cutover with an available v2 client.
+2. Register DeviceCheck in Firebase Console using an Apple DeviceCheck `.p8`
+   private key and its Key ID. App Attest is already registered.
+3. Coordinate the owner-only Firestore-rule cutover with an available v2 client.
    Indexes, backward-compatible Functions, Hosting, and Storage are already
    deployed from `3898fe9`.
-3. Register/observe App Check debug and production metrics before broader
+4. Observe App Check debug and production metrics before broader
    Firestore/Storage enforcement.
-4. Run the physical-device checklist for audio, recording, backgrounding,
+5. Run the physical-device checklist for audio, recording, backgrounding,
    Family Controls, Live Activities/Dynamic Island, APNs, StoreKit, account
    upgrade, and Universal Links.
-5. Run internal then focused external TestFlight migration testing.
-6. Capture final release screenshots from the deployed release configuration.
-7. Update App Store privacy/age/moderation metadata and submit with the
+6. Run internal then focused external TestFlight migration testing.
+7. Capture final release screenshots from the deployed release configuration.
+8. Update App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
+
+App Store Connect is not authenticated in the current browser session, so no
+subscription product or TestFlight upload has been created. The connected
+physical iPhone is currently reported offline by Xcode and has not been used to
+clear any device checklist item.
+
+## Release archive audit
+
+Build 31 was archived with the `PracticeBuddy` scheme and exported using the
+`app-store-connect` export method:
+
+- archive:
+  `/private/tmp/PractiQuest-2.0.0-31-clean.xcarchive`
+- exported IPA:
+  `/private/tmp/PractiQuest-2.0.0-31-clean-export/PracticeBuddy.ipa`
+
+The filesystem-synchronized app target initially copied seven repository
+Markdown documents into the bundle. They are now explicit target-membership
+exceptions in `PracticeBuddy.xcodeproj/project.pbxproj`. A clean archive/export
+was repeated, and the resulting IPA contains no `.md` resources.
 
 ## Current Firebase rollout status
 

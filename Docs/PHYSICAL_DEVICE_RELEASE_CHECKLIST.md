@@ -30,6 +30,16 @@ or P2 item remains open.
 - [ ] offline first launch still allows private Today/Practice
 - [ ] partial/corrupt migration fails safely without deleting data
 
+## App Check
+
+- [x] App Attest registered in Firebase Console
+- [ ] DeviceCheck registered with Apple `.p8` key and Key ID
+- [ ] production build obtains accepted App Attest token on physical device
+- [ ] DeviceCheck fallback is exercised on a compatible fallback path
+- [ ] valid V2 callable succeeds and invalid token is rejected
+- [ ] Firestore/Authentication monitoring shows verified device traffic
+- [ ] broader Firestore/Storage enforcement remains off until metrics are clean
+
 ## Practice lifecycle
 
 - [ ] Quick Start begins in one tap
@@ -189,6 +199,7 @@ Metronome, and Tuner:
 - [ ] Firebase deployed commit recorded
 - [ ] App Check metrics reviewed
 - [ ] final automated suite rerun
+- [x] clean build-31 App Store archive/export contains no repository Markdown
+      resources
 - [ ] final App Store screenshots captured
 - [ ] release owner approves archive from `PracticeBuddy`
-

@@ -64,6 +64,8 @@ pass.
 ## Open release gates
 
 - PractiQuest Pro product creation/verification in App Store Connect.
+- DeviceCheck registration using the Apple `.p8` key and Key ID. App Attest is
+  registered already.
 - Physical-device App Check, audio, Live Activity, Family Controls, APNs,
   StoreKit, migration, and Universal Link tests.
 - `appConfig/practiquestV2` production review.
@@ -71,3 +73,17 @@ pass.
 - App Check metrics observation and broader product enforcement.
 - Internal and focused external TestFlight.
 - Final App Store metadata, screenshots, and submission.
+
+## App Check console observation
+
+Firebase Console inspection on 2026-07-27 confirmed:
+
+- iOS app `com.alexmalaimare.practicebuddy` is registered with App Attest;
+- DeviceCheck is not registered;
+- Cloud Firestore and Authentication are in Monitoring;
+- their current request metrics show 0% verified and 100% unverified;
+- Storage enforcement is not enabled.
+
+Callable enforcement remains active in the deployed V2 Functions. Broader
+Firestore/Storage enforcement must wait for DeviceCheck registration and clean
+physical-device/TestFlight metrics.
