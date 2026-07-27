@@ -120,6 +120,8 @@ struct StudioQuestRouteView: View {
             StudioQuestProfileView(userID: userID)
         case .publicProfile(let userID):
             StudioQuestPublicProfileView(userID: userID)
+        case .accountSetup:
+            AccountSetupView(embedsNavigationStack: false)
         case .profileUpgrade:
             StudioQuestProfileUpgradeView()
         case .pro:

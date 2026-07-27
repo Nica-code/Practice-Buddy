@@ -78,6 +78,7 @@ indirect enum AppRoute: Hashable {
     case settings(section: StudioQuestSettingsSection?)
     case profile(userID: String?)
     case publicProfile(userID: String)
+    case accountSetup
     case profileUpgrade
     case pro(source: StudioQuestProSource)
     case avatarStudio(section: AvatarStudioSection)
@@ -427,10 +428,18 @@ struct AppLaunchConfiguration: Equatable {
             RouteRequest(destination: .you, route: .history, opensRoomEditor: false)
         case "profile":
             RouteRequest(destination: .you, route: .profile(userID: nil), opensRoomEditor: false)
+        case "accountSetup":
+            RouteRequest(destination: .you, route: .accountSetup, opensRoomEditor: false)
         case "settings":
             RouteRequest(destination: .you, route: .settings(section: nil), opensRoomEditor: false)
         case "duel":
             RouteRequest(destination: .quest, route: .duelArena(challengeID: nil), opensRoomEditor: false)
+        case "duelCapture":
+            RouteRequest(
+                destination: .quest,
+                route: .duelArena(challengeID: "__qa_recording__"),
+                opensRoomEditor: false
+            )
         case "avatar":
             RouteRequest(destination: .you, route: .avatarStudio(section: .customize), opensRoomEditor: false)
         case "shop":

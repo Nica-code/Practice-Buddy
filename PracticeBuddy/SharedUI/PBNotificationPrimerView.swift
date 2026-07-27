@@ -9,91 +9,96 @@ struct PBNotificationPrimerView: View {
     let onEnable: () -> Void
     let onSkip: () -> Void
 
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
-
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     private let perks: [(icon: String, text: String)] = [
         ("bolt.heart.fill", "Know the moment a friend challenges you to a duel"),
-        ("message.fill", "Never miss a new message from your practice buddies"),
+        ("message.fill", "Never miss a new message from a friend"),
         ("person.2.fill", "Get notified when someone sends you a friend request")
     ]
 
     var body: some View {
-        VStack(spacing: PBLayout.padLG) {
-            Spacer(minLength: PBLayout.padMD)
-
+        GeometryReader { proxy in
             ZStack {
-                Circle()
-                    .fill(palette.accent.opacity(0.14))
-                    .frame(width: 96, height: 96)
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-                    .symbolRenderingMode(.hierarchical)
-            }
+                StudioQuestBackground()
+                    .ignoresSafeArea()
 
-            VStack(spacing: PBLayout.padXS) {
-                Text("Stay in the loop")
-                    .font(type.sheetTitle)
-                    .foregroundStyle(palette.textPrimary)
-                Text("Turn on notifications so PractiQuest can reach you when it matters.")
-                    .font(type.body)
-                    .foregroundStyle(palette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, PBLayout.padMD)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: StudioQuestTokens.Spacing.lg) {
+                        Spacer(minLength: StudioQuestTokens.Spacing.sm)
 
-            VStack(alignment: .leading, spacing: PBLayout.padSM) {
-                ForEach(perks, id: \.icon) { perk in
-                    HStack(alignment: .center, spacing: PBLayout.padSM) {
-                        Image(systemName: perk.icon)
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(palette.accent)
-                            .frame(width: 28)
-                        Text(LocalizedStringKey(perk.text))
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
+                        ZStack {
+                            Circle()
+                                .fill(StudioQuestTokens.ColorRole.cobalt.opacity(0.12))
+                                .frame(width: 92, height: 92)
+                            Image(systemName: "bell.badge.fill")
+                                .font(.system(size: 38, weight: .semibold))
+                                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                        .accessibilityHidden(true)
+
+                        VStack(spacing: StudioQuestTokens.Spacing.xs) {
+                            Text("Stay in the loop")
+                                .font(StudioQuestTokens.Typography.heroTitle)
+                                .multilineTextAlignment(.center)
+                            Text("PractiQuest can let you know when a friend reaches out or a duel needs your attention.")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
+
+                        StudioQuestSection {
+                            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.md) {
+                                ForEach(perks, id: \.icon) { perk in
+                                    HStack(alignment: .center, spacing: StudioQuestTokens.Spacing.sm) {
+                                        Image(systemName: perk.icon)
+                                            .font(.system(size: 17, weight: .semibold))
+                                            .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                            .frame(width: 30, height: 30)
+                                            .background(
+                                                StudioQuestTokens.ColorRole.cobalt.opacity(0.10),
+                                                in: Circle()
+                                            )
+                                        Text(LocalizedStringKey(perk.text))
+                                            .font(.subheadline)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                }
+                            }
+                        }
+
+                        VStack(spacing: StudioQuestTokens.Spacing.sm) {
+                            Button {
+                                PBHaptics.tap()
+                                onEnable()
+                            } label: {
+                                Text("Enable Notifications")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(StudioQuestPrimaryButtonStyle())
+                            .accessibilityIdentifier("notifications.enable")
+
+                            Button("Not Now", action: onSkip)
+                                .buttonStyle(StudioQuestSecondaryButtonStyle())
+                                .accessibilityIdentifier("notifications.skip")
+                        }
                     }
+                    .frame(
+                        width: min(
+                            StudioQuestTokens.Spacing.pageMaxWidth,
+                            max(0, proxy.size.width - (StudioQuestTokens.Spacing.pageMargin(for: proxy.size.width) * 2))
+                        )
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, StudioQuestTokens.Spacing.lg)
                 }
             }
-            .padding(PBLayout.padMD)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .pbSurfaceCard(palette: palette, cornerRadius: PBLayout.radiusControl)
-            .padding(.horizontal, PBLayout.padMD)
-
-            Spacer(minLength: 0)
-
-            VStack(spacing: PBLayout.padSM) {
-                Button {
-                    PBHaptics.tap()
-                    onEnable()
-                } label: {
-                    Text("Enable Notifications")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
-
-                Button {
-                    onSkip()
-                } label: {
-                    Text("Not Now")
-                        .font(type.button)
-                        .foregroundStyle(palette.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, PBLayout.padXS)
-                }
-            }
-            .padding(.horizontal, PBLayout.padMD)
-            .padding(.bottom, PBLayout.padMD)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PBBackdropView(palette: palette).ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }

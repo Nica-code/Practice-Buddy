@@ -86,6 +86,7 @@ struct StudioQuestShopView: View {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Goes to the Quest tab")
+            .accessibilityIdentifier("shop.earnMore")
         }
         .padding(StudioQuestTokens.Spacing.md)
         .studioQuestSurface(.lifted)
@@ -217,6 +218,7 @@ struct StudioQuestShopView: View {
             .disabled(!affordable || journey.isEconomyOperationInProgress)
             .accessibilityLabel("Unlock \(decoration.title) for \(decoration.costTokens) tokens")
             .accessibilityHint(affordable ? "" : "You need more tokens")
+            .accessibilityIdentifier("shop.decoration.\(decoration.id)")
         }
     }
 

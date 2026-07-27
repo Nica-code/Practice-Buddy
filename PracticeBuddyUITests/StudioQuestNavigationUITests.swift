@@ -9,15 +9,18 @@ final class StudioQuestNavigationUITests: XCTestCase {
         destination: Int = 0,
         route: String? = nil,
         populated: Bool = true,
+        communityPopulated: Bool = true,
         extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "--qa-skip-onboarding",
             "--qa-skip-version-gate",
-            "--qa-community-populated",
             "--qa-destination", "\(destination)"
         ] + extraArguments
+        if communityPopulated {
+            app.launchArguments.append("--qa-community-populated")
+        }
         if populated {
             app.launchArguments.append("--qa-populated")
         }
@@ -282,6 +285,94 @@ final class StudioQuestNavigationUITests: XCTestCase {
             app.buttons["smartloop.save"].waitForExistence(timeout: 6),
             "Finishing Smart Loop did not produce a savable result"
         )
+    }
+
+    func testWarmUpRuntimePausesResumesAndReachesAResult() {
+        let app = launch(
+            route: "warmUp",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let pause = app.buttons["warmup.pause"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 8), "Warm-up running fixture did not load")
+        pause.tap()
+        XCTAssertTrue(app.buttons["warmup.pause"].waitForExistence(timeout: 4))
+        app.buttons["warmup.pause"].tap()
+
+        let finish = app.buttons["warmup.finish"]
+        XCTAssertTrue(
+            reveal(finish, in: app),
+            "Warm-up finish action was hidden by the Practice Dock"
+        )
+        finish.tap()
+        XCTAssertTrue(
+            app.buttons["warmup.done"].waitForExistence(timeout: 6),
+            "Finishing Warm-up did not produce a saved result"
+        )
+    }
+
+    func testPracticeLibraryCardsAndFavoritesUseTheirFullSurfaces() {
+        let app = launch(route: "library", populated: false)
+        let warmUpCard = app.buttons["library.tool.warm-up"]
+        XCTAssertTrue(warmUpCard.waitForExistence(timeout: 8))
+        XCTAssertTrue(reveal(warmUpCard, in: app))
+
+        warmUpCard.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+        XCTAssertTrue(app.staticTexts["Warm-up Generator"].waitForExistence(timeout: 6))
+    }
+
+    func testAccountSetupEmailFlowUsesStudioQuestFields() {
+        let app = launch(route: "accountSetup", populated: false)
+        XCTAssertTrue(app.staticTexts["Protect your progress"].waitForExistence(timeout: 6))
+
+        let email = app.buttons["account.email"]
+        XCTAssertTrue(reveal(email, in: app))
+        email.tap()
+        XCTAssertTrue(app.buttons["auth.mode.signUp"].waitForExistence(timeout: 6))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["auth.email"].waitForExistence(timeout: 4),
+            "Email field was missing from the account sheet"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["auth.password"].exists,
+            "Password field was missing from the account sheet"
+        )
+    }
+
+    func testRoomEditorPlacesStarterDecorationAndExposesAccessibleControls() {
+        let app = launch(route: "roomEditor", populated: false)
+        let decoration = app.buttons["room.decoration.room_decoration_plant"]
+        XCTAssertTrue(decoration.waitForExistence(timeout: 8))
+        decoration.tap()
+
+        XCTAssertTrue(app.buttons["room.doneEditingItem"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["room.done"].exists)
+        XCTAssertTrue(app.buttons["room.changeRoom"].exists)
+    }
+
+    func testShopEarnMoreActionRoutesToQuest() {
+        let app = launch(route: "shop", populated: false)
+        let earnMore = app.buttons["shop.earnMore"]
+        XCTAssertTrue(earnMore.waitForExistence(timeout: 8))
+        earnMore.tap()
+        XCTAssertTrue(app.staticTexts["Quest"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.tabBars.buttons["Quest"].isSelected)
+    }
+
+    func testDuelCaptureFixtureUsesTheSharedRecordingSurface() {
+        let app = launch(
+            route: "duelCapture",
+            populated: false,
+            extraArguments: ["--qa-appearance", "dark"]
+        )
+
+        XCTAssertTrue(app.staticTexts["Record Duel Take"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["duel.startRecording"].exists)
+        XCTAssertTrue(app.staticTexts["C major · clean pulse"].exists)
     }
 
     func testGuidedPracticeRuntimePausesAndReachesPrivateReflection() {

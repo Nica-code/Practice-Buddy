@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import AVFoundation
 
 struct DuelRecordingCaptureView: View {
     let challenge: DuelChallenge
@@ -33,13 +32,12 @@ struct DuelRecordingCaptureView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var duelLeague: DuelLeagueManager
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
+    @EnvironmentObject private var practiceCoordinator: PracticeSessionCoordinator
     @Environment(\.colorScheme) private var colorScheme
 
-    @StateObject private var tuner = TunerEngine()
+    @StateObject private var tuner = TunerEngine(managesAudioSession: false)
     @StateObject private var rhythmEngine = DuelRhythmAccuracyEngine()
-    @StateObject private var metronome = MetronomeEngine()
+    @StateObject private var metronome = MetronomeEngine(managesAudioSession: false)
 
     @State private var phase: Phase = .ready
     @State private var preRollStartedAt: Date?
@@ -53,7 +51,6 @@ struct DuelRecordingCaptureView: View {
     @State private var finalMetrics: DuelDerivedMetrics?
 
     private let ticker = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
 
     private var takeDuration: TimeInterval {
         switch challenge.octaveCount {
@@ -120,7 +117,7 @@ struct DuelRecordingCaptureView: View {
         GeometryReader { proxy in
             let layout = layoutTuning(for: proxy.size)
             ZStack {
-                PBBackdropView(palette: palette)
+                StudioQuestBackground()
                     .ignoresSafeArea()
 
                 VStack(spacing: layout.verticalSpacing) {
@@ -149,6 +146,19 @@ struct DuelRecordingCaptureView: View {
         .onDisappear {
             stopAllCapture()
         }
+        .onReceive(practiceCoordinator.audioSession.$lastEvent) { event in
+            switch event {
+            case .interrupted(.duel):
+                stopAllCapture()
+                statusMessage = "Recording stopped because another audio source interrupted the duel take."
+            case .routeChanged where phase == .preRoll || phase == .recording:
+                stopAllCapture()
+                phase = .ready
+                statusMessage = "Your audio route changed. Start a fresh take so scoring remains fair."
+            default:
+                break
+            }
+        }
     }
 
     private func layoutTuning(for size: CGSize) -> LayoutTuning {
@@ -157,10 +167,10 @@ struct DuelRecordingCaptureView: View {
         if h < 700 {
             return LayoutTuning(
                 verticalSpacing: 8,
-                horizontalPadding: PBLayout.padSM,
+                horizontalPadding: StudioQuestTokens.Spacing.sm,
                 topPadding: 6,
                 bottomPadding: 8,
-                cardPadding: PBLayout.padSM,
+                cardPadding: StudioQuestTokens.Spacing.sm,
                 overlayNumberSize: 76,
                 maxContentWidth: nil,
                 compactMetrics: true
@@ -169,10 +179,10 @@ struct DuelRecordingCaptureView: View {
         if h > 900 || w >= 430 {
             return LayoutTuning(
                 verticalSpacing: 12,
-                horizontalPadding: PBLayout.padMD,
+                horizontalPadding: StudioQuestTokens.Spacing.md,
                 topPadding: 12,
                 bottomPadding: 12,
-                cardPadding: PBLayout.padLG,
+                cardPadding: StudioQuestTokens.Spacing.lg,
                 overlayNumberSize: 108,
                 maxContentWidth: 560,
                 compactMetrics: false
@@ -180,10 +190,10 @@ struct DuelRecordingCaptureView: View {
         }
         return LayoutTuning(
             verticalSpacing: 10,
-            horizontalPadding: PBLayout.padSM,
+            horizontalPadding: StudioQuestTokens.Spacing.sm,
             topPadding: 10,
             bottomPadding: 10,
-            cardPadding: PBLayout.padMD,
+            cardPadding: StudioQuestTokens.Spacing.md,
             overlayNumberSize: 96,
             maxContentWidth: 520,
             compactMetrics: false
@@ -193,20 +203,20 @@ struct DuelRecordingCaptureView: View {
     private func objectiveCard(_ layout: LayoutTuning) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(challenge.objective)
-                .font(type.body.weight(.semibold))
-                .foregroundStyle(palette.textPrimary)
+                .font(StudioQuestTokens.Typography.sectionTitle)
+                .foregroundStyle(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
             Text("Scale: \(allowedPitchNamesText)")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
                 .lineLimit(2)
             Text("Mode: \(strictnessLabel) • Combined pitch + rhythm take")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .padding(layout.cardPadding)
-        .pbModernCard(palette: palette)
+        .studioQuestSurface(.resting)
     }
 
     private func captureStatusCard(_ layout: LayoutTuning) -> some View {
@@ -214,31 +224,31 @@ struct DuelRecordingCaptureView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Tempo")
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Text("\(rhythmBPM) BPM")
-                        .font(type.number)
-                        .foregroundStyle(palette.textPrimary)
+                        .font(.title3.monospacedDigit())
+                        .foregroundStyle(.primary)
                         .monospacedDigit()
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(phaseTitle)
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Text(phaseValue)
-                        .font(type.number)
-                        .foregroundStyle(palette.accent)
+                        .font(.title3.monospacedDigit())
+                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
                         .monospacedDigit()
                 }
             }
 
             Stepper(L10n.f("Tempo: %@ BPM", "\(rhythmBPM)"), value: $rhythmBPM, in: minimumRhythmBPM...220)
-                .font(type.body)
+                .font(.body)
                 .disabled(phase == .preRoll || phase == .recording)
         }
         .padding(layout.cardPadding)
-        .pbModernCard(palette: palette)
+        .studioQuestSurface(.resting)
     }
 
     private func liveMetricsCard(_ layout: LayoutTuning) -> some View {
@@ -274,17 +284,17 @@ struct DuelRecordingCaptureView: View {
                         "\(summary.beatsAnalyzed)"
                     )
                 )
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
             } else if phase == .recording {
                 Text("Listening…")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if let finalMetrics {
-                Divider().overlay(palette.textSecondary.opacity(0.25))
+                Divider()
                 Text(
                     L10n.f(
                         "Derived %@ (I %@ • R %@ • C %@)",
@@ -294,24 +304,24 @@ struct DuelRecordingCaptureView: View {
                         "\(finalMetrics.consistencyScore)"
                     )
                 )
-                .font(type.body.weight(.semibold))
-                .foregroundStyle(palette.textPrimary)
+                .font(.headline)
+                .foregroundStyle(.primary)
                 .monospacedDigit()
             } else if phase == .complete && aggregate.totalSamples > 0 {
                 Text("Intonation \(intonationScore) • Consistency \(intonationConsistency)")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
 
             if let statusMessage, !statusMessage.isEmpty {
                 Text(statusMessage)
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(layout.cardPadding)
-        .pbModernCard(palette: palette)
+        .studioQuestSurface(.resting)
     }
 
     private var actionFooter: some View {
@@ -321,7 +331,8 @@ struct DuelRecordingCaptureView: View {
                     onComplete(finalMetrics)
                     dismiss()
                 }
-                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("duel.submitTake")
             } else {
                 Button(phase == .preRoll || phase == .recording ? "Stop Recording" : "Record") {
                     if phase == .preRoll || phase == .recording {
@@ -330,8 +341,13 @@ struct DuelRecordingCaptureView: View {
                         startCombinedRecordingWithPreRoll()
                     }
                 }
-                .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
                 .disabled(!(phase == .ready || phase == .complete || phase == .preRoll || phase == .recording))
+                .accessibilityIdentifier(
+                    phase == .preRoll || phase == .recording
+                        ? "duel.stopRecording"
+                        : "duel.startRecording"
+                )
             }
         }
     }
@@ -347,7 +363,7 @@ struct DuelRecordingCaptureView: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
                 Text("Get ready")
-                    .font(type.body)
+                    .font(.body)
                     .foregroundStyle(.white.opacity(0.9))
             }
         }
@@ -376,11 +392,11 @@ struct DuelRecordingCaptureView: View {
     private func metricChip(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             Text(value)
-                .font(type.body.weight(.semibold))
-                .foregroundStyle(palette.textPrimary)
+                .font(.headline)
+                .foregroundStyle(.primary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -388,20 +404,45 @@ struct DuelRecordingCaptureView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .pbSurfaceCard(palette: palette)
+        .background(
+            StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
+            in: RoundedRectangle(
+                cornerRadius: StudioQuestTokens.Radius.control,
+                style: .continuous
+            )
+        )
     }
 
     private func startCombinedRecordingWithPreRoll() {
-        stopAllCapture()
-        finalMetrics = nil
-        statusMessage = nil
-        aggregate = IntonationAggregate()
-        intonationScore = 0
-        intonationConsistency = 0
-        phase = .preRoll
-        preRollSeconds = 5
-        preRollStartedAt = Date()
-        tuner.requestMicPermissionAndStart()
+        Task {
+            stopAllCapture()
+            do {
+                try await practiceCoordinator.audioSession.claim(
+                    .duel,
+                    requirements: [.microphone, .playback]
+                )
+            } catch {
+                statusMessage = error.localizedDescription
+                phase = .ready
+                return
+            }
+
+            finalMetrics = nil
+            statusMessage = nil
+            aggregate = IntonationAggregate()
+            intonationScore = 0
+            intonationConsistency = 0
+            phase = .preRoll
+            preRollSeconds = 5
+            preRollStartedAt = Date()
+
+            guard tuner.startListening() else {
+                statusMessage = tuner.statusMessage ?? "The microphone could not start."
+                phase = .ready
+                practiceCoordinator.audioSession.release(.duel)
+                return
+            }
+        }
     }
 
     private func startCombinedCaptureNow() {
@@ -415,12 +456,20 @@ struct DuelRecordingCaptureView: View {
         }
 
         rhythmEngine.stop(clear: true)
+        tuner.onInputSamples = { [weak rhythmEngine] samples, hostSeconds in
+            rhythmEngine?.process(samples: samples, hostSeconds: hostSeconds)
+        }
         metronome.setBPM(rhythmBPM)
-        metronome.start(
+        guard metronome.start(
             beatsPerBar: 4,
             subdivision: .none,
             soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click)
-        )
+        ) else {
+            stopAllCapture()
+            phase = .ready
+            statusMessage = metronome.statusMessage ?? "The metronome could not start."
+            return
+        }
         rhythmEngine.start(bpm: rhythmBPM, targetBeats: rhythmTargetBeats)
     }
 
@@ -469,6 +518,7 @@ struct DuelRecordingCaptureView: View {
     private func finalizeCombinedTake() {
         guard aggregate.totalSamples > 0 else {
             statusMessage = "No usable signal captured. Try again."
+            phase = .ready
             return
         }
 
@@ -582,9 +632,11 @@ struct DuelRecordingCaptureView: View {
         preRollStartedAt = nil
         preRollSeconds = 0
         recordingStartedAt = nil
+        tuner.onInputSamples = nil
         tuner.stopListening()
         rhythmEngine.stop(clear: false)
         metronome.stop()
+        practiceCoordinator.audioSession.release(.duel)
     }
 
     private func positiveModulo(_ value: Int, _ modulo: Int) -> Int {
@@ -703,59 +755,26 @@ struct DuelRecordingCaptureView: View {
     }
 }
 
-/// Compatibility signal collector for the existing duel capture flow. The
-/// standalone Rhythm Accuracy tool uses `RhythmOnsetEngine` and the shared
-/// practice audio coordinator; the duel flow will move to that ownership model
-/// when its combined pitch/rhythm recorder is rebuilt.
+/// Derives rhythm from the same microphone frames used by the duel tuner. The
+/// containing capture view owns the sole input tap and forwards samples here.
 @MainActor
 final class DuelRhythmAccuracyEngine: ObservableObject {
     @Published private(set) var summary: RhythmAccuracySummary?
 
-    private let engine = AVAudioEngine()
     private var startHostSeconds: TimeInterval?
     private var beatInterval: TimeInterval = 0.75
     private var targetBeats = 16
     private var offsetsMs: [Double] = []
     private var detector = RhythmOnsetDetector()
-    private var tapInstalled = false
 
     func start(bpm: Int, targetBeats: Int) {
         stop(clear: true)
         self.targetBeats = max(1, targetBeats)
         beatInterval = 60 / Double(min(max(bpm, 40), 220))
         startHostSeconds = nil
-
-        let input = engine.inputNode
-        let format = input.inputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { return }
-        input.installTap(
-            onBus: 0,
-            bufferSize: 1_024,
-            format: format
-        ) { [weak self] buffer, time in
-            guard let self,
-                  let channel = buffer.floatChannelData?[0] else { return }
-            let samples = Array(
-                UnsafeBufferPointer(
-                    start: channel,
-                    count: Int(buffer.frameLength)
-                )
-            )
-            let hostSeconds = AVAudioTime.seconds(forHostTime: time.hostTime)
-            Task { @MainActor [weak self] in
-                self?.process(samples: samples, hostSeconds: hostSeconds)
-            }
-        }
-        tapInstalled = true
-        try? engine.start()
     }
 
     func stop(clear: Bool) {
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
-        engine.stop()
         if clear {
             offsetsMs = []
             summary = nil
@@ -765,7 +784,7 @@ final class DuelRhythmAccuracyEngine: ObservableObject {
         }
     }
 
-    private func process(
+    func process(
         samples: [Float],
         hostSeconds: TimeInterval
     ) {

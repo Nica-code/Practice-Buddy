@@ -2,6 +2,8 @@ import SwiftUI
 import AuthenticationServices
 
 struct AccountSetupView: View {
+    let embedsNavigationStack: Bool
+
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var purchaseManager: PurchaseManager
     @Environment(\.dismiss) private var dismiss
@@ -9,6 +11,10 @@ struct AccountSetupView: View {
     @AppStorage("pb.settings.language") private var appLanguageRaw: String = AppLanguage.english.rawValue
     @State private var showEmailAuthSheet: Bool = false
     @State private var presentedAsAnonymous = true
+
+    init(embedsNavigationStack: Bool = true) {
+        self.embedsNavigationStack = embedsNavigationStack
+    }
 
     private let onboardingLanguageOptions: [AppLanguage] = [.english, .korean, .romanian]
 
@@ -22,101 +28,112 @@ struct AccountSetupView: View {
         )
     }
 
+    @ViewBuilder
     var body: some View {
-        NavigationStack {
-            StudioQuestScrollPage {
-                VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
-                    StudioQuestPageTitle(
-                        title: "Protect your progress",
-                        subtitle: "Sign in when you want community, duels, and cloud backup."
-                    )
+        if embedsNavigationStack {
+            NavigationStack { accountContent }
+        } else {
+            accountContent
+        }
+    }
 
-                    StudioQuestSection {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Label("Your practice stays yours", systemImage: "checkmark.shield.fill")
-                                .font(StudioQuestTokens.Typography.sectionTitle)
-                                .foregroundStyle(StudioQuestTokens.ColorRole.mint)
-                            Text("Link the anonymous account already on this device. Your sessions, XP, tokens, and settings stay in place.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+    private var accountContent: some View {
+        StudioQuestScrollPage {
+            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                StudioQuestPageTitle(
+                    title: "Protect your progress",
+                    subtitle: "Sign in when you want community, duels, and cloud backup."
+                )
 
-                    StudioQuestSection {
-                        VStack(spacing: 12) {
-                            HStack {
-                                Label("Language", systemImage: "globe")
-                                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
-                                Spacer()
-                                Picker("Language", selection: onboardingLanguageBinding) {
-                                    ForEach(onboardingLanguageOptions) { lang in
-                                        Text(LocalizedStringKey(lang.titleKey)).tag(lang)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                            }
-
-                            Button {
-                                firebase.signInWithGoogle()
-                            } label: {
-                                HStack(spacing: 10) {
-                                    googleMark
-                                    Text("Continue with Google")
-                                }
-                            }
-                            .buttonStyle(StudioQuestSecondaryButtonStyle())
-
-                            SignInWithAppleButton(.continue) { request in
-                                firebase.prepareAppleSignInRequest(request)
-                            } onCompletion: { result in
-                                firebase.handleAppleSignInCompletion(result)
-                            }
-                            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                            .frame(height: 50)
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: StudioQuestTokens.Radius.control,
-                                    style: .continuous
-                                )
-                            )
-
-                            Button {
-                                showEmailAuthSheet = true
-                            } label: {
-                                Label("Continue with email", systemImage: "envelope.fill")
-                            }
-                            .buttonStyle(StudioQuestSecondaryButtonStyle())
-                        }
-                    }
-
-                    if let status = firebase.statusMessage, !status.isEmpty {
-                        StudioQuestInlineStatus(text: status, kind: .information)
-                    }
-                    if let syncStatus = purchaseManager.syncStatus, !syncStatus.isEmpty {
-                        StudioQuestInlineStatus(text: syncStatus, kind: .information)
+                StudioQuestSection {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label("Your practice stays yours", systemImage: "checkmark.shield.fill")
+                            .font(StudioQuestTokens.Typography.sectionTitle)
+                            .foregroundStyle(StudioQuestTokens.ColorRole.mint)
+                        Text("Link the anonymous account already on this device. Your sessions, XP, tokens, and settings stay in place.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.top, StudioQuestTokens.Spacing.lg)
+
+                StudioQuestSection {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Label("Language", systemImage: "globe")
+                                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                            Spacer()
+                            Picker("Language", selection: onboardingLanguageBinding) {
+                                ForEach(onboardingLanguageOptions) { lang in
+                                    Text(LocalizedStringKey(lang.titleKey)).tag(lang)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+
+                        Button {
+                            firebase.signInWithGoogle()
+                        } label: {
+                            HStack(spacing: 10) {
+                                googleMark
+                                Text("Continue with Google")
+                            }
+                        }
+                        .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .accessibilityIdentifier("account.google")
+
+                        SignInWithAppleButton(.continue) { request in
+                            firebase.prepareAppleSignInRequest(request)
+                        } onCompletion: { result in
+                            firebase.handleAppleSignInCompletion(result)
+                        }
+                        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                        .frame(height: 50)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: StudioQuestTokens.Radius.control,
+                                style: .continuous
+                            )
+                        )
+
+                        Button {
+                            showEmailAuthSheet = true
+                        } label: {
+                            Label("Continue with email", systemImage: "envelope.fill")
+                        }
+                        .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .accessibilityIdentifier("account.email")
+                    }
+                }
+
+                if let status = firebase.statusMessage, !status.isEmpty {
+                    StudioQuestInlineStatus(text: status, kind: .information)
+                }
+                if let syncStatus = purchaseManager.syncStatus, !syncStatus.isEmpty {
+                    StudioQuestInlineStatus(text: syncStatus, kind: .information)
+                }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
+            .padding(.top, StudioQuestTokens.Spacing.lg)
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if embedsNavigationStack {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showEmailAuthSheet) {
-                EmailAuthSheet()
-                    .environmentObject(firebase)
-            }
-            .onAppear {
-                presentedAsAnonymous = firebase.isAnonymousUser
-            }
-            .onChange(of: firebase.isAnonymousUser) { _, isAnonymous in
-                guard presentedAsAnonymous, !isAnonymous else { return }
-                PracticeAnalytics.record(.signInConversion(source: "account_setup"))
-                dismiss()
-            }
+        }
+        .sheet(isPresented: $showEmailAuthSheet) {
+            EmailAuthSheet()
+                .environmentObject(firebase)
+        }
+        .onAppear {
+            presentedAsAnonymous = firebase.isAnonymousUser
+        }
+        .onChange(of: firebase.isAnonymousUser) { _, isAnonymous in
+            guard presentedAsAnonymous, !isAnonymous else { return }
+            PracticeAnalytics.record(.signInConversion(source: "account_setup"))
+            dismiss()
         }
     }
 
@@ -170,8 +187,6 @@ private struct EmailAuthSheet: View {
 
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var mode: Mode = .signUp
@@ -182,92 +197,115 @@ private struct EmailAuthSheet: View {
     @State private var localErrorMessage: String?
     @State private var isSubmitting: Bool = false
 
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(Mode.allCases) { mode in
-                            Text(mode.title).tag(mode)
+            StudioQuestScrollPage {
+                VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+                    StudioQuestPageTitle(
+                        title: LocalizedStringKey(mode.title),
+                        subtitle: mode == .signUp
+                            ? "Create a permanent account without losing this device’s practice history."
+                            : "Reconnect your profile, progress, and community."
+                    )
+
+                    modePicker
+
+                    StudioQuestSection {
+                        VStack(alignment: .leading, spacing: 12) {
+                            StudioQuestEyebrow(
+                                LocalizedStringKey(
+                                    mode == .signUp ? "Create account details" : "Account details"
+                                )
+                            )
+
+                            TextField("Email", text: $email)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .studioQuestAuthField(colorScheme: colorScheme)
+                                .accessibilityIdentifier("auth.email")
+
+                            SecureField("Password", text: $password)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .textContentType(mode == .signUp ? .newPassword : .password)
+                                .studioQuestAuthField(colorScheme: colorScheme)
+                                .accessibilityIdentifier("auth.password")
+
+                            if mode == .signUp {
+                                SecureField("Confirm password", text: $confirmPassword)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                                    .textContentType(.newPassword)
+                                    .studioQuestAuthField(colorScheme: colorScheme)
+                                    .accessibilityIdentifier("auth.confirmPassword")
+
+                                TextField("Display name (optional)", text: $displayName)
+                                    .textInputAutocapitalization(.words)
+                                    .autocorrectionDisabled(true)
+                                    .studioQuestAuthField(colorScheme: colorScheme)
+                                    .accessibilityIdentifier("auth.displayName")
+                                    .onChange(of: displayName) { _, newValue in
+                                        let normalized = FirebaseBuddiesRepository.normalizedDisplayName(from: newValue)
+                                        if normalized != newValue {
+                                            displayName = normalized
+                                        }
+                                    }
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
-                }
-
-                Section(mode == .signUp ? "Create account details" : "Account details") {
-                    TextField("Email", text: $email)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-
-                    SecureField("Password", text: $password)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .textContentType(mode == .signUp ? .newPassword : .password)
 
                     if mode == .signUp {
-                        SecureField("Confirm password", text: $confirmPassword)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .textContentType(.newPassword)
+                        StudioQuestSection {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Password requirements", systemImage: "key.fill")
+                                    .font(StudioQuestTokens.Typography.sectionTitle)
+                                Text("Use at least 8 characters with at least one letter and one number.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
 
-                        TextField("Display name (optional)", text: $displayName)
-                            .textInputAutocapitalization(.words)
-                            .autocorrectionDisabled(true)
-                            .onChange(of: displayName) { _, newValue in
-                                let normalized = FirebaseBuddiesRepository.normalizedDisplayName(from: newValue)
-                                if normalized != newValue {
-                                    displayName = normalized
+                                if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Divider()
+                                    Label("Display name", systemImage: "person.text.rectangle")
+                                        .font(.headline)
+                                    Text("Use 2–30 letters, numbers, spaces, apostrophes, periods, underscores, or hyphens.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
-                    }
-                }
-
-                if mode == .signUp {
-                    Section("Password requirements") {
-                        Text("At least 8 characters, with at least 1 letter and 1 number.")
-                            .font(type.footnote)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                    if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Section("Display name") {
-                            Text("2-30 chars. Letters, numbers, spaces, apostrophes, dots, underscores, or hyphens.")
-                                .font(type.footnote)
-                                .foregroundStyle(palette.textSecondary)
                         }
                     }
-                }
 
-                Section {
                     Button {
                         Task { await submit() }
                     } label: {
-                        if isSubmitting {
-                            ProgressView()
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        } else {
-                            Text(mode.submitLabel)
-                                .frame(maxWidth: .infinity, alignment: .center)
+                        Group {
+                            if isSubmitting {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text(LocalizedStringKey(mode.submitLabel))
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(StudioQuestPrimaryButtonStyle())
                     .disabled(isSubmitting)
-                }
+                    .accessibilityIdentifier("auth.submit")
 
-                if let localErrorMessage, !localErrorMessage.isEmpty {
-                    Section {
-                        Text(localErrorMessage)
-                            .font(type.footnote)
-                            .foregroundStyle(.red)
+                    if let localErrorMessage, !localErrorMessage.isEmpty {
+                        StudioQuestInlineStatus(text: localErrorMessage, kind: .warning)
+                            .accessibilityIdentifier("auth.error")
                     }
+
+                    Text("A permanent profile is required only for community, duels, and cloud-linked identity. Private practice remains available without it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.top, StudioQuestTokens.Spacing.lg)
             }
-            .scrollContentBackground(.hidden)
-            .background(StudioQuestBackground())
-            .tint(StudioQuestTokens.ColorRole.cobalt)
-            .navigationTitle(mode.title)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -278,6 +316,33 @@ private struct EmailAuthSheet: View {
                 localErrorMessage = nil
             }
         }
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 8) {
+            ForEach(Mode.allCases) { option in
+                StudioQuestInteractiveSurface(action: { mode = option }) {
+                    Text(LocalizedStringKey(option.title))
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 46)
+                        .foregroundStyle(mode == option ? Color.white : Color.primary)
+                        .background(
+                            mode == option
+                                ? StudioQuestTokens.ColorRole.cobalt
+                                : StudioQuestTokens.ColorRole.surface(colorScheme),
+                            in: Capsule()
+                        )
+                }
+                .accessibilityAddTraits(mode == option ? .isSelected : [])
+                .accessibilityIdentifier("auth.mode.\(option.rawValue)")
+            }
+        }
+        .padding(4)
+        .background(
+            StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
+            in: Capsule()
+        )
     }
 
     private func submit() async {
@@ -347,5 +412,30 @@ private struct EmailAuthSheet: View {
         let hasLetter = value.rangeOfCharacter(from: .letters) != nil
         let hasNumber = value.rangeOfCharacter(from: .decimalDigits) != nil
         return hasLetter && hasNumber
+    }
+}
+
+private extension View {
+    func studioQuestAuthField(colorScheme: ColorScheme) -> some View {
+        self
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .background(
+                StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
+                in: RoundedRectangle(
+                    cornerRadius: StudioQuestTokens.Radius.control,
+                    style: .continuous
+                )
+            )
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: StudioQuestTokens.Radius.control,
+                    style: .continuous
+                )
+                .stroke(
+                    StudioQuestTokens.ColorRole.separator(colorScheme),
+                    lineWidth: 1
+                )
+            }
     }
 }

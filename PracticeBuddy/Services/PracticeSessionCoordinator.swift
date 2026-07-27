@@ -761,6 +761,21 @@ final class PracticeSessionCoordinator: ObservableObject {
         studioPresented = false
         momentPrompt = nil
     }
+
+    /// Moves a focused tool clock to a deterministic elapsed value without
+    /// making UI tests wait in real time. This is intentionally DEBUG-only so
+    /// production timing always comes from real timestamps.
+    func setToolElapsedForDeterministicQA(
+        _ seconds: Int,
+        phase: PracticeActivityPhase = .running
+    ) {
+        guard var state = toolActivityState else { return }
+        state.accumulatedSeconds = max(0, seconds)
+        state.phase = phase
+        state.phaseStartedAt = phase == .running ? .now : nil
+        toolActivityState = state
+        persistActivityIdentity()
+    }
     #endif
 
     func configureVerificationIfNeeded() async {

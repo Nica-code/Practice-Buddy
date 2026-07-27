@@ -80,6 +80,7 @@ struct StudioQuestRoomEditorView: View {
                     .background(.regularMaterial, in: Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("room.done")
 
             Spacer()
 
@@ -97,6 +98,7 @@ struct StudioQuestRoomEditorView: View {
                     .background(.regularMaterial, in: Capsule())
             }
             .accessibilityLabel("Change room")
+            .accessibilityIdentifier("room.changeRoom")
         }
         .padding(.horizontal, StudioQuestTokens.Spacing.md)
         .padding(.top, StudioQuestTokens.Spacing.sm)
@@ -212,6 +214,7 @@ struct StudioQuestRoomEditorView: View {
                 ? "Place \(decoration.title)"
                 : "Unlock \(decoration.title) for \(decoration.costTokens) tokens"
         )
+        .accessibilityIdentifier("room.decoration.\(decoration.id)")
     }
 
     private func selectedControls(
@@ -259,6 +262,7 @@ struct StudioQuestRoomEditorView: View {
             Button("Done editing this item") { selection = nil }
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("room.doneEditingItem")
         }
     }
 

@@ -19,6 +19,11 @@ final class TunerEngine: ObservableObject {
     @Published private(set) var inputLevel: Double = 0
     @Published var statusMessage: String?
 
+    /// Optional observer for features that need the same microphone frames as
+    /// the tuner. Duel capture uses this to derive rhythm from one shared input
+    /// tap instead of starting a competing AVAudioEngine.
+    var onInputSamples: (([Float], TimeInterval) -> Void)?
+
     private let inputEngine = AVAudioEngine()
     private let toneEngine = AVAudioEngine()
     private var toneNode: AVAudioSourceNode?
@@ -143,8 +148,12 @@ final class TunerEngine: ObservableObject {
             }
 
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-                self?.processInputBuffer(buffer, sampleRate: format.sampleRate)
+            input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, time in
+                self?.processInputBuffer(
+                    buffer,
+                    sampleRate: format.sampleRate,
+                    hostSeconds: AVAudioTime.seconds(forHostTime: time.hostTime)
+                )
             }
 
             if !inputEngine.isRunning {
@@ -189,7 +198,11 @@ final class TunerEngine: ObservableObject {
         }
     }
 
-    private func processInputBuffer(_ buffer: AVAudioPCMBuffer, sampleRate: Double) {
+    private func processInputBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        sampleRate: Double,
+        hostSeconds: TimeInterval
+    ) {
         guard let channelData = buffer.floatChannelData else { return }
         let channel = channelData[0]
         let count = Int(buffer.frameLength)
@@ -199,6 +212,11 @@ final class TunerEngine: ObservableObject {
         if sampleCounter % 2 != 0 { return } // lower CPU
 
         let samples = Array(UnsafeBufferPointer(start: channel, count: count))
+        if let onInputSamples {
+            Task { @MainActor in
+                onInputSamples(samples, hostSeconds)
+            }
+        }
 
         var rms: Float = 0
         for s in samples { rms += s * s }

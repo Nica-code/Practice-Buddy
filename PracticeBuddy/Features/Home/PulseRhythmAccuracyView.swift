@@ -1253,7 +1253,9 @@ final class RhythmOnsetEngine: ObservableObject {
             )
             let hostSeconds = AVAudioTime.seconds(forHostTime: time.hostTime)
             processingQueue.async { [weak self] in
-                self?.process(samples: samples, hostSeconds: hostSeconds)
+                Task { @MainActor [weak self] in
+                    self?.process(samples: samples, hostSeconds: hostSeconds)
+                }
             }
         }
         tapInstalled = true

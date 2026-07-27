@@ -169,6 +169,24 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertNil(audio.owner)
     }
 
+    func testDuelRecordingCannotCompeteWithTheTunerMicrophoneOwner() async throws {
+        let audio = PracticeAudioSessionCoordinator()
+        // Ownership serialization is independent of the real microphone
+        // permission, which simulator unit tests must not prompt for.
+        try await audio.claim(.duel, requirements: .playback)
+        do {
+            try await audio.claim(.tuner, requirements: .playback)
+            XCTFail("Tuner must not replace an active duel recording")
+        } catch let error as PracticeAudioSessionError {
+            XCTAssertEqual(error, .ownedBy(.duel))
+        }
+
+        audio.release(.duel)
+        try await audio.claim(.tuner, requirements: .playback)
+        XCTAssertEqual(audio.owner, .tuner)
+        audio.release(.tuner)
+    }
+
     func testToolActivityPauseUsesTimestampElapsedAndPersistsRecovery() throws {
         let suiteName = "StudioQuestFoundationTests.runtime.recovery.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

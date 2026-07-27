@@ -749,7 +749,7 @@ struct StudioQuestProfileView: View {
 
     var body: some View {
         if let userID, userID != firebase.currentUserID {
-            PublicUserProfileView(userID: userID, fallbackDisplayName: "Musician")
+            StudioQuestPublicProfileView(userID: userID)
         } else {
             ownProfile
         }
@@ -1676,6 +1676,12 @@ struct StudioQuestDuelArenaView: View {
         }
         .task {
             duel.start(uid: firebase.isAnonymousUser ? nil : firebase.currentUserID)
+            #if DEBUG
+            if challengeID == "__qa_recording__" {
+                recordingChallenge = Self.qaRecordingChallenge
+                return
+            }
+            #endif
             if let challengeID {
                 selectedChallenge = allChallenges.first(where: { $0.id == challengeID })
             }
@@ -1860,6 +1866,35 @@ struct StudioQuestDuelArenaView: View {
     private var allChallenges: [DuelChallenge] {
         duel.incomingInvites + duel.outgoingInvites + duel.activeChallenges + duel.recentCompleted + duel.matchHistory
     }
+
+    #if DEBUG
+    private static let qaRecordingChallenge = DuelChallenge(
+        id: "__qa_recording__",
+        createdByUID: "qa-musician",
+        opponentUID: "qa-friend",
+        participants: ["qa-musician", "qa-friend"],
+        status: .active,
+        queueType: .friend,
+        objective: "C major · clean pulse",
+        scaleName: "C major",
+        octaveCount: 2,
+        requiredLeague: "silver",
+        requiredMinTempoBPM: 72,
+        creatorAccepted: true,
+        opponentAccepted: true,
+        opponentRequestedOctaves: nil,
+        createdAt: .now.addingTimeInterval(-3_600),
+        acceptByAt: nil,
+        startedAt: .now.addingTimeInterval(-900),
+        submissionDeadlineAt: .now.addingTimeInterval(86_400),
+        completedAt: nil,
+        creatorScore: nil,
+        opponentScore: nil,
+        winnerUID: nil,
+        creatorRatingDelta: 0,
+        opponentRatingDelta: 0
+    )
+    #endif
 
     private func challengeDetail(_ challenge: DuelChallenge) -> some View {
         StudioQuestScrollPage {

@@ -50,6 +50,7 @@ struct WarmUpGeneratorView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.studioQuestQAToolState) private var qaToolState
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @EnvironmentObject private var store: SessionStore
 
@@ -69,6 +70,7 @@ struct WarmUpGeneratorView: View {
     @State private var completedDuration = 0
     @State private var didFinish = false
     @State private var saveFailed = false
+    @State private var didApplyQAState = false
 
     private var ownsRuntime: Bool {
         coordinator.activeToolID == .warmUp
@@ -136,6 +138,7 @@ struct WarmUpGeneratorView: View {
             if generatedSteps.isEmpty {
                 generateWarmup(announce: false)
             }
+            applyQAStateIfNeeded()
         }
         .onChange(of: coordinator.elapsedSeconds) {
             advanceStepIfNeeded()
@@ -619,6 +622,70 @@ struct WarmUpGeneratorView: View {
             coordinator.pause()
         }
     }
+
+    #if DEBUG
+    private func applyQAStateIfNeeded() {
+        guard !didApplyQAState, let qaToolState else { return }
+        didApplyQAState = true
+        guard qaToolState != .setup else { return }
+
+        if qaToolState == .permissionDenied {
+            showStatus(
+                "Warm-up Generator does not need microphone permission.",
+                kind: .information
+            )
+            return
+        }
+
+        if coordinator.activeToolID == nil {
+            coordinator.beginFocusedTool(
+                .warmUp,
+                title: generatedTitle,
+                durationMinutes: minutes,
+                verified: false,
+                source: .qa
+            )
+        }
+        coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON())
+        coordinator.setToolElapsedForDeterministicQA(12)
+
+        switch qaToolState {
+        case .running:
+            break
+        case .paused, .recovered:
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON())
+            coordinator.pause()
+        case .completed:
+            finishWarmup()
+        case .saveError:
+            let result = PracticeToolResult(
+                toolID: .warmUp,
+                sessionID: coordinator.activeSessionID,
+                durationSeconds: 12,
+                metrics: ["steps": Double(generatedSteps.count)],
+                payloadJSON: recoveryJSON() ?? ""
+            )
+            coordinator.completeTool(result)
+            coordinator.pause()
+            pendingResult = result
+            completedDuration = 12
+            didFinish = true
+            saveFailed = true
+            showStatus(
+                "The warm-up could not be saved. Your result is still here—try again.",
+                kind: .error
+            )
+        case .permissionDenied, .setup:
+            break
+        }
+
+        if qaToolState == .recovered {
+            showStatus("Warm-up ready to resume.", kind: .information)
+        }
+    }
+    #else
+    private func applyQAStateIfNeeded() {}
+    #endif
 
     private func persistRecovery() {
         coordinator.updateToolRecoveryPayload(recoveryJSON())

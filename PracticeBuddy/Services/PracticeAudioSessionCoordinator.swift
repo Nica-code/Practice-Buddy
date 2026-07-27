@@ -10,6 +10,7 @@ enum PracticeAudioOwner: String, Codable, Hashable {
     case rhythm
     case intonation
     case runThrough
+    case duel
 }
 
 struct PracticeAudioRequirement: OptionSet, Hashable {
@@ -55,6 +56,7 @@ extension PracticeAudioOwner {
         case .rhythm: "Rhythm Accuracy"
         case .intonation: "Intonation"
         case .runThrough: "Run-through"
+        case .duel: "Duel recording"
         }
     }
 }
