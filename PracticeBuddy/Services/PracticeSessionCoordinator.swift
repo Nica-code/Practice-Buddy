@@ -23,6 +23,8 @@ final class PracticeSessionCoordinator: ObservableObject {
     @Published private(set) var activeToolID: PracticeToolID?
     @Published private(set) var toolLaunchContext: PracticeToolLaunchContext?
     @Published private(set) var latestToolResult: PracticeToolResult?
+    @Published private(set) var attachedToolResults: [PracticeToolResult] = []
+    @Published private(set) var nestedToolID: PracticeToolID?
     @Published private(set) var toolErrorMessage: String?
     @Published private(set) var pendingQuestIDs: Set<String> = []
     @Published private(set) var toolActivityState: PracticeActivityState?
@@ -119,6 +121,8 @@ final class PracticeSessionCoordinator: ObservableObject {
         static let activeToolID = "practiquest.practice.activeToolID"
         static let toolLaunchContext = "practiquest.practice.toolLaunchContext"
         static let latestToolResult = "practiquest.practice.latestToolResult"
+        static let attachedToolResults = "practiquest.practice.attachedToolResults"
+        static let nestedToolID = "practiquest.practice.nestedToolID"
         static let pendingQuestIDs = "practiquest.practice.pendingQuestIDs"
         static let toolActivityState = "practiquest.practice.toolActivityState"
     }
@@ -166,6 +170,15 @@ final class PracticeSessionCoordinator: ObservableObject {
                 PracticeToolResult.self,
                 from: data
             )
+        }
+        if let data = defaults.data(forKey: Key.attachedToolResults) {
+            attachedToolResults = (try? JSONDecoder().decode(
+                [PracticeToolResult].self,
+                from: data
+            )) ?? []
+        }
+        if let rawNestedToolID = defaults.string(forKey: Key.nestedToolID) {
+            nestedToolID = PracticeToolID(rawValue: rawNestedToolID)
         }
         if let values = defaults.stringArray(forKey: Key.pendingQuestIDs) {
             pendingQuestIDs = Set(values.filter { !$0.isEmpty })
@@ -459,6 +472,8 @@ final class PracticeSessionCoordinator: ObservableObject {
         activeToolID = toolID
         toolLaunchContext = toolContext
         latestToolResult = nil
+        attachedToolResults = []
+        nestedToolID = nil
         toolErrorMessage = nil
         toolActivityState = PracticeActivityState(
             sessionID: sessionID,
@@ -561,10 +576,53 @@ final class PracticeSessionCoordinator: ObservableObject {
         persistActivityIdentity()
     }
 
+    /// Adds a contextual or nested tool result to the parent practice without
+    /// replacing the parent tool's own result or ending its timer.
+    func attachCompletedToolResult(_ result: PracticeToolResult) {
+        guard result.sessionID == activeSessionID else {
+            reportToolError("This result belongs to a different practice session.")
+            return
+        }
+        attachedToolResults.removeAll { $0.id == result.id }
+        attachedToolResults.append(result)
+        persistActivityIdentity()
+    }
+
+    @discardableResult
+    func beginNestedTool(_ toolID: PracticeToolID) -> PracticeToolLaunchContext? {
+        guard activeToolID == .planExecuteReflect else {
+            reportToolError("Nested tools are available while executing a guided plan.")
+            return nil
+        }
+        guard nestedToolID == nil || nestedToolID == toolID else {
+            reportToolError(
+                "\(nestedToolID?.title ?? "Another tool") is already open. Close it before starting \(toolID.title)."
+            )
+            return nil
+        }
+        nestedToolID = toolID
+        persistActivityIdentity()
+        return PracticeToolLaunchContext(
+            toolID: toolID,
+            source: .activeSession,
+            parentSessionID: activeSessionID,
+            questID: toolLaunchContext?.questID,
+            smartCoachPlanID: toolLaunchContext?.smartCoachPlanID
+        )
+    }
+
+    func endNestedTool(_ toolID: PracticeToolID) {
+        guard nestedToolID == toolID else { return }
+        audioSession.releaseCurrentOwner()
+        nestedToolID = nil
+        persistActivityIdentity()
+    }
+
     func detachTool() {
         audioSession.releaseCurrentOwner()
         activeToolID = nil
         toolLaunchContext = nil
+        nestedToolID = nil
         toolErrorMessage = nil
         toolActivityState = nil
         persistActivityIdentity()
@@ -735,6 +793,8 @@ final class PracticeSessionCoordinator: ObservableObject {
         activeToolID = nil
         toolLaunchContext = nil
         latestToolResult = nil
+        attachedToolResults = []
+        nestedToolID = nil
         toolErrorMessage = nil
         pendingQuestIDs = []
         toolActivityState = nil
@@ -899,6 +959,16 @@ final class PracticeSessionCoordinator: ObservableObject {
             defaults.set(data, forKey: Key.latestToolResult)
         } else {
             defaults.removeObject(forKey: Key.latestToolResult)
+        }
+        if attachedToolResults.isEmpty {
+            defaults.removeObject(forKey: Key.attachedToolResults)
+        } else if let data = try? JSONEncoder().encode(attachedToolResults) {
+            defaults.set(data, forKey: Key.attachedToolResults)
+        }
+        if let nestedToolID {
+            defaults.set(nestedToolID.rawValue, forKey: Key.nestedToolID)
+        } else {
+            defaults.removeObject(forKey: Key.nestedToolID)
         }
         defaults.set(pendingQuestIDs.sorted(), forKey: Key.pendingQuestIDs)
         if let toolActivityState,

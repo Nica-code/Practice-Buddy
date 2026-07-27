@@ -1,517 +1,874 @@
 import SwiftUI
-import SwiftData
 import Combine
-import FirebaseFirestore
 
 struct PlanExecuteReflectView: View {
-    private enum Stage {
+    private enum ScreenPhase {
         case plan
         case execute
         case reflect
         case done
     }
 
-    private enum Goal: String, CaseIterable, Identifiable {
-        case intonation
-        case rhythm
-        case memory
-        case bowControl
-        case shifts
-        case tone
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .intonation: return "Intonation"
-            case .rhythm: return "Rhythm"
-            case .memory: return "Memory"
-            case .bowControl: return "Bow Control"
-            case .shifts: return "Shifts"
-            case .tone: return "Tone"
-            }
-        }
-    }
-
-    private enum Block: String, CaseIterable, Identifiable {
-        case warmup
-        case technique
-        case repertoire
-        case runThrough
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .warmup: return "Warm-up"
-            case .technique: return "Technique"
-            case .repertoire: return "Repertoire"
-            case .runThrough: return "Run-through"
-            }
-        }
-    }
-
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.studioQuestQAToolState) private var qaToolState
+    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @EnvironmentObject private var store: SessionStore
-    @EnvironmentObject private var purchaseManager: PurchaseManager
-    @AppStorage("pb.tab.selection") private var selectedTab: Int = 0
-    @State private var stage: Stage = .plan
-    @State private var targetMinutes: Int = 30
-    @State private var selectedGoals: Set<String> = [Goal.intonation.rawValue, Goal.rhythm.rawValue]
-    @State private var selectedBlocks: Set<String> = Set(Block.allCases.map(\.rawValue))
 
-    @State private var blockOrder: [Block] = []
-    @State private var blockDurations: [Block: Int] = [:]
-    @State private var blockIndex: Int = 0
-    @State private var blockRemainingSeconds: Int = 0
-    @State private var totalElapsedSeconds: Int = 0
-    @State private var isRunning: Bool = false
-    @State private var timerCancellable: AnyCancellable?
-
-    @State private var reflectionWins: String = ""
-    @State private var reflectionFix: String = ""
-    @State private var reflectionNext: String = ""
-    @State private var selfRating: Int = 3
-    @State private var saveToSessionHistory: Bool = true
+    @State private var selectedGoals: Set<GuidedPracticeGoal> = [.intonation, .rhythm]
+    @State private var blocks: [GuidedPracticeBlock] = [
+        GuidedPracticeBlock(kind: .warmUp, durationSeconds: 5 * 60),
+        GuidedPracticeBlock(kind: .technique, durationSeconds: 10 * 60),
+        GuidedPracticeBlock(kind: .repertoire, durationSeconds: 10 * 60),
+        GuidedPracticeBlock(kind: .runThrough, durationSeconds: 5 * 60)
+    ]
+    @State private var enabledBlockIDs: Set<UUID> = []
+    @State private var runState: GuidedPracticeRunState?
+    @State private var reflectionWins = ""
+    @State private var reflectionFix = ""
+    @State private var reflectionNext = ""
+    @State private var selfRating = 3
     @State private var statusMessage: String?
+    @State private var statusKind = StudioQuestInlineStatus.Kind.information
+    @State private var saveFailed = false
+    @State private var didFinish = false
+    @State private var didApplyQAState = false
+    @State private var now = Date()
+    @State private var replaceAudioConfirmationPresented = false
+    @State private var requestedAudioOwner: PracticeAudioOwner?
 
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-    private var currentBlock: Block? { blockOrder.indices.contains(blockIndex) ? blockOrder[blockIndex] : nil }
+    private let refresh = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    var body: some View {
-        Form {
-            switch stage {
-            case .plan:
-                planSection
-            case .execute:
-                executeSection
-            case .reflect:
-                reflectSection
-            case .done:
-                doneSection
-            }
-
-            if let statusMessage, !statusMessage.isEmpty {
-                Section {
-                    Text(LocalizedStringKey(statusMessage))
-                        .font(type.footnote)
-                        .foregroundStyle(palette.textSecondary)
-                }
-                .listRowBackground(palette.surface)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            stopTimer()
+    private var screenPhase: ScreenPhase {
+        if didFinish { return .done }
+        switch runState?.phase {
+        case .running, .paused: return .execute
+        case .reflect: return .reflect
+        case .completed: return .done
+        case .plan, .none: return .plan
         }
     }
 
-    private var planSection: some View {
-        Group {
-            Section("Plan") {
-                Stepper(L10n.f("Target time: %@ min", "\(targetMinutes)"), value: $targetMinutes, in: 10...180, step: 5)
-                    .font(type.body)
-
-                Text("Choose 2-4 goals")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Goal.allCases) { goal in
-                        PlanExecuteReflectChipView(
-                            title: goal.title,
-                            isSelected: selectedGoals.contains(goal.rawValue),
-                            palette: palette,
-                            type: type
-                        ) {
-                            if selectedGoals.contains(goal.rawValue) {
-                                selectedGoals.remove(goal.rawValue)
-                            } else if selectedGoals.count < 4 {
-                                selectedGoals.insert(goal.rawValue)
-                            }
-                        }
-                    }
-                }
-
-                Text("Structure")
-                    .font(type.footnote)
-                    .foregroundStyle(palette.textSecondary)
-
-                ForEach(Block.allCases) { block in
-                    Toggle(LocalizedStringKey(block.title), isOn: Binding(
-                        get: { selectedBlocks.contains(block.rawValue) },
-                        set: { enabled in
-                            if enabled {
-                                selectedBlocks.insert(block.rawValue)
-                            } else {
-                                selectedBlocks.remove(block.rawValue)
-                            }
-                        }
-                    ))
-                    .font(type.body)
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section {
-                Button("Start Execute") {
-                    beginExecute()
-                }
-                .buttonStyle(.borderedProminent)
-                .font(type.button)
-                .disabled(!planIsValid)
-            }
-            .listRowBackground(palette.surface)
-        }
+    private var selectedBlocks: [GuidedPracticeBlock] {
+        blocks.filter { enabledBlockIDs.contains($0.id) }
     }
 
-    private var executeSection: some View {
-        Section("Execute") {
-            HStack {
-                Text("Current block")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(LocalizedStringKey(currentBlock?.title ?? "Done"))
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Remaining")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(DurationFormatter.string(from: blockRemainingSeconds))
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack {
-                Text("Elapsed")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-                Spacer()
-                Text(DurationFormatter.string(from: totalElapsedSeconds))
-                    .font(type.number)
-                    .foregroundStyle(palette.textSecondary)
-                    .monospacedDigit()
-            }
-
-            HStack(spacing: 10) {
-                Button(isRunning ? "Pause" : "Start") {
-                    isRunning ? pauseExecute() : startExecute()
-                }
-                .buttonStyle(.borderedProminent)
-                .font(type.button)
-
-                Button("Next Block") {
-                    skipToNextBlock()
-                }
-                .buttonStyle(.bordered)
-                .font(type.button)
-                .disabled(currentBlock == nil)
-            }
-
-            Divider().padding(.vertical, 6)
-
-            Text("Launch tools")
-                .font(type.footnote)
-                .foregroundStyle(palette.textSecondary)
-
-            NavigationLink {
-                PBLazyView(PracticeToolsQuickPanelView())
-            } label: {
-                Label("Metronome + Tuner", systemImage: "metronome")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-            }
-
-            NavigationLink {
-                PBLazyView(SmartLoopTimerView())
-            } label: {
-                Label("Smart Loop Timer", systemImage: "repeat")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-            }
-
-            NavigationLink {
-                PBLazyView(RunThroughModeView())
-            } label: {
-                Label("Run-through Mode", systemImage: "record.circle")
-                    .font(type.body)
-                    .foregroundStyle(palette.textPrimary)
-            }
-
-            Button("Move To Reflect") {
-                moveToReflect()
-            }
-            .buttonStyle(.bordered)
-            .font(type.button)
-        }
-        .listRowBackground(palette.surface)
+    private var targetMinutes: Int {
+        max(1, selectedBlocks.reduce(0) { $0 + $1.durationSeconds } / 60)
     }
 
-    private var reflectSection: some View {
-        Group {
-            Section("Reflect") {
-                TextField("What improved today?", text: $reflectionWins, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(type.body)
-                TextField("What still needs work?", text: $reflectionFix, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(type.body)
-                TextField("What is your next action?", text: $reflectionNext, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(type.body)
-
-                Stepper(L10n.f("Self rating: %@/5", "\(selfRating)"), value: $selfRating, in: 1...5)
-                    .font(type.body)
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Save") {
-                Toggle("Also save into session history", isOn: $saveToSessionHistory)
-                    .font(type.body)
-
-                Button("Save Reflection") {
-                    saveReflection()
-                }
-                .buttonStyle(.borderedProminent)
-                .font(type.button)
-            }
-            .listRowBackground(palette.surface)
-        }
-    }
-
-    private var doneSection: some View {
-        Section {
-            Text("Plan saved.")
-                .font(type.body)
-                .foregroundStyle(palette.textPrimary)
-            Button("Start New Plan") {
-                resetForNewPlan()
-            }
-            .buttonStyle(.borderedProminent)
-            .font(type.button)
-        }
-        .listRowBackground(palette.surface)
+    private var isContextual: Bool {
+        coordinator.toolLaunchContext?.parentSessionID != nil
     }
 
     private var planIsValid: Bool {
-        selectedGoals.count >= 2 && selectedGoals.count <= 4 && !selectedBlocks.isEmpty
+        (2...4).contains(selectedGoals.count) && !selectedBlocks.isEmpty
     }
 
-    private func beginExecute() {
-        let blocks = Block.allCases.filter { selectedBlocks.contains($0.rawValue) }
-        guard !blocks.isEmpty else { return }
-        blockOrder = blocks
-        blockDurations = allocateDurations(totalMinutes: targetMinutes, blocks: blocks)
-        blockIndex = 0
-        blockRemainingSeconds = blockDurations[blocks[0]] ?? 0
-        totalElapsedSeconds = 0
-        isRunning = false
-        stage = .execute
-        statusMessage = nil
-    }
-
-    private func allocateDurations(totalMinutes: Int, blocks: [Block]) -> [Block: Int] {
-        guard !blocks.isEmpty else { return [:] }
-        let totalSeconds = max(1, totalMinutes) * 60
-        let base = totalSeconds / blocks.count
-        var remainder = totalSeconds % blocks.count
-        var output: [Block: Int] = [:]
-        for block in blocks {
-            let extra = remainder > 0 ? 1 : 0
-            output[block] = base + extra
-            remainder = max(0, remainder - 1)
-        }
-        return output
-    }
-
-    private func startExecute() {
-        guard currentBlock != nil else { return }
-        stopTimer()
-        isRunning = true
-        timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
-            .autoconnect()
-            .sink { _ in
-                tickExecute()
+    var body: some View {
+        StudioQuestToolPage(
+            title: "Plan · Execute · Reflect",
+            subtitle: "Give each part of your practice a purpose, then leave with a clear next step.",
+            systemImage: "checklist"
+        ) {
+            switch screenPhase {
+            case .plan:
+                planContent
+            case .execute:
+                executeContent
+            case .reflect:
+                reflectionContent
+            case .done:
+                doneContent
             }
-    }
 
-    private func pauseExecute() {
-        isRunning = false
-        stopTimer()
-    }
-
-    private func tickExecute() {
-        guard isRunning else { return }
-        totalElapsedSeconds += 1
-        blockRemainingSeconds -= 1
-        if blockRemainingSeconds <= 0 {
-            skipToNextBlock()
+            if let statusMessage {
+                StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                    .accessibilityIdentifier("guided.status")
+            }
+        }
+        .task {
+            if enabledBlockIDs.isEmpty {
+                enabledBlockIDs = Set(blocks.map(\.id))
+            }
+            restoreIfNeeded()
+            applyQAStateIfNeeded()
+        }
+        .onReceive(refresh) { date in
+            now = date
+            advanceExecution(to: date)
+        }
+        .onChange(of: scenePhase) { _, next in
+            if next == .active {
+                advanceExecution(to: .now)
+            } else {
+                persistRecovery()
+            }
+        }
+        .onDisappear {
+            preserveOnExit()
+        }
+        .confirmationDialog(
+            "Replace \(coordinator.audioSession.owner?.displayName ?? "the current audio tool")?",
+            isPresented: $replaceAudioConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Replace") {
+                guard let requestedAudioOwner else { return }
+                Task { await toggleAudio(requestedAudioOwner, replacing: true) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("PractiQuest allows one audio utility at a time so timing and recordings stay reliable.")
         }
     }
 
-    private func skipToNextBlock() {
-        guard currentBlock != nil else { return }
-        if blockIndex + 1 >= blockOrder.count {
-            moveToReflect()
+    private var planContent: some View {
+        VStack(spacing: StudioQuestTokens.Spacing.md) {
+            StudioQuestToolSetupPanel(title: "Intention") {
+                Text("Choose 2–4 goals")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                StudioQuestFlowLayout {
+                    ForEach(GuidedPracticeGoal.allCases) { goal in
+                        StudioQuestChoiceChip(
+                            title: LocalizedStringKey(goal.title),
+                            isSelected: selectedGoals.contains(goal)
+                        ) {
+                            toggleGoal(goal)
+                        }
+                    }
+                }
+            }
+
+            StudioQuestToolSetupPanel(title: "Practice blocks") {
+                Text("\(targetMinutes) min planned")
+                    .font(StudioQuestTokens.Typography.cardTitle)
+                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                    .monospacedDigit()
+
+                ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
+                    blockSetupRow(block, index: index)
+                }
+            }
+
+            Button {
+                beginExecution()
+            } label: {
+                Label("Start guided practice", systemImage: "play.fill")
+            }
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
+            .disabled(!planIsValid)
+            .accessibilityIdentifier("guided.start")
+        }
+    }
+
+    private func blockSetupRow(
+        _ block: GuidedPracticeBlock,
+        index: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.sm) {
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                Toggle(
+                    isOn: Binding(
+                        get: { enabledBlockIDs.contains(block.id) },
+                        set: { enabled in
+                            if enabled {
+                                enabledBlockIDs.insert(block.id)
+                            } else {
+                                enabledBlockIDs.remove(block.id)
+                            }
+                        }
+                    )
+                ) {
+                    Label(block.kind.title, systemImage: block.kind.systemImage)
+                        .font(.subheadline.weight(.semibold))
+                }
+
+                HStack(spacing: 2) {
+                    Button {
+                        moveBlock(from: index, offset: -1)
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == 0)
+                    .accessibilityLabel("Move \(block.kind.title) earlier")
+
+                    Button {
+                        moveBlock(from: index, offset: 1)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(index == blocks.count - 1)
+                    .accessibilityLabel("Move \(block.kind.title) later")
+                }
+            }
+
+            if enabledBlockIDs.contains(block.id) {
+                HStack {
+                    Text("Duration")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(block.durationSeconds / 60) min")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { blocks[index].durationSeconds / 60 },
+                            set: { blocks[index].durationSeconds = max(1, $0) * 60 }
+                        ),
+                        in: 1...60,
+                        step: 1
+                    )
+                    .labelsHidden()
+                    .accessibilityLabel("\(block.kind.title) duration")
+                    .accessibilityValue("\(block.durationSeconds / 60) minutes")
+                }
+            }
+        }
+        .padding(.vertical, StudioQuestTokens.Spacing.xs)
+    }
+
+    private var executeContent: some View {
+        VStack(spacing: StudioQuestTokens.Spacing.md) {
+            if let state = runState {
+                StudioQuestToolLivePanel(
+                    eyebrow: state.phase == .paused ? "Paused" : "Now"
+                ) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(state.currentBlock?.kind.title ?? "Ready to reflect")
+                            .font(StudioQuestTokens.Typography.sectionTitle)
+                        Spacer()
+                        Text(DurationFormatter.string(from: state.currentBlockRemainingSeconds(at: now)))
+                            .font(StudioQuestTokens.Typography.timer)
+                            .monospacedDigit()
+                    }
+
+                    StudioQuestProgressVisualization(
+                        progress: state.progress(at: now),
+                        accessibilityLabel: "Guided practice progress"
+                    )
+
+                    HStack(spacing: StudioQuestTokens.Spacing.md) {
+                        StudioQuestMetric(
+                            title: "Elapsed",
+                            value: DurationFormatter.string(from: state.totalElapsedSeconds(at: now))
+                        )
+                        StudioQuestMetric(
+                            title: "Block",
+                            value: "\(min(state.currentBlockIndex + 1, state.blocks.count)) / \(state.blocks.count)",
+                            tint: StudioQuestTokens.ColorRole.violet
+                        )
+                    }
+
+                    HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                        Button {
+                            toggleExecution()
+                        } label: {
+                            Label(
+                                state.phase == .running ? "Pause" : "Resume",
+                                systemImage: state.phase == .running ? "pause.fill" : "play.fill"
+                            )
+                        }
+                        .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .accessibilityIdentifier("guided.pause")
+
+                        Button {
+                            skipBlock()
+                        } label: {
+                            Label("Next block", systemImage: "forward.end.fill")
+                        }
+                        .buttonStyle(StudioQuestPrimaryButtonStyle())
+                        .accessibilityIdentifier("guided.next")
+                    }
+                }
+
+                executionMap(state)
+                contextualTools
+
+                Button {
+                    moveToReflection()
+                } label: {
+                    Label("Reflect now", systemImage: "text.bubble")
+                }
+                .buttonStyle(StudioQuestSecondaryButtonStyle())
+                .disabled(!state.hasMeaningfulExecution)
+                .accessibilityIdentifier("guided.reflect")
+            }
+        }
+    }
+
+    private func executionMap(_ state: GuidedPracticeRunState) -> some View {
+        StudioQuestToolSetupPanel(title: "Session map") {
+            ForEach(Array(state.blocks.enumerated()), id: \.element.id) { index, block in
+                HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                    Image(
+                        systemName: index < state.currentBlockIndex
+                            ? "checkmark.circle.fill"
+                            : (index == state.currentBlockIndex ? "circle.inset.filled" : "circle")
+                    )
+                    .foregroundStyle(
+                        index <= state.currentBlockIndex
+                            ? StudioQuestTokens.ColorRole.cobalt
+                            : Color.secondary
+                    )
+                    Text(block.kind.title)
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(block.durationSeconds / 60) min")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private var contextualTools: some View {
+        StudioQuestToolSetupPanel(title: "Practice tools") {
+            Text("These tools share this session—no second timer starts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                Button {
+                    requestAudio(.metronome)
+                } label: {
+                    Label(
+                        coordinator.metronome.isRunning ? "Stop click" : "Metronome",
+                        systemImage: "metronome"
+                    )
+                }
+                .buttonStyle(StudioQuestSecondaryButtonStyle())
+
+                Button {
+                    requestAudio(.tuner)
+                } label: {
+                    Label(
+                        coordinator.tuner.isListening ? "Stop tuner" : "Tuner",
+                        systemImage: "tuningfork"
+                    )
+                }
+                .buttonStyle(StudioQuestSecondaryButtonStyle())
+            }
+
+            NavigationLink {
+                SmartLoopTimerView(nestedWithinPlan: true)
+            } label: {
+                HStack(spacing: StudioQuestTokens.Spacing.sm) {
+                    Image(systemName: "repeat")
+                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        .frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Smart Loop")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Add loop analytics to this plan")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var reflectionContent: some View {
+        VStack(spacing: StudioQuestTokens.Spacing.md) {
+            StudioQuestToolResultPanel {
+                Text("Turn the session into a useful next step.")
+                    .font(StudioQuestTokens.Typography.sectionTitle)
+
+                reflectionField(
+                    title: "What improved?",
+                    placeholder: "Name the clearest win",
+                    text: $reflectionWins
+                )
+                reflectionField(
+                    title: "What still needs work?",
+                    placeholder: "Be specific and kind",
+                    text: $reflectionFix
+                )
+                reflectionField(
+                    title: "What comes next?",
+                    placeholder: "Choose one concrete action",
+                    text: $reflectionNext
+                )
+
+                StudioQuestEyebrow("Self rating")
+                HStack(spacing: StudioQuestTokens.Spacing.xs) {
+                    ForEach(1...5, id: \.self) { rating in
+                        Button {
+                            selfRating = rating
+                        } label: {
+                            Text("\(rating)")
+                                .font(.headline.monospacedDigit())
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundStyle(selfRating == rating ? .white : .primary)
+                                .background(
+                                    selfRating == rating
+                                        ? StudioQuestTokens.ColorRole.cobalt
+                                        : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(rating) out of 5")
+                        .accessibilityAddTraits(selfRating == rating ? .isSelected : [])
+                    }
+                }
+            }
+
+            Button {
+                saveReflection()
+            } label: {
+                Label(saveFailed ? "Try saving again" : "Save guided practice", systemImage: "checkmark")
+            }
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
+            .accessibilityIdentifier("guided.save")
+        }
+    }
+
+    private func reflectionField(
+        title: LocalizedStringKey,
+        placeholder: LocalizedStringKey,
+        text: Binding<String>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.xs) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            TextField(placeholder, text: text, axis: .vertical)
+                .lineLimit(2...5)
+                .textFieldStyle(.plain)
+                .padding(StudioQuestTokens.Spacing.sm)
+                .background(
+                    StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+        }
+    }
+
+    private var doneContent: some View {
+        VStack(spacing: StudioQuestTokens.Spacing.md) {
+            StudioQuestToolResultPanel {
+                Label("Guided practice saved", systemImage: "checkmark.seal.fill")
+                    .font(StudioQuestTokens.Typography.sectionTitle)
+                    .foregroundStyle(StudioQuestTokens.ColorRole.mint)
+                if let state = runState {
+                    HStack(spacing: StudioQuestTokens.Spacing.md) {
+                        StudioQuestMetric(
+                            title: "Practiced",
+                            value: DurationFormatter.string(from: state.totalElapsedSeconds(at: now))
+                        )
+                        StudioQuestMetric(
+                            title: "Rating",
+                            value: "\(selfRating) / 5",
+                            tint: StudioQuestTokens.ColorRole.violet
+                        )
+                    }
+                }
+            }
+
+            Button("Create another plan") {
+                resetForNewPlan()
+            }
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
+            .accessibilityIdentifier("guided.done")
+        }
+    }
+
+    private func toggleGoal(_ goal: GuidedPracticeGoal) {
+        if selectedGoals.contains(goal) {
+            guard selectedGoals.count > 2 else {
+                showStatus("Choose at least two goals.", kind: .warning)
+                return
+            }
+            selectedGoals.remove(goal)
+        } else if selectedGoals.count < 4 {
+            selectedGoals.insert(goal)
+        } else {
+            showStatus("Choose up to four goals.", kind: .warning)
+        }
+    }
+
+    private func moveBlock(from index: Int, offset: Int) {
+        let destination = index + offset
+        guard blocks.indices.contains(index), blocks.indices.contains(destination) else { return }
+        blocks.swapAt(index, destination)
+    }
+
+    private func beginExecution() {
+        guard planIsValid else { return }
+        if let active = coordinator.activeToolID, active != .planExecuteReflect {
+            showStatus(
+                "Finish or close \(active.title) before starting a guided plan.",
+                kind: .warning
+            )
             return
         }
-        blockIndex += 1
-        if let next = currentBlock {
-            blockRemainingSeconds = blockDurations[next] ?? 0
+
+        if coordinator.activeToolID != .planExecuteReflect {
+            if coordinator.hasActivePractice {
+                guard coordinator.attachTool(.planExecuteReflect) != nil else { return }
+            } else {
+                guard coordinator.beginFocusedTool(
+                    .planExecuteReflect,
+                    title: "Guided practice",
+                    durationMinutes: targetMinutes,
+                    source: .library
+                ) else { return }
+            }
+        }
+
+        var state = GuidedPracticeRunState(
+            goals: Array(selectedGoals),
+            blocks: selectedBlocks
+        )
+        _ = state.start()
+        runState = state
+        coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !coordinator.isRunning {
+            coordinator.resume()
+        }
+        showStatus("Guided practice started.", kind: .information)
+    }
+
+    private func toggleExecution() {
+        guard var state = runState else { return }
+        if state.phase == .running {
+            state.pause()
+            runState = state
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            coordinator.pause()
+            stopSharedAudio()
+        } else if state.phase == .paused {
+            _ = state.resume()
+            runState = state
+            coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            coordinator.resume()
         }
     }
 
-    private func moveToReflect() {
-        pauseExecute()
-        stage = .reflect
+    private func advanceExecution(to date: Date) {
+        guard var state = runState, state.phase == .running else { return }
+        let events = state.advance(to: date)
+        runState = state
+        guard !events.isEmpty else { return }
+        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        if state.phase == .reflect {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            coordinator.pause()
+            stopSharedAudio()
+        }
     }
 
-    private func stopTimer() {
-        timerCancellable?.cancel()
-        timerCancellable = nil
+    private func skipBlock() {
+        guard var state = runState else { return }
+        _ = state.skipCurrentBlock(at: .now)
+        runState = state
+        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        if state.phase == .reflect {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            coordinator.pause()
+            stopSharedAudio()
+        }
+    }
+
+    private func moveToReflection() {
+        guard var state = runState, state.hasMeaningfulExecution else {
+            showStatus("Practice for at least 10 seconds before reflecting.", kind: .warning)
+            return
+        }
+        state.moveToReflect()
+        runState = state
+        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        coordinator.pause()
+        stopSharedAudio()
+    }
+
+    private func requestAudio(_ owner: PracticeAudioOwner) {
+        if coordinator.audioSession.owner == owner {
+            stopSharedAudio()
+            return
+        }
+        if coordinator.audioSession.owner != nil {
+            requestedAudioOwner = owner
+            replaceAudioConfirmationPresented = true
+        } else {
+            Task { await toggleAudio(owner, replacing: false) }
+        }
+    }
+
+    private func toggleAudio(
+        _ owner: PracticeAudioOwner,
+        replacing: Bool
+    ) async {
+        if replacing {
+            stopSharedAudio()
+        }
+        do {
+            try await coordinator.audioSession.claim(
+                owner,
+                requirements: owner == .tuner ? [.microphone] : [.playback]
+            )
+        } catch {
+            showStatus("That audio tool is busy. Close it and try again.", kind: .warning)
+            return
+        }
+        switch owner {
+        case .metronome:
+            coordinator.tuner.stopListening()
+            coordinator.tuner.stopReferenceTone()
+            coordinator.metronome.setBPM(80)
+            coordinator.metronome.start(
+                beatsPerBar: 4,
+                subdivision: .none,
+                soundStyle: .click
+            )
+        case .tuner:
+            coordinator.metronome.stop()
+            coordinator.tuner.startListening()
+        default:
+            coordinator.audioSession.release(owner)
+        }
+    }
+
+    private func stopSharedAudio() {
+        coordinator.metronome.stop()
+        coordinator.tuner.stopListening()
+        coordinator.tuner.stopReferenceTone()
+        coordinator.audioSession.releaseCurrentOwner()
     }
 
     private func saveReflection() {
-        let goalsText = selectedGoals.sorted().joined(separator: ",")
-        let blocksText = blockOrder.map(\.rawValue).joined(separator: ",")
-
-        let log = PracticePlanLogModel(
-            targetMinutes: targetMinutes,
-            actualSeconds: totalElapsedSeconds,
-            goalsRaw: goalsText,
-            blocksRaw: blocksText,
-            reflectionWins: reflectionWins.trimmingCharacters(in: .whitespacesAndNewlines),
-            reflectionFix: reflectionFix.trimmingCharacters(in: .whitespacesAndNewlines),
-            reflectionNext: reflectionNext.trimmingCharacters(in: .whitespacesAndNewlines),
-            selfRating: selfRating
-        )
-        modelContext.insert(log)
-        try? modelContext.save()
-
-        if saveToSessionHistory {
-            let notes = """
-            Guided Practice
-            Goals: \(selectedGoals.sorted().joined(separator: ", "))
-            Blocks: \(blockOrder.map(\.title).joined(separator: " → "))
-            Rating: \(selfRating)/5
-
-            Improved:
-            \(reflectionWins)
-
-            Needs work:
-            \(reflectionFix)
-
-            Next action:
-            \(reflectionNext)
-            """
-            store.addSession(
-                date: Date(),
-                durationSeconds: max(1, totalElapsedSeconds),
-                notes: notes,
-                noteTitle: "Guided Practice",
-                noteFocus: selectedGoals.sorted().joined(separator: ", ")
-            )
+        guard let state = runState, state.hasMeaningfulExecution else {
+            showStatus("Practice for at least 10 seconds before saving.", kind: .warning)
+            return
         }
 
-        stage = .done
-        statusMessage = "Guided practice saved."
+        let cleanWins = reflectionWins.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFix = reflectionFix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNext = reflectionNext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resultPayload = GuidedPracticeResultPayload(
+            completedAt: .now,
+            targetMinutes: max(1, state.targetSeconds / 60),
+            actualSeconds: state.totalElapsedSeconds(at: now),
+            goals: state.goals,
+            blocks: state.blocks,
+            reflectionWins: cleanWins,
+            reflectionFix: cleanFix,
+            reflectionNext: cleanNext,
+            selfRating: selfRating,
+            parentSessionID: coordinator.toolLaunchContext?.parentSessionID,
+            launchSource: coordinator.toolLaunchContext?.source ?? .legacy,
+            toolVersion: 2
+        )
+        guard let data = try? JSONEncoder().encode(resultPayload),
+              let json = String(data: data, encoding: .utf8) else {
+            showStatus("The guided result could not be prepared. Please try again.", kind: .error)
+            return
+        }
+
+        let result = PracticeToolResult(
+            toolID: .planExecuteReflect,
+            sessionID: coordinator.activeSessionID,
+            durationSeconds: resultPayload.actualSeconds,
+            metrics: [
+                "blocks": Double(state.blocks.count),
+                "rating": Double(selfRating),
+                "targetMinutes": Double(resultPayload.targetMinutes)
+            ],
+            payloadJSON: json
+        )
+
+        if isContextual {
+            coordinator.attachCompletedToolResult(result)
+            coordinator.detachTool()
+            didFinish = true
+            saveFailed = false
+            showStatus(
+                "Guided reflection added to your active session.",
+                kind: .success
+            )
+            return
+        }
+
+        coordinator.completeTool(result)
+        let notes = [
+            cleanWins.isEmpty ? nil : "### What improved\n\(cleanWins)",
+            cleanFix.isEmpty ? nil : "### What needs work\n\(cleanFix)",
+            cleanNext.isEmpty ? nil : "### Next action\n\(cleanNext)"
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n\n")
+
+        let didSave = store.savePracticeCompletion(
+            PracticeSavePayload(
+                sessionID: coordinator.activeSessionID,
+                snapshot: coordinator.snapshot,
+                notes: notes,
+                noteTitle: "Guided Practice",
+                noteFocus: state.goals.map(\.title).joined(separator: ", "),
+                toolResult: result,
+                attachedToolResults: coordinator.attachedToolResults
+            )
+        )
+
+        if didSave {
+            coordinator.completeAfterSave(savedSessionID: store.lastSavedSessionID)
+            didFinish = true
+            saveFailed = false
+            showStatus("Guided practice saved.", kind: .success)
+        } else {
+            saveFailed = true
+            showStatus(
+                "The session could not be saved. Your reflection is still here—try again.",
+                kind: .error
+            )
+        }
     }
 
     private func resetForNewPlan() {
-        stage = .plan
-        selectedGoals = [Goal.intonation.rawValue, Goal.rhythm.rawValue]
-        selectedBlocks = Set(Block.allCases.map(\.rawValue))
-        targetMinutes = 30
+        stopSharedAudio()
+        selectedGoals = [.intonation, .rhythm]
+        blocks = [
+            GuidedPracticeBlock(kind: .warmUp, durationSeconds: 5 * 60),
+            GuidedPracticeBlock(kind: .technique, durationSeconds: 10 * 60),
+            GuidedPracticeBlock(kind: .repertoire, durationSeconds: 10 * 60),
+            GuidedPracticeBlock(kind: .runThrough, durationSeconds: 5 * 60)
+        ]
+        enabledBlockIDs = Set(blocks.map(\.id))
+        runState = nil
         reflectionWins = ""
         reflectionFix = ""
         reflectionNext = ""
         selfRating = 3
-        totalElapsedSeconds = 0
-        blockOrder = []
-        blockDurations = [:]
-        blockIndex = 0
-        blockRemainingSeconds = 0
-        isRunning = false
+        saveFailed = false
+        didFinish = false
         statusMessage = nil
     }
 
-}
+    private func restoreIfNeeded() {
+        guard coordinator.activeToolID == .planExecuteReflect,
+              let json = coordinator.toolActivityState?.recoveryPayloadJSON,
+              let data = json.data(using: .utf8),
+              let restored = try? JSONDecoder().decode(
+                GuidedPracticeRunState.self,
+                from: data
+              ) else { return }
+        runState = restored
+        selectedGoals = Set(restored.goals)
+        blocks = restored.blocks
+        enabledBlockIDs = Set(restored.blocks.map(\.id))
+        advanceExecution(to: .now)
+        showStatus(
+            restored.phase == .paused
+                ? "Guided practice ready to resume."
+                : "Guided practice restored.",
+            kind: .information
+        )
+    }
 
-private struct PracticeToolsQuickPanelView: View {
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
-    @Environment(\.colorScheme) private var colorScheme
-    @StateObject private var metronome = MetronomeEngine()
-    @StateObject private var tuner = TunerEngine()
-    @State private var bpm: Int = 80
-    @State private var referenceHz: Int = 440
-
-    private var chrome: Color { theme.chromeBackground(for: colorScheme) }
-    private var palette: PBTheme.Palette { theme.resolvedPalette(for: colorScheme) }
-
-    var body: some View {
-        Form {
-            Section("Metronome") {
-                Stepper(L10n.f("Tempo: %@ BPM", "\(bpm)"), value: $bpm, in: 40...220)
-                    .font(type.body)
-                HStack(spacing: 10) {
-                    Button("Start") {
-                        metronome.setBPM(bpm)
-                        metronome.start(beatsPerBar: 4, subdivision: .none, soundStyle: (MetronomeEngine.SoundStyle(rawValue: JourneyProgressManager.preferredMetronomeSoundStyleRaw() ?? "click") ?? .click))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button("Stop") {
-                        metronome.stop()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            .listRowBackground(palette.surface)
-
-            Section("Tuner") {
-                Picker("Reference", selection: $referenceHz) {
-                    Text("A=440").tag(440)
-                    Text("A=442").tag(442)
-                    Text("A=415").tag(415)
-                }
-                .pickerStyle(.segmented)
-
-                HStack(spacing: 10) {
-                    Button(tuner.isReferenceTonePlaying ? "Stop A Tone" : "Play A Tone") {
-                        tuner.toggleReferenceTone(frequency: Double(referenceHz))
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button(tuner.isListening ? "Stop Tuner" : "Start Tuner") {
-                        tuner.toggleListening()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .listRowBackground(palette.surface)
+    private func preserveOnExit() {
+        guard !didFinish,
+              coordinator.activeToolID == .planExecuteReflect,
+              var state = runState else { return }
+        if state.phase == .running {
+            state.pause()
+            runState = state
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            coordinator.pause()
+        } else {
+            coordinator.updateToolRecoveryPayload(recoveryJSON(state))
         }
-        .scrollContentBackground(.hidden)
-        .modifier(StudioQuestToolChrome())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            metronome.stop()
-            tuner.stopListening()
-            tuner.stopReferenceTone()
+        stopSharedAudio()
+    }
+
+    private func persistRecovery() {
+        guard let state = runState else { return }
+        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+    }
+
+    private func recoveryJSON(_ state: GuidedPracticeRunState) -> String? {
+        guard let data = try? JSONEncoder().encode(state) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func showStatus(
+        _ message: String,
+        kind: StudioQuestInlineStatus.Kind
+    ) {
+        statusMessage = message
+        statusKind = kind
+    }
+
+    #if DEBUG
+    private func applyQAStateIfNeeded() {
+        guard !didApplyQAState, let qaToolState else { return }
+        didApplyQAState = true
+        guard qaToolState != .setup else { return }
+
+        blocks = [
+            GuidedPracticeBlock(kind: .warmUp, durationSeconds: 15),
+            GuidedPracticeBlock(kind: .technique, durationSeconds: 15)
+        ]
+        enabledBlockIDs = Set(blocks.map(\.id))
+        if coordinator.activeToolID == nil {
+            _ = coordinator.beginFocusedTool(
+                .planExecuteReflect,
+                title: "Guided practice",
+                durationMinutes: 1,
+                source: .qa
+            )
+        }
+        var fixture = GuidedPracticeRunState(
+            goals: [.intonation, .rhythm],
+            blocks: blocks
+        )
+        _ = fixture.start(at: .now.addingTimeInterval(-12))
+
+        switch qaToolState {
+        case .running:
+            break
+        case .paused, .recovered:
+            fixture.pause()
+        case .completed, .saveError:
+            fixture.moveToReflect()
+            reflectionWins = "The opening stayed centered."
+            reflectionNext = "Repeat at 76 BPM."
+        case .permissionDenied:
+            showStatus("No audio permission is needed for a guided plan.", kind: .information)
+        case .setup:
+            break
+        }
+
+        runState = fixture
+        if fixture.phase == .running {
+            coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(fixture))
+        } else {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(fixture))
+            coordinator.pause()
+        }
+        if qaToolState == .saveError {
+            saveFailed = true
+            showStatus(
+                "The session could not be saved. Your reflection is still here—try again.",
+                kind: .error
+            )
+        } else if qaToolState == .recovered {
+            showStatus("Guided practice ready to resume.", kind: .information)
         }
     }
+    #else
+    private func applyQAStateIfNeeded() {}
+    #endif
 }

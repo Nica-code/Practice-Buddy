@@ -179,10 +179,11 @@ final class SessionStore: ObservableObject {
         modelContext.insert(session)
 
         do {
-            try insertSpecializedResultIfNeeded(
-                payload.toolResult,
-                context: modelContext
-            )
+            var resultIDs = Set<UUID>()
+            for result in ([payload.toolResult].compactMap { $0 } + payload.attachedToolResults)
+            where resultIDs.insert(result.id).inserted {
+                try insertSpecializedResultIfNeeded(result, context: modelContext)
+            }
             try insertSpecializedResult?(modelContext)
             try modelContext.save()
             lastSavedSessionID = session.id
@@ -244,6 +245,31 @@ final class SessionStore: ObservableObject {
                     ladderCleanLoopsRequired: payload.settings.tempoLadderEnabled
                         ? payload.settings.cleanLoopsRequired
                         : 0,
+                    parentSessionID: payload.parentSessionID,
+                    launchSource: payload.launchSource.rawValue,
+                    toolVersion: payload.toolVersion
+                )
+            )
+        case .planExecuteReflect:
+            guard let data = result.payloadJSON.data(using: .utf8) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let payload = try JSONDecoder().decode(
+                GuidedPracticeResultPayload.self,
+                from: data
+            )
+            context.insert(
+                PracticePlanLogModel(
+                    id: result.id,
+                    date: payload.completedAt,
+                    targetMinutes: payload.targetMinutes,
+                    actualSeconds: payload.actualSeconds,
+                    goalsRaw: payload.goals.map(\.rawValue).joined(separator: ","),
+                    blocksRaw: payload.blocks.map(\.kind.rawValue).joined(separator: ","),
+                    reflectionWins: payload.reflectionWins,
+                    reflectionFix: payload.reflectionFix,
+                    reflectionNext: payload.reflectionNext,
+                    selfRating: payload.selfRating,
                     parentSessionID: payload.parentSessionID,
                     launchSource: payload.launchSource.rawValue,
                     toolVersion: payload.toolVersion

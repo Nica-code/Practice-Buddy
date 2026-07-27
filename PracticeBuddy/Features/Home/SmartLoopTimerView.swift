@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct SmartLoopTimerView: View {
+    let nestedWithinPlan: Bool
+
+    init(nestedWithinPlan: Bool = false) {
+        self.nestedWithinPlan = nestedWithinPlan
+    }
+
     enum LoopTag: String, CaseIterable, Identifiable {
         case intonation
         case rhythm
@@ -105,10 +111,11 @@ struct SmartLoopTimerView: View {
 
     private var ownsRuntime: Bool {
         coordinator.activeToolID == .smartLoop
+            || (nestedWithinPlan && coordinator.nestedToolID == .smartLoop)
     }
 
     private var isContextual: Bool {
-        coordinator.toolLaunchContext?.parentSessionID != nil
+        nestedWithinPlan || coordinator.toolLaunchContext?.parentSessionID != nil
     }
 
     private var decodedPresets: [LoopPreset] {
@@ -477,7 +484,11 @@ struct SmartLoopTimerView: View {
 
             if didFinish {
                 Button("Done") {
-                    coordinator.detachTool()
+                    if nestedWithinPlan {
+                        coordinator.endNestedTool(.smartLoop)
+                    } else {
+                        coordinator.detachTool()
+                    }
                     dismiss()
                 }
                 .buttonStyle(StudioQuestPrimaryButtonStyle())
@@ -522,7 +533,9 @@ struct SmartLoopTimerView: View {
     }
 
     private func requestStart() {
-        if let activeTool = coordinator.activeToolID, activeTool != .smartLoop {
+        if let activeTool = coordinator.activeToolID,
+           activeTool != .smartLoop,
+           !(nestedWithinPlan && activeTool == .planExecuteReflect) {
             showStatus(
                 "Finish or close \(activeTool.title) before starting Smart Loop.",
                 kind: .warning
@@ -544,7 +557,15 @@ struct SmartLoopTimerView: View {
         }
 
         if !ownsRuntime {
-            if coordinator.hasActivePractice {
+            if nestedWithinPlan {
+                guard coordinator.beginNestedTool(.smartLoop) != nil else {
+                    showStatus(
+                        coordinator.toolErrorMessage ?? "Smart Loop could not attach to this plan.",
+                        kind: .warning
+                    )
+                    return
+                }
+            } else if coordinator.hasActivePractice {
                 coordinator.attachTool(.smartLoop)
                 if !coordinator.isRunning {
                     coordinator.resume()
@@ -568,7 +589,9 @@ struct SmartLoopTimerView: View {
         completedRun = nil
         pendingResult = nil
         didFinish = false
-        coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !nestedWithinPlan {
+            coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        }
         handle(events, state: state)
         showStatus("Smart Loop started.", kind: .information)
     }
@@ -579,7 +602,9 @@ struct SmartLoopTimerView: View {
             state.pause()
             runState = state
             stopMetronome()
-            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            if !nestedWithinPlan {
+                coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+            }
             if !isContextual {
                 coordinator.pause()
             }
@@ -594,7 +619,9 @@ struct SmartLoopTimerView: View {
                 if !isContextual {
                     coordinator.resume()
                 }
-                coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(resumed))
+                if !nestedWithinPlan {
+                    coordinator.startToolActivity(recoveryPayloadJSON: recoveryJSON(resumed))
+                }
                 handle(events, state: resumed)
             }
         }
@@ -605,7 +632,9 @@ struct SmartLoopTimerView: View {
         let events = state.advance()
         guard state != runState else { return }
         runState = state
-        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        if !nestedWithinPlan {
+            coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        }
         handle(events, state: state)
         if state.phase == .finished {
             completeRun(state)
@@ -617,7 +646,9 @@ struct SmartLoopTimerView: View {
         let events = state.stop()
         runState = state
         stopMetronome()
-        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !nestedWithinPlan {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        }
         if !isContextual {
             coordinator.pause()
         }
@@ -626,7 +657,11 @@ struct SmartLoopTimerView: View {
             completeRun(state)
         } else {
             runState = nil
-            coordinator.detachTool()
+            if nestedWithinPlan {
+                coordinator.endNestedTool(.smartLoop)
+            } else {
+                coordinator.detachTool()
+            }
             showStatus("No loop result was created.", kind: .warning)
         }
     }
@@ -635,7 +670,9 @@ struct SmartLoopTimerView: View {
         stopMetronome()
         completedRun = state
         runState = state
-        coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        if !nestedWithinPlan {
+            coordinator.pauseToolActivity(recoveryPayloadJSON: recoveryJSON(state))
+        }
         if !isContextual {
             coordinator.pause()
         }
@@ -649,7 +686,9 @@ struct SmartLoopTimerView: View {
             return
         }
         runState = state
-        coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        if !nestedWithinPlan {
+            coordinator.updateToolRecoveryPayload(recoveryJSON(state))
+        }
         handle(events, state: state)
     }
 
@@ -681,8 +720,12 @@ struct SmartLoopTimerView: View {
             settings: state.settings,
             endingTempoBPM: state.currentTempoBPM,
             tags: selectedTags.sorted(),
-            parentSessionID: coordinator.toolLaunchContext?.parentSessionID,
-            launchSource: coordinator.toolLaunchContext?.source ?? .legacy,
+            parentSessionID: nestedWithinPlan
+                ? coordinator.activeSessionID
+                : coordinator.toolLaunchContext?.parentSessionID,
+            launchSource: nestedWithinPlan
+                ? .activeSession
+                : (coordinator.toolLaunchContext?.source ?? .legacy),
             toolVersion: 2
         )
         guard let data = try? JSONEncoder().encode(resultPayload),
@@ -701,7 +744,11 @@ struct SmartLoopTimerView: View {
             ],
             payloadJSON: json
         )
-        coordinator.completeTool(result)
+        if isContextual {
+            coordinator.attachCompletedToolResult(result)
+        } else {
+            coordinator.completeTool(result)
+        }
         pendingResult = result
 
         if isContextual {
@@ -802,9 +849,11 @@ struct SmartLoopTimerView: View {
                 if var state = runState, state.phase.isRunning {
                     state.pause()
                     runState = state
-                    coordinator.pauseToolActivity(
-                        recoveryPayloadJSON: recoveryJSON(state)
-                    )
+                    if !nestedWithinPlan {
+                        coordinator.pauseToolActivity(
+                            recoveryPayloadJSON: recoveryJSON(state)
+                        )
+                    }
                     if !isContextual {
                         coordinator.pause()
                     }
@@ -821,6 +870,7 @@ struct SmartLoopTimerView: View {
     }
 
     private func restoreIfNeeded() {
+        guard !nestedWithinPlan else { return }
         guard coordinator.activeToolID == .smartLoop,
               let json = coordinator.toolActivityState?.recoveryPayloadJSON,
               let data = json.data(using: .utf8),
@@ -853,6 +903,11 @@ struct SmartLoopTimerView: View {
     }
 
     private func preserveOnExit() {
+        if nestedWithinPlan {
+            stopMetronome()
+            coordinator.endNestedTool(.smartLoop)
+            return
+        }
         guard !didFinish,
               coordinator.activeToolID == .smartLoop,
               var state = runState,

@@ -179,6 +179,7 @@ struct PracticeSavePayload {
     let noteMoodRaw: String
     let noteStructuredJSON: String
     let toolResult: PracticeToolResult?
+    let attachedToolResults: [PracticeToolResult]
 
     init(
         sessionID: UUID,
@@ -189,7 +190,8 @@ struct PracticeSavePayload {
         noteFocus: String = "",
         noteMoodRaw: String = "",
         noteStructuredJSON: String = "",
-        toolResult: PracticeToolResult? = nil
+        toolResult: PracticeToolResult? = nil,
+        attachedToolResults: [PracticeToolResult] = []
     ) {
         self.sessionID = sessionID
         self.date = date
@@ -200,6 +202,7 @@ struct PracticeSavePayload {
         self.noteMoodRaw = noteMoodRaw
         self.noteStructuredJSON = noteStructuredJSON
         self.toolResult = toolResult
+        self.attachedToolResults = attachedToolResults
     }
 }
 

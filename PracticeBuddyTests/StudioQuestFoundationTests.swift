@@ -301,6 +301,83 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(state.phase, .rest)
     }
 
+    func testGuidedPracticeAdvancesAcrossEveryBackgroundBlockBoundary() {
+        let start = Date(timeIntervalSince1970: 40_000)
+        let blocks = [
+            GuidedPracticeBlock(kind: .warmUp, durationSeconds: 60),
+            GuidedPracticeBlock(kind: .technique, durationSeconds: 60),
+            GuidedPracticeBlock(kind: .repertoire, durationSeconds: 60)
+        ]
+        var state = GuidedPracticeRunState(
+            goals: [.intonation, .rhythm],
+            blocks: blocks
+        )
+
+        _ = state.start(at: start)
+        let events = state.advance(to: start.addingTimeInterval(135))
+
+        XCTAssertEqual(state.currentBlock?.kind, .repertoire)
+        XCTAssertEqual(state.currentBlockRemainingSeconds(at: start.addingTimeInterval(135)), 45)
+        XCTAssertEqual(state.totalElapsedSeconds(at: start.addingTimeInterval(135)), 135)
+        XCTAssertTrue(events.contains(.blockCompleted(.warmUp)))
+        XCTAssertTrue(events.contains(.blockCompleted(.technique)))
+    }
+
+    func testGuidedPracticePauseResumeDoesNotCountTimeWhilePaused() {
+        let start = Date(timeIntervalSince1970: 50_000)
+        var state = GuidedPracticeRunState(
+            goals: [.rhythm, .tone],
+            blocks: [
+                GuidedPracticeBlock(kind: .technique, durationSeconds: 120)
+            ]
+        )
+
+        _ = state.start(at: start)
+        state.pause(at: start.addingTimeInterval(20))
+        XCTAssertEqual(
+            state.totalElapsedSeconds(at: start.addingTimeInterval(600)),
+            20
+        )
+
+        _ = state.resume(at: start.addingTimeInterval(600))
+        XCTAssertEqual(
+            state.totalElapsedSeconds(at: start.addingTimeInterval(610)),
+            30
+        )
+    }
+
+    @MainActor
+    func testNestedToolResultDoesNotReplaceGuidedPracticeRuntime() throws {
+        let suiteName = "StudioQuestFoundationTests.nested.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        XCTAssertTrue(
+            coordinator.beginFocusedTool(
+                .planExecuteReflect,
+                title: "Guided practice",
+                durationMinutes: 20,
+                source: .library
+            )
+        )
+        XCTAssertNotNil(coordinator.beginNestedTool(.smartLoop))
+
+        let nestedResult = PracticeToolResult(
+            toolID: .smartLoop,
+            sessionID: coordinator.activeSessionID,
+            durationSeconds: 30
+        )
+        coordinator.attachCompletedToolResult(nestedResult)
+        coordinator.endNestedTool(.smartLoop)
+
+        XCTAssertEqual(coordinator.activeToolID, .planExecuteReflect)
+        XCTAssertNil(coordinator.nestedToolID)
+        XCTAssertEqual(coordinator.attachedToolResults, [nestedResult])
+        XCTAssertNil(coordinator.latestToolResult)
+        coordinator.discard()
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

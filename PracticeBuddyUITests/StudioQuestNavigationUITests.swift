@@ -221,4 +221,32 @@ final class StudioQuestNavigationUITests: XCTestCase {
             "Finishing Smart Loop did not produce a savable result"
         )
     }
+
+    func testGuidedPracticeRuntimePausesAndReachesPrivateReflection() {
+        let app = launch(
+            route: "planExecuteReflect",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "dark",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let pause = app.buttons["guided.pause"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 8), "Guided practice running fixture did not load")
+        pause.tap()
+        XCTAssertTrue(app.buttons["guided.pause"].waitForExistence(timeout: 4))
+        app.buttons["guided.pause"].tap()
+
+        let reflect = app.buttons["guided.reflect"]
+        XCTAssertTrue(
+            reveal(reflect, in: app, maximumSwipes: 8),
+            "Guided practice reflection action was hidden by the Practice Dock"
+        )
+        reflect.tap()
+        XCTAssertTrue(
+            app.buttons["guided.save"].waitForExistence(timeout: 6),
+            "Guided practice did not reach its private reflection"
+        )
+    }
 }

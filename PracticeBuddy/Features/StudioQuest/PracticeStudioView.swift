@@ -1636,7 +1636,8 @@ struct PracticeReflectionView: View {
                 noteFocus: cleanedFocus,
                 noteMoodRaw: mood.rawValue,
                 noteStructuredJSON: structuredJSON,
-                toolResult: coordinator.latestToolResult
+                toolResult: coordinator.latestToolResult,
+                attachedToolResults: coordinator.attachedToolResults
             )
         )
 
