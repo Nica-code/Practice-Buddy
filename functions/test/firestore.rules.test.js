@@ -215,6 +215,7 @@ describe("PractiQuest Firestore security rules", () => {
       () => setDoc(doc(alice, "socialBlocks/alice_bob"), {blockerUID: "alice"}),
       () => setDoc(doc(alice, "socialFollows/alice_bob"), {fromUID: "alice", toUID: "bob"}),
       () => setDoc(doc(alice, "handles/alice"), {uid: "alice"}),
+      () => setDoc(doc(alice, "rateLimits/alice_friend_invite"), {count: 0}),
     ];
 
     for (const makeWrite of writes) {

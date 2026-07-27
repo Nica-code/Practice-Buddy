@@ -7,6 +7,7 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
+    "test:functions": "mocha --timeout 10000 test/rate-limit.test.js",
     "test:rules": "firebase emulators:exec --config ../firebase.json --project demo-practiquest --only firestore \"mocha --timeout 30000 test/firestore.rules.test.js\""
   },
   "engines": {

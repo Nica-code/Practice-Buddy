@@ -39,9 +39,10 @@ friends, messages, notification preferences, and avatar identity are preserved.
 
 ## Verified baseline
 
-- 57/57 unit tests
+- 58/58 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
+- 3/3 Function contract tests
 - Korean and Romanian: complete coverage for 779 extracted source keys
 
 ## Migration requirements

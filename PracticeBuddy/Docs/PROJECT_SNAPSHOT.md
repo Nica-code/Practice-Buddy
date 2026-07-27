@@ -218,7 +218,8 @@ Firestore rules and emulator tests cover private/public profile separation,
 minors, accepted-friend messaging, follow approval, blocks, Moment
 audience/expiry, reports, server-owned fields, and deletion constraints.
 Compound indexes are committed. Cleanup jobs and Function instances are
-bounded.
+bounded. V2 callables use server-owned per-user rate-limit windows. Exhaustion
+returns a typed callable error that becomes recovery-oriented app copy.
 
 Feature flags:
 
@@ -271,9 +272,10 @@ complete Korean and Romanian coverage.
 
 ## Verification
 
-- Unit: 57/57
+- Unit: 58/58
 - UI: 30/30
 - Firebase emulator/rules: 10/10
+- Function contracts: 3/3
 - Exact simulator: iPhone 17 Pro Max, iOS 26.5
 
 Coverage includes launch/router determinism, practice clocks/audio ownership,

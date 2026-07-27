@@ -15,9 +15,10 @@ Firebase deployed from this branch: **No**
 
 The latest exact run passed:
 
-- 57/57 unit tests
+- 58/58 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
+- 3/3 Function contract tests
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
@@ -37,6 +38,13 @@ Rules:
 ```text
 cd functions
 npm run test:rules
+```
+
+Function contracts:
+
+```text
+cd functions
+npm run test:functions
 ```
 
 ## Do not reverse

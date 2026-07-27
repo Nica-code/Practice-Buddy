@@ -1,9 +1,28 @@
 import XCTest
 import SwiftData
+import FirebaseFunctions
 @testable import PracticeBuddy
 
 @MainActor
 final class StudioQuestFoundationTests: XCTestCase {
+    func testCallableRateLimitBecomesAReaderFriendlyRecoveryMessage() throws {
+        let source = NSError(
+            domain: FunctionsErrorDomain,
+            code: FunctionsErrorCode.resourceExhausted.rawValue,
+            userInfo: [
+                FunctionsErrorDetailsKey: ["retryAfterSeconds": 121]
+            ]
+        )
+
+        let normalized = try XCTUnwrap(
+            FirebaseCallableError.normalized(source) as? FirebaseCallableError
+        )
+        XCTAssertEqual(
+            normalized.errorDescription,
+            "You’ve reached a temporary limit. Try again in about 3 minutes."
+        )
+    }
+
     func testIncomingLinkParserAcceptsValidatedCustomFriendInvite() throws {
         let url = try XCTUnwrap(URL(string: "practicebuddy://add-buddy?code=ab12-cd34"))
 

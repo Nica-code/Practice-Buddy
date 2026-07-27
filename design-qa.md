@@ -95,9 +95,10 @@ Deterministic routes cover:
 
 Latest exact run:
 
-- `StudioQuestFoundationTests`: 57/57
+- `StudioQuestFoundationTests`: 58/58
 - `StudioQuestNavigationUITests`: 30/30
 - Firebase emulator/rules: 10/10
+- Function contracts: 3/3
 
 The UI suite includes:
 

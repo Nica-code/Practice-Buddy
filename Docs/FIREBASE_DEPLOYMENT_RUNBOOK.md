@@ -22,10 +22,11 @@ Run:
 git status -sb
 node --check functions/index.js
 cd functions
+npm run test:functions
 npm run test:rules
 ```
 
-Expected rules result: 10 passing.
+Expected: 3 Function contracts and 10 rules tests passing.
 
 Run the exact iOS suite from the repository root:
 
@@ -37,7 +38,7 @@ xcodebuild test \
   -parallel-testing-enabled NO
 ```
 
-Expected: 57 unit and 30 UI tests.
+Expected: 58 unit and 30 UI tests.
 
 ## 2. Review the production diff
 
@@ -204,4 +205,3 @@ If a deployment causes material breakage:
 - Client: stop TestFlight rollout or App Store phased release.
 
 Record the incident, affected versions, timestamps, and corrective commit.
-

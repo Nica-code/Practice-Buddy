@@ -13,9 +13,10 @@ Before code:
 - Branch: `codex/launch-hardening`
 - Version: 2.0.0 (31)
 - Scheme: `PracticeBuddy`
-- Unit: 57/57
+- Unit: 58/58
 - UI: 30/30
 - Firebase rules: 10/10
+- Function contracts: 3/3
 - Firebase deployed from this branch: no
 
 ## Locked decisions
@@ -82,6 +83,7 @@ If Firebase/rules/Functions changed:
 ```text
 cd functions
 npm run test:rules
+npm run test:functions
 ```
 
 CoreSimulator can stall while materializing workers. Follow the reset sequence

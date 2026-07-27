@@ -90,5 +90,5 @@ reachable Studio Quest files. Before release:
 3. A visually button-like surface may not be decorative.
 4. All save actions expose loading, committed success, and retryable failure.
 5. All destructive actions explain local and cloud consequences.
-6. The complete 57-unit/30-UI suite, accessibility matrix, Firebase rules suite,
+6. The complete 58-unit/30-UI suite, accessibility matrix, Firebase rules suite,
    and physical-device checklist must pass before this inventory is signed off.

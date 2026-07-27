@@ -9,9 +9,10 @@ Internal Xcode target/scheme: `PracticeBuddy`
 
 - Exact simulator command:
   `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
-- Unit tests: 57/57 passed.
+- Unit tests: 58/58 passed.
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
+- Function contract tests: 3/3 passed.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
   - `99e4ae6` — StoreKit and trial entitlement trust hardening.
@@ -123,6 +124,9 @@ Key safeguards include:
   friends-only messaging, blocks, Moment audience/expiry, reports, and
   server-owned data.
 - Function instance counts and cleanup jobs are bounded.
+- V2 callable operations consume server-owned per-user rate-limit windows.
+  Clients cannot read or write rate-limit state, and the app maps exhausted
+  budgets to recovery-oriented copy.
 
 ### StoreKit and Pro trust
 

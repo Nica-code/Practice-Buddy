@@ -6,6 +6,7 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {onDocumentCreated, onDocumentWritten} = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const {consumeRateLimit} = require("./lib/rate-limit");
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -43,6 +44,21 @@ const VALID_MOMENT_TAGS = new Set([
 const VALID_MOMENT_AUDIENCES = new Set(["friends", "followers"]);
 const VALID_MOMENT_REACTIONS = new Set(["bravo", "inspired", "strongWork", "practiceTogether"]);
 const INTERNAL_CALLABLE_AUTH = Symbol("internalCallableAuth");
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const CALLABLE_RATE_LIMITS = Object.freeze({
+  identityWrite: {limit: 20, windowMs: DAY_MS},
+  entitlementTrial: {limit: 10, windowMs: DAY_MS},
+  friendInvite: {limit: 30, windowMs: DAY_MS},
+  friendMutation: {limit: 120, windowMs: HOUR_MS},
+  socialMutation: {limit: 120, windowMs: HOUR_MS},
+  socialRead: {limit: 300, windowMs: HOUR_MS},
+  momentCreate: {limit: 10, windowMs: DAY_MS},
+  momentReact: {limit: 300, windowMs: HOUR_MS},
+  accountDelete: {limit: 3, windowMs: DAY_MS},
+  pushTest: {limit: 20, windowMs: HOUR_MS},
+  duelMutation: {limit: 300, windowMs: HOUR_MS},
+});
 
 exports.syncEntitlements = onRequest(async (req, res) => {
   if (req.method !== "POST") {
@@ -315,6 +331,7 @@ exports.socialActionV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "social_action", CALLABLE_RATE_LIMITS.socialMutation);
         const action = String(request.data?.action || "");
         const targetUID = validateDocumentID(request.data?.targetUID, "Musician");
         const result = await applySocialAction(auth.uid, targetUID, action, request.data?.reason);
@@ -331,6 +348,7 @@ exports.socialConnectionsV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "social_connections", CALLABLE_RATE_LIMITS.socialRead);
         const section = String(request.data?.section || "following");
         const rows = await socialConnectionRows(auth.uid, section);
         return {ok: true, section, rows};
@@ -346,6 +364,7 @@ exports.socialRelationshipV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "social_relationship", CALLABLE_RATE_LIMITS.socialRead);
         const targetUID = validateDocumentID(request.data?.targetUID, "Musician");
         const state = await socialRelationshipState(auth.uid, targetUID);
         return {ok: true, state};
@@ -361,6 +380,7 @@ exports.identityCompleteProfileV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "identity_complete", CALLABLE_RATE_LIMITS.identityWrite);
         const input = parseIdentityInput(request.data || {});
         const output = await completeIdentityProfile(auth.uid, input, {allowExisting: true});
         return {ok: true, ...output};
@@ -376,6 +396,7 @@ exports.identityChangeHandleV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "identity_handle", CALLABLE_RATE_LIMITS.identityWrite);
         const handle = validateHandle(request.data?.handle);
         const output = await changeHandle(auth.uid, handle);
         return {ok: true, ...output};
@@ -391,6 +412,7 @@ exports.identityUpdatePrivacyV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "identity_privacy", CALLABLE_RATE_LIMITS.identityWrite);
         await updateIdentityPrivacy(auth.uid, parseProfilePrivacy(request.data?.privacy));
         return {ok: true};
       } catch (error) {
@@ -408,6 +430,7 @@ exports.entitlementTrialV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "entitlement_trial", CALLABLE_RATE_LIMITS.entitlementTrial);
         const output = await claimEntitlementTrial(
             auth.uid,
             request.data?.requestTrial === true,
@@ -425,6 +448,7 @@ exports.friendInviteByCodeV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "friend_invite", CALLABLE_RATE_LIMITS.friendInvite);
         const code = String(request.data?.friendCode || "").trim().toUpperCase();
         if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) {
           throw new Error("Enter a valid friend code.");
@@ -443,6 +467,7 @@ exports.friendActionV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "friend_action", CALLABLE_RATE_LIMITS.friendMutation);
         const action = String(request.data?.action || "");
         const output = await applyFriendAction(auth.uid, action, request.data || {});
         return {ok: true, ...output};
@@ -458,6 +483,7 @@ exports.practiceMomentCreateV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "moment_create", CALLABLE_RATE_LIMITS.momentCreate);
         const input = parseMomentInput(request.data || {});
         const result = await createPracticeMoment(auth.uid, input);
         return {ok: true, ...result};
@@ -473,6 +499,7 @@ exports.practiceMomentReactV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallablePermanentAuth(request);
+        await enforceCallableRateLimit(auth.uid, "moment_react", CALLABLE_RATE_LIMITS.momentReact);
         const momentID = validateDocumentID(request.data?.momentID, "Moment");
         const reaction = String(request.data?.reaction || "");
         if (!VALID_MOMENT_REACTIONS.has(reaction)) {
@@ -492,6 +519,7 @@ exports.deleteAccountV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallableAuth(request);
+        await enforceCallableRateLimit(auth.uid, "account_delete", CALLABLE_RATE_LIMITS.accountDelete);
         await deleteAccountAndData(auth.uid);
         return {ok: true};
       } catch (error) {
@@ -506,6 +534,7 @@ exports.pushTestNotificationV2 = onCall(
     async (request) => {
       try {
         const auth = requireCallableAuth(request);
+        await enforceCallableRateLimit(auth.uid, "push_test", CALLABLE_RATE_LIMITS.pushTest);
         const result = await sendPushTestNotification(auth.uid, request.data || {});
         return {ok: true, ...result};
       } catch (error) {
@@ -1624,6 +1653,7 @@ async function deleteAccountAndData(uid) {
     deleteStudioMembershipsForUID(normalizedUID),
     cancelOpenDuelChallengesForUID(normalizedUID),
     deleteSocialDataForUID(normalizedUID, handle),
+    deleteRateLimitsForUID(normalizedUID),
   ]);
 
   try {
@@ -2468,6 +2498,14 @@ async function deleteFriendChatsForUID(uid) {
   await Promise.allSettled(chats.docs.map((doc) => db.recursiveDelete(doc.ref)));
 }
 
+async function deleteRateLimitsForUID(uid) {
+  const snapshots = await db.collection("rateLimits")
+      .where("uid", "==", uid)
+      .limit(100)
+      .get();
+  await deleteDocSnapshots(snapshots.docs);
+}
+
 async function deleteStudioMembershipsForUID(uid) {
   const memberDocs = await db.collectionGroup("members")
       .where(admin.firestore.FieldPath.documentId(), "==", uid)
@@ -2552,9 +2590,24 @@ function requireCallableAuth(request) {
   return request.auth;
 }
 
+async function enforceCallableRateLimit(uid, action, policy) {
+  await consumeRateLimit({
+    db,
+    uid,
+    action,
+    limit: policy.limit,
+    windowMs: policy.windowMs,
+  });
+}
+
 function asCallableError(error) {
   if (error instanceof HttpsError) return error;
   const message = String(error?.message || "The service is unavailable right now.");
+  if (error?.callableCode === "resource-exhausted") {
+    return new HttpsError("resource-exhausted", message, {
+      retryAfterSeconds: Math.max(1, Number(error?.retryAfterSeconds) || 1),
+    });
+  }
   return new HttpsError("failed-precondition", message);
 }
 
@@ -2564,6 +2617,11 @@ function appCheckedDuelCallable(name, handler) {
       async (request) => {
         try {
           const auth = requireCallablePermanentAuth(request);
+          await enforceCallableRateLimit(
+              auth.uid,
+              "duel_mutation",
+              CALLABLE_RATE_LIMITS.duelMutation,
+          );
           return await invokeSharedHTTPHandler(handler, request.data || {}, auth);
         } catch (error) {
           logger.warn(`${name} failed`, {error: String(error?.message || error)});
