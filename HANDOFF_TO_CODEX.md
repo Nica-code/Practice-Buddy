@@ -9,7 +9,7 @@ Read first:
 
 Branch: `codex/launch-hardening`
 Version: 2.0.0 (build 31)
-Firebase deployed from this branch: **No**
+Firebase deployed from this branch: **Partially — see rollout state below**
 
 ## Verified baseline
 
@@ -100,12 +100,11 @@ d8d82b0 Retire legacy theme compatibility and expand launch QA
 The simulator implementation is past the main functional rewrite. The next
 priority is release operations, in this order:
 
-1. rerun the read-only Firebase project/function inventory from an environment
-   with working Google API DNS, then review the deployment diff;
-2. create/verify the Pro product in App Store Connect;
-3. deploy through the staged runbook;
-4. make an internal TestFlight build;
-5. execute the physical-device checklist;
+1. create/verify the Pro product in App Store Connect;
+2. make an internal TestFlight build;
+3. verify App Check and migration behavior on a physical device;
+4. coordinate the owner-only Firestore-rule cutover with the v2 client;
+5. execute the complete physical-device checklist;
 6. fix any device-only defects;
 7. recapture final App Store screenshots and finish metadata.
 
@@ -113,11 +112,32 @@ Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
 legitimate builds.
 
-The 2026-07-27 read-only Firebase project query made no production changes and
-failed before authentication completed because `www.googleapis.com` could not
-resolve in the current execution environment. The local default remains
-`practicebuddytracker`. This is an environment/network blocker, not evidence of
-a bad project or backend configuration.
+## Firebase rollout state — 2026-07-27
+
+Deployed from `3898fe9` to `practicebuddytracker`:
+
+- 8 additive Firestore indexes;
+- 41 active Functions (12 preserved production exports, 29 additive exports);
+- Hosting with `/invite`, current AASA files, and the invite fallback;
+- Storage rules, which were already current.
+
+Verified:
+
+- no Function was removed;
+- unauthenticated V2 callable request returns 401;
+- unauthenticated legacy entitlement request cannot grant access;
+- AASA is HTTP 200 JSON and contains `/invite` plus `/join-studio`.
+
+Not deployed:
+
+- `firestore.rules`.
+
+This hold is deliberate. App Store build 1.0.5 (30) directly queries the
+`users` collection for social/leaderboard features. The v2 rule makes
+`users/{uid}` owner-only. Deploying it before a v2 client is available would
+break the shipped binary. Coordinate the rule change with TestFlight/App Store
+migration; do not deploy it casually or fold it into an unrelated Firebase
+command.
 
 ## Landmines
 

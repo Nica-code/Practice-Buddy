@@ -21,7 +21,12 @@ Internal Xcode target/scheme: `PracticeBuddy`
   - `ee26541` — release state and operational runbooks.
   - `99e4ae6` — StoreKit and trial entitlement trust hardening.
   - `d3bd68a` — secure musician invite links and Universal Link routing.
-- Firebase has not been deployed from this branch.
+- Firebase rollout from commit `3898fe9` began on 2026-07-27:
+  - eight additive Firestore indexes are deployed;
+  - all 41 Functions are deployed and active;
+  - Hosting/AASA/invite fallback is deployed and verified;
+  - Storage rules were already current and were re-released successfully;
+  - the owner-only Firestore rules are intentionally **not deployed yet**.
 - Physical-device and TestFlight release checks remain open.
 
 ## Locked product and engineering decisions
@@ -182,8 +187,9 @@ See:
 External/operational work still required:
 
 1. Create `com.alexmalaimare.practiquest.pro.monthly` in App Store Connect.
-2. Deploy indexes, backward-compatible Functions, rules, and hosting in the
-   documented order.
+2. Coordinate the owner-only Firestore-rule cutover with an available v2 client.
+   Indexes, backward-compatible Functions, Hosting, and Storage are already
+   deployed from `3898fe9`.
 3. Register/observe App Check debug and production metrics before broader
    Firestore/Storage enforcement.
 4. Run the physical-device checklist for audio, recording, backgrounding,
@@ -194,19 +200,29 @@ External/operational work still required:
 7. Update App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
 
-## Current Firebase preflight status
+## Current Firebase rollout status
 
-The local configuration resolves the default project to
-`practicebuddytracker`, and the deployment runbook/config/index/rule inputs are
-present. A read-only `firebase projects:list --json` preflight was attempted on
-2026-07-27, but the CLI could not refresh OAuth because DNS resolution for
-`www.googleapis.com` failed in the current execution environment. No Firebase
-resource was changed.
+Firebase CLI access was reauthenticated as `contact@alexmalaimare.com`, and
+`practicebuddytracker` was confirmed active before deployment.
 
-Before deployment, rerun the read-only project/function inventory from a network
-environment where the Firebase CLI can reach Google APIs. Do not interpret this
-local DNS failure as a Firebase project, credentials, rules, or Functions
-failure.
+Verified production state after the staged rollout:
+
+- Firestore composite indexes: 8 present.
+- Functions: 41 active, including 18 V2 callables and 2 scheduled jobs.
+- Existing production Functions removed: 0.
+- V2 request without App Check/auth: rejected with HTTP 401.
+- Legacy entitlement request without authentication: rejected; a client product
+  identifier cannot grant access.
+- Hosting AASA: HTTP 200, `Content-Type: application/json`, `/invite` and
+  `/join-studio` both present.
+- Invite fallback: valid-code and malformed-code validation logic deployed.
+- Storage rules: compiled and current.
+
+Firestore rules remain at the pre-v2 production release. The shipped App Store
+build 1.0.5 (30) performs collection queries against `users`; immediately
+deploying the v2 owner-only rule would break its social/leaderboard reads.
+Coordinate that privacy boundary with the v2 client cutover and migration
+testing. Do not deploy `firestore:rules` in isolation before that gate.
 
 ## Known infrastructure caveat
 

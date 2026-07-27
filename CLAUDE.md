@@ -17,7 +17,8 @@ Before code:
 - UI: 30/30
 - Firebase rules: 10/10
 - Function contracts: 3/3
-- Firebase deployed from this branch: no
+- Firebase deployed from this branch: indexes, Functions, Hosting, and Storage
+  are live from `3898fe9`; owner-only Firestore rules are held for client cutover
 
 ## Locked decisions
 
@@ -99,6 +100,11 @@ Do not deploy without following:
 Never claim Firebase, App Check monitoring/enforcement, TestFlight,
 physical-device behavior, or App Store submission is complete until it actually
 is.
+
+Do not deploy `firestore.rules` before reading the rollout state in
+`PROJECT_STATE.md`. App Store build 1.0.5 (30) directly queries `users`, while
+the v2 rule makes those documents owner-only. The rule requires a coordinated
+v2 client/migration cutover.
 
 ## End-of-session handoff
 

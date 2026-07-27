@@ -1,7 +1,13 @@
 # PractiQuest 2.0 — Firebase Deployment Runbook
 
 Project: `practicebuddytracker`  
-Current deployment status for `codex/launch-hardening`: **not deployed**
+Current deployment status for `codex/launch-hardening`:
+
+- indexes: deployed from `3898fe9` on 2026-07-27;
+- Functions: deployed from `3898fe9`; 41/41 active;
+- Hosting: deployed from `3898fe9` and HTTPS-verified;
+- Storage rules: current/released;
+- Firestore rules: held for coordinated v2 client cutover.
 
 This order preserves compatibility with the currently shipped App Store client
 while introducing V2 callables and rules.
@@ -125,14 +131,44 @@ Verify over HTTPS:
 - [ ] invalid code hides the Open PractiQuest action;
 - [ ] App Store action targets ID `6744359618`.
 
-## 6. Deploy Firestore and Storage rules
+## 6. Firestore privacy cutover gate
 
-Deploy rules only after Functions are live:
+Do **not** deploy the owner-only Firestore rules merely because Functions and
+Hosting are live.
+
+The currently shipped App Store build 1.0.5 (30) performs collection queries
+against `users` for social and leaderboard features. The v2 rules correctly
+make `users/{uid}` private and move social reads to `publicProfiles`, but
+Firestore cannot redact private fields or transparently redirect the old query.
+Deploying that rule before a v2 client is available would break the shipped
+binary.
+
+Before the rule cutover:
+
+- [ ] a v2 internal TestFlight build is available;
+- [ ] App Check succeeds on a physical device;
+- [ ] new-account and legacy profile-upgrade paths create `publicProfiles`;
+- [ ] friends, messages, duels, search, and leaderboards read public projections;
+- [ ] current sessions, inventory, entitlements, and private practice still load;
+- [ ] support/rollback owners agree on the cutover window;
+- [ ] the previous Firestore rules release is identifiable for rollback.
+
+Storage rules are independently backward-compatible and may be deployed earlier:
 
 ```text
 firebase deploy \
   --project practicebuddytracker \
-  --only firestore:rules,storage
+  --only storage
+```
+
+## 7. Deploy Firestore rules at the coordinated cutover
+
+Only after every gate above passes:
+
+```text
+firebase deploy \
+  --project practicebuddytracker \
+  --only firestore:rules
 ```
 
 Production smoke matrix:
@@ -149,7 +185,7 @@ Production smoke matrix:
 - [ ] friend invite/accept/decline/cancel/remove works through callables;
 - [ ] existing friends/messages/duels remain reachable.
 
-## 7. Feature configuration
+## 8. Feature configuration
 
 Create/review `appConfig/practiquestV2`:
 
@@ -163,7 +199,7 @@ newAvatarRenderer: true
 
 Do not create a `practiquestV2UI` flag.
 
-## 8. App Check rollout
+## 9. App Check rollout
 
 Client provider behavior:
 
@@ -184,7 +220,7 @@ Rollout:
 
 Never commit debug tokens.
 
-## 9. Operational safeguards
+## 10. Operational safeguards
 
 - [ ] Configure Firebase/Google Cloud budget alerts.
 - [ ] Review Function invocation, error, latency, and instance dashboards.
@@ -196,7 +232,7 @@ Never commit debug tokens.
       payment identifiers.
 - [ ] Record deployed commit SHA and timestamp.
 
-## 10. Client/TestFlight sequence
+## 11. Client/TestFlight sequence
 
 Only after backend smoke tests:
 
