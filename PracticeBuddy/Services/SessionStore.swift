@@ -275,6 +275,36 @@ final class SessionStore: ObservableObject {
                     toolVersion: payload.toolVersion
                 )
             )
+        case .runThrough:
+            guard let data = result.payloadJSON.data(using: .utf8) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let payload = try JSONDecoder().decode(
+                RunThroughResultPayload.self,
+                from: data
+            )
+            context.insert(
+                RunThroughModel(
+                    id: result.id,
+                    date: payload.completedAt,
+                    durationSeconds: payload.durationSeconds,
+                    audioFilePath: payload.audioFilePath,
+                    notes: payload.notes,
+                    selfRating: payload.selfRating,
+                    noPauseMode: payload.settings.noPauseMode,
+                    usedMetronome: payload.settings.useMetronome,
+                    markerJSON: {
+                        guard let markerData = try? JSONEncoder().encode(payload.markers) else {
+                            return ""
+                        }
+                        return String(data: markerData, encoding: .utf8) ?? ""
+                    }(),
+                    pieceName: payload.pieceName,
+                    parentSessionID: payload.parentSessionID,
+                    launchSource: payload.launchSource.rawValue,
+                    toolVersion: payload.toolVersion
+                )
+            )
         default:
             break
         }

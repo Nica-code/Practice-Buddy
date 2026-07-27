@@ -378,6 +378,69 @@ final class StudioQuestFoundationTests: XCTestCase {
         coordinator.discard()
     }
 
+    func testRunThroughTimingExcludesPausedTime() {
+        let start = Date(timeIntervalSince1970: 60_000)
+        var state = RunThroughRunState(
+            settings: RunThroughSettings(
+                noPauseMode: false,
+                useMetronome: false,
+                metronomeBPM: 72
+            )
+        )
+
+        state.beginCountIn(at: start)
+        XCTAssertEqual(state.countInBeat(at: start.addingTimeInterval(1)), 2)
+        state.beginRecording(
+            filePath: "/tmp/runthrough-test.m4a",
+            at: start.addingTimeInterval(3)
+        )
+        state.pause(at: start.addingTimeInterval(15))
+        XCTAssertEqual(
+            state.elapsedSeconds(at: start.addingTimeInterval(100)),
+            12
+        )
+
+        state.resume(at: start.addingTimeInterval(100))
+        state.finish(at: start.addingTimeInterval(108))
+        XCTAssertEqual(state.elapsedSeconds(at: start.addingTimeInterval(500)), 20)
+        XCTAssertEqual(state.phase, .review)
+    }
+
+    func testRunThroughMarkersUseRecordingTimeline() {
+        let start = Date(timeIntervalSince1970: 70_000)
+        var state = RunThroughRunState(
+            settings: RunThroughSettings(
+                noPauseMode: false,
+                useMetronome: false,
+                metronomeBPM: 72
+            )
+        )
+        state.beginRecording(filePath: "/tmp/runthrough-test.m4a", at: start)
+        state.addMarker("rhythm", at: start.addingTimeInterval(9))
+        state.pause(at: start.addingTimeInterval(12))
+        state.addMarker("intonation", at: start.addingTimeInterval(300))
+
+        XCTAssertEqual(state.markers.map(\.second), [9, 12])
+        XCTAssertEqual(state.markers.map(\.label), ["rhythm", "intonation"])
+    }
+
+    func testRunThroughFileLifecycleDeletesAbandonedRecording() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: folder,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("abandoned.m4a")
+        try Data("fixture".utf8).write(to: file)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        RunThroughFileLifecycle.removeIfPresent(at: file)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

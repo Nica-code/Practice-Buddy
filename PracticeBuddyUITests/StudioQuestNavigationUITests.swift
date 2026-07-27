@@ -249,4 +249,48 @@ final class StudioQuestNavigationUITests: XCTestCase {
             "Guided practice did not reach its private reflection"
         )
     }
+
+    func testRunThroughRuntimeMarksPausesAndReachesReview() {
+        let app = launch(
+            route: "runThrough",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "light",
+                "--qa-tool-state", "running"
+            ]
+        )
+
+        let marker = app.buttons["runthrough.marker"]
+        XCTAssertTrue(marker.waitForExistence(timeout: 8), "Run-through running fixture did not load")
+        marker.tap()
+
+        let pause = app.buttons["runthrough.pause"]
+        XCTAssertTrue(pause.exists)
+        let finish = app.buttons["runthrough.finish"]
+        XCTAssertTrue(
+            reveal(finish, in: app, maximumSwipes: 8),
+            "Run-through finish action was hidden by the Practice Dock"
+        )
+        finish.tap()
+        XCTAssertTrue(
+            app.buttons["runthrough.save"].waitForExistence(timeout: 6),
+            "Finishing Run-through did not produce a savable review"
+        )
+    }
+
+    func testRunThroughPermissionDeniedStateExplainsRecovery() {
+        let app = launch(
+            route: "runThrough",
+            populated: false,
+            extraArguments: [
+                "--qa-appearance", "dark",
+                "--qa-tool-state", "permissionDenied"
+            ]
+        )
+
+        XCTAssertTrue(
+            app.staticTexts["Microphone access is off"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["Try again"].exists)
+    }
 }

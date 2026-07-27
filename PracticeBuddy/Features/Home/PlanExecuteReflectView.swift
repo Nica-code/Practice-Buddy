@@ -360,26 +360,49 @@ struct PlanExecuteReflectView: View {
             NavigationLink {
                 SmartLoopTimerView(nestedWithinPlan: true)
             } label: {
-                HStack(spacing: StudioQuestTokens.Spacing.sm) {
-                    Image(systemName: "repeat")
-                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
-                        .frame(width: 44, height: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Smart Loop")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Add loop analytics to this plan")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
+                nestedToolRow(
+                    title: "Smart Loop",
+                    subtitle: "Add loop analytics to this plan",
+                    systemImage: "repeat"
+                )
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                RunThroughModeView(nestedWithinPlan: true)
+            } label: {
+                nestedToolRow(
+                    title: "Run-through",
+                    subtitle: "Record without starting a second timer",
+                    systemImage: "record.circle"
+                )
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func nestedToolRow(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        systemImage: String
+    ) -> some View {
+        HStack(spacing: StudioQuestTokens.Spacing.sm) {
+            Image(systemName: systemImage)
+                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
     }
 
     private var reflectionContent: some View {
