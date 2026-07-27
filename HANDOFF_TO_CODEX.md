@@ -77,7 +77,7 @@ npm run test:functions
 
 ## Work completed since the original handoff
 
-Twenty-three launch-hardening commits now sit after the design handoff. They:
+The launch-hardening commits after the design handoff:
 
 - removed the deterministic launch/navigation race;
 - unified practice timing, audio ownership, recovery, and persistence;
@@ -96,6 +96,8 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+5a5827d Harden deterministic launch and Apple sign-in
+852697e Record privacy release hardening
 c152689 Prepare PractiQuest 2.0 release metadata
 50fdb9b Complete App Store privacy declarations
 bd88167 Correct App Store identity and legacy Pro access

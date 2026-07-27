@@ -19,6 +19,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
   IPA was inspected and contains no repository Markdown/internal planning files.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `5a5827d` — deterministic QA process isolation and safe Apple sign-in anchor handling.
   - `852697e` — recorded privacy release hardening and remaining gates.
   - `c152689` — validated App Store metadata and v2 legal-site requirements.
   - `50fdb9b` — App Store privacy declarations and centralized legal links.
