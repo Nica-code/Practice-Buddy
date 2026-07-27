@@ -931,6 +931,7 @@ private struct StudioQuestMetronomeToolContent: View {
 
                 if let statusMessage {
                     StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                        .accessibilityIdentifier("metronome.status")
                 }
             }
             .padding(.top, 20)
@@ -1243,6 +1244,7 @@ private struct StudioQuestTunerToolContent: View {
 
                 if let statusMessage {
                     StudioQuestInlineStatus(text: statusMessage, kind: statusKind)
+                        .accessibilityIdentifier("tuner.status")
                 }
             }
             .padding(.top, 20)

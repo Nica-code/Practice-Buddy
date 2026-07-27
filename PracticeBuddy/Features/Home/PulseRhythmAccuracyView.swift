@@ -708,7 +708,7 @@ struct PulseRhythmAccuracyView: View {
         persistRecovery()
         if state.phase == .result {
             stopCaptureForReview(state)
-            PBHaptics.success()
+            StudioQuestHaptics.success()
         }
     }
 
@@ -1030,7 +1030,7 @@ struct PulseRhythmAccuracyView: View {
 
     private func triggerPulse() {
         pulseSequence &+= 1
-        PBHaptics.tap()
+        StudioQuestHaptics.tap()
     }
 
     private func stopAudioCapture() {

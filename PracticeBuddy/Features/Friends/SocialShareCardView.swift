@@ -1,8 +1,7 @@
 import SwiftUI
 
 struct SocialShareCardView: View {
-    @Environment(\.pbTheme) private var theme
-    @Environment(\.pbTypography) private var type
+    @Environment(\.colorScheme) private var colorScheme
 
     let title: String
     let subtitle: String
@@ -12,43 +11,43 @@ struct SocialShareCardView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(theme.surface)
+                .fill(StudioQuestTokens.ColorRole.surface(colorScheme))
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
-                    .font(type.sectionTitle)
-                    .foregroundStyle(theme.textPrimary)
+                    .font(StudioQuestTokens.Typography.sectionTitle)
+                    .foregroundStyle(.primary)
 
                 Text(subtitle)
-                    .font(type.body)
-                    .foregroundStyle(theme.textSecondary)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(valueText)
-                            .font(type.fontChoice.numberFont(size: 42, weight: .bold))
-                            .foregroundStyle(theme.accent)
+                            .font(.system(size: 42, weight: .bold, design: .monospaced))
+                            .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
                         Spacer()
                     }
 
                     if let streakText {
                         Text(streakText)
-                            .font(type.footnote)
-                            .foregroundStyle(theme.textSecondary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 HStack {
-                    Text("Tracked with PracticeBuddy")
-                        .font(type.footnote)
-                        .foregroundStyle(theme.textSecondary)
+                    Text("Tracked with PractiQuest")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
                     Spacer()
 
                     Image(systemName: "music.note")
-                        .foregroundStyle(theme.textSecondary)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(18)

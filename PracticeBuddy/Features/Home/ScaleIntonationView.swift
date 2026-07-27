@@ -536,7 +536,7 @@ struct ScaleIntonationView: View {
             for beat in stride(from: 3, through: 1, by: -1) {
                 guard !Task.isCancelled else { return }
                 countInBeat = beat
-                PBHaptics.tap()
+                StudioQuestHaptics.tap()
                 try? await Task.sleep(for: .seconds(settings.noteDuration))
             }
             guard !Task.isCancelled, tuner.isListening, var state = runState else { return }
@@ -564,7 +564,7 @@ struct ScaleIntonationView: View {
             state.advanceNote(at: date)
             if state.phase == .result || state.phase == .insufficientSignal {
                 stopCaptureForReview(state)
-                PBHaptics.success()
+                StudioQuestHaptics.success()
             }
         }
         runState = state

@@ -90,7 +90,7 @@ struct SocialChatThreadView: View {
                     )
 
                 Button {
-                    PBHaptics.tap()
+                    StudioQuestHaptics.tap()
                     Task {
                         await viewModel.sendMessage()
                         isComposerFocused = false

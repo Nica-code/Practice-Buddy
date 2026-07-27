@@ -6,8 +6,8 @@ enum PBTabBarStyle {
     /// Updates UITabBar appearance reliably by applying to *existing visible tab bars*,
     /// not only the global UIAppearance proxy (which can be sticky on newer iOS).
     @MainActor
-    static func apply(colorScheme: ColorScheme, accent: UIColor, fontChoice: PBFontChoice) {
-        let appearance = makeAppearance(colorScheme: colorScheme, accent: accent, fontChoice: fontChoice)
+    static func apply(colorScheme: ColorScheme, accent: UIColor) {
+        let appearance = makeAppearance(colorScheme: colorScheme, accent: accent)
 
         // 1) Set UIAppearance defaults for any future tab bars that get created.
         let proxy = UITabBar.appearance()
@@ -24,7 +24,7 @@ enum PBTabBarStyle {
     }
 
     @MainActor
-    private static func makeAppearance(colorScheme: ColorScheme, accent: UIColor, fontChoice: PBFontChoice) -> UITabBarAppearance {
+    private static func makeAppearance(colorScheme: ColorScheme, accent: UIColor) -> UITabBarAppearance {
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
 
@@ -41,8 +41,8 @@ enum PBTabBarStyle {
 
         let selected = accent
         let unselected = accent.withAlphaComponent(colorScheme == .dark ? 0.58 : 0.62)
-        let selectedTextFont = fontChoice.uiTabBarSelectedFont(size: 10)
-        let normalTextFont = fontChoice.uiTabBarNormalFont(size: 10)
+        let selectedTextFont = UIFont.systemFont(ofSize: 10, weight: .semibold)
+        let normalTextFont = UIFont.systemFont(ofSize: 10, weight: .medium)
 
         func configure(_ itemAppearance: UITabBarItemAppearance) {
             // Selected

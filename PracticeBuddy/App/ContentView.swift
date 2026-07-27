@@ -34,7 +34,6 @@ struct ContentView: View {
     @AppStorage("practiquest.community.shareActivity") private var shareFriendActivity = true
     @AppStorage("practiquest.appearance") private var studioQuestAppearance = "system"
 
-    @StateObject private var themeManager = ThemeManager()
     @StateObject private var store = SessionStore()
     @StateObject private var journeyManager = JourneyProgressManager()
     @StateObject private var duelLeagueManager = DuelLeagueManager()
@@ -93,9 +92,6 @@ struct ContentView: View {
     }
 
     var body: some View {
-        let fontChoice = PBFontChoice.systemDefault
-        let typography = PBTypography.forTheme(themeManager.theme, fontChoice: fontChoice)
-
         ZStack {
             rootContent
             #if DEBUG
@@ -149,8 +145,10 @@ struct ContentView: View {
                         sharingEnabled: UserDefaults.standard.object(forKey: "practiquest.community.shareActivity") as? Bool ?? true
                     )
                 }
-            themeManager.refresh()
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
+            PBTabBarStyle.apply(
+                colorScheme: colorScheme,
+                accent: UIColor(StudioQuestTokens.ColorRole.cobalt)
+            )
             if purchaseManager.isPro {
                 Task { _ = await journeyManager.claimProDailyCosmeticAllowance() }
             }
@@ -173,10 +171,10 @@ struct ContentView: View {
             selectedTab = destination.rawValue
         }
         .onChange(of: colorScheme) {
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
-        }
-        .onChange(of: themeManager.theme.id) { _, _ in
-            PBTabBarStyle.apply(colorScheme: colorScheme, accent: UIColor(themeManager.theme.accent), fontChoice: fontChoice)
+            PBTabBarStyle.apply(
+                colorScheme: colorScheme,
+                accent: UIColor(StudioQuestTokens.ColorRole.cobalt)
+            )
         }
         .onChange(of: firebase.currentUserID) { _, newUID in
             _ = newUID
@@ -271,17 +269,13 @@ struct ContentView: View {
         }
         .environmentObject(store)
         .environmentObject(journeyManager)
-        .environmentObject(themeManager)
         .environmentObject(duelLeagueManager)
         .environmentObject(socialChatManager)
         .environmentObject(practiceCoordinator)
         .environmentObject(appRouter)
         .environmentObject(buddiesManager)
         .environmentObject(identityUpgrade)
-        .pbTheme(themeManager.theme)
-        .pbTypography(typography)
-        .pbGlobalFontDesign(fontChoice)
-        .tint(themeManager.theme.accent)
+        .tint(StudioQuestTokens.ColorRole.cobalt)
         .alert(item: $store.lastAppError) { err in
             Alert(
                 title: Text(LocalizedStringKey(err.title)),

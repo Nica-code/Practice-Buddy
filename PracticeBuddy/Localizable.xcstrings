@@ -11281,12 +11281,12 @@
         }
       }
     },
-    "Tracked with PracticeBuddy": {
+    "Tracked with PractiQuest": {
       "localizations": {
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "PracticeBuddy로 기록됨"
+            "value": "PractiQuest로 기록됨"
           }
         },
         "ro": {

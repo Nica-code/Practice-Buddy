@@ -21,7 +21,7 @@ enum SessionExportService {
 
     static func export(sessions: [PracticeSessionModel], format: ExportFormat) throws -> URL {
         let timestamp = makeTimestamp()
-        let filename = "PracticeBuddy-Export-\(timestamp).\(format.fileExtension)"
+        let filename = "PractiQuest-Export-\(timestamp).\(format.fileExtension)"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         switch format {

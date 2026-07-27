@@ -187,11 +187,10 @@ struct PBAvatarView: View {
 
 struct PBLevelBadgeView: View {
     let level: Int
-    @Environment(\.pbTypography) private var type
 
     var body: some View {
         Text(L10n.f("Level %@", "\(max(1, level))"))
-            .font(type.fontChoice.headlineFont(size: 11, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(Color.primary.opacity(0.12))

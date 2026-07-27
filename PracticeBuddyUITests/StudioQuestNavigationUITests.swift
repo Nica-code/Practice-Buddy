@@ -604,4 +604,86 @@ final class StudioQuestNavigationUITests: XCTestCase {
                 .localizedCaseInsensitiveContains("Start tuner")
         )
     }
+
+    func testEveryPracticeToolKeepsFailedResultsAvailableForRetry() {
+        let tools = [
+            ("smartLoop", "smartloop.status"),
+            ("warmUp", "warmup.status"),
+            ("planExecuteReflect", "guided.status"),
+            ("runThrough", "runthrough.status"),
+            ("rhythm", "rhythm.status"),
+            ("intonation", "intonation.status"),
+            ("metronome", "metronome.status"),
+            ("tuner", "tuner.status")
+        ]
+
+        for (route, statusIdentifier) in tools {
+            let app = launch(
+                route: route,
+                populated: false,
+                extraArguments: [
+                    "--qa-appearance", "dark",
+                    "--qa-tool-state", "saveError"
+                ]
+            )
+            let error = app.descendants(matching: .any)[statusIdentifier]
+            XCTAssertTrue(
+                error.waitForExistence(timeout: 8),
+                "\(route) did not retain a reader-facing failed-save state"
+            )
+            app.terminate()
+        }
+    }
+
+    func testEveryPracticeToolPresentsItsRecoveredState() {
+        let recoveredStates = [
+            ("smartLoop", "smartloop.status"),
+            ("warmUp", "warmup.status"),
+            ("planExecuteReflect", "guided.status"),
+            ("runThrough", "runthrough.status"),
+            ("rhythm", "rhythm.status"),
+            ("intonation", "intonation.status"),
+            ("metronome", "metronome.status"),
+            ("tuner", "tuner.status")
+        ]
+
+        for (route, statusIdentifier) in recoveredStates {
+            let app = launch(
+                route: route,
+                populated: false,
+                extraArguments: [
+                    "--qa-appearance", "light",
+                    "--qa-tool-state", "recovered"
+                ]
+            )
+            let recovery = app.descendants(matching: .any)[statusIdentifier]
+            XCTAssertTrue(
+                recovery.waitForExistence(timeout: 8),
+                "\(route) did not present its deterministic recovery state"
+            )
+            app.terminate()
+        }
+    }
+
+    func testKoreanAndRomanianLaunchesKeepThePrimaryPracticeActionReachable() {
+        let languages = [
+            ("ko", "ko_KR"),
+            ("ro", "ro_RO")
+        ]
+
+        for (language, locale) in languages {
+            let app = launch(
+                extraArguments: [
+                    "-AppleLanguages", "(\(language))",
+                    "-AppleLocale", locale
+                ]
+            )
+            XCTAssertTrue(
+                app.buttons["today.startPractice"].waitForExistence(timeout: 8),
+                "The primary Today action was not reachable in \(language)"
+            )
+            XCTAssertEqual(app.tabBars.buttons.count, 4)
+            app.terminate()
+        }
+    }
 }

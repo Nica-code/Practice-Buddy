@@ -105,7 +105,7 @@ final class LocalSocialProvider: ObservableObject, SocialProvider {
         let minutes = max(0, seconds / 60)
 
         var lines: [String] = []
-        lines.append("PracticeBuddy 🎻")
+        lines.append("PractiQuest 🎻")
         lines.append("\(period.title): \(minutes) min")
         lines.append(dateRangeLabel(for: period))
 
@@ -113,7 +113,7 @@ final class LocalSocialProvider: ObservableObject, SocialProvider {
             lines.append(streak)
         }
 
-        lines.append("Tracked with PracticeBuddy")
+        lines.append("Tracked with PractiQuest")
         return lines.joined(separator: "\n")
     }
 
@@ -125,7 +125,7 @@ final class LocalSocialProvider: ObservableObject, SocialProvider {
         let streak = streakTextIfRelevant()
 
         let content = SocialShareCardView(
-            title: "PracticeBuddy 🎻",
+            title: "PractiQuest 🎻",
             subtitle: subtitle,
             valueText: "\(minutes) min",
             streakText: streak
@@ -139,7 +139,7 @@ final class LocalSocialProvider: ObservableObject, SocialProvider {
             guard let uiImage = renderer.uiImage else { return nil }
             guard let pngData = uiImage.pngData() else { return nil }
 
-            let fileName = "practicebuddy-\(period.rawValue)-share.png"
+            let fileName = "practiquest-\(period.rawValue)-share.png"
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
 
             do {

@@ -74,7 +74,7 @@ struct PBNotificationPrimerView: View {
 
                         VStack(spacing: StudioQuestTokens.Spacing.sm) {
                             Button {
-                                PBHaptics.tap()
+                                StudioQuestHaptics.tap()
                                 onEnable()
                             } label: {
                                 Text("Enable Notifications")

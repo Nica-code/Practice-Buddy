@@ -11,7 +11,6 @@ import ManagedSettings
 struct TunerNeedleGauge: View {
     let cents: Double?
     let accent: Color
-    @Environment(\.pbTypography) private var type
 
     var body: some View {
         GeometryReader { geo in
@@ -42,15 +41,15 @@ struct TunerNeedleGauge: View {
 
                 HStack {
                     Text("Flat")
-                        .font(type.fontChoice.bodyFont(size: 11))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("In Tune")
-                        .font(type.fontChoice.bodyFont(size: 11))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("Sharp")
-                        .font(type.fontChoice.bodyFont(size: 11))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 10)
