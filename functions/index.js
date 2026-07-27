@@ -54,70 +54,29 @@ exports.syncEntitlements = onRequest(async (req, res) => {
     const uid = await requireUID(req);
     const requestTrial = req.body?.requestTrial === true;
     const activeProductIDs = sanitizeActiveProductIDs(req.body?.activeProductIDs);
-    const nowMs = Date.now();
+    if (activeProductIDs.length > 0) {
+      // Older clients fall back to their locally verified StoreKit transaction
+      // when this endpoint rejects. Never persist a paid entitlement asserted
+      // only through client-supplied product identifiers.
+      res.status(409).json({
+        error: "Paid access must be verified by StoreKit. Restore purchases in the app.",
+      });
+      return;
+    }
 
-    const result = await db.runTransaction(async (txn) => {
-      const userRef = db.collection("users").doc(uid);
-      const userSnap = await txn.get(userRef);
-      const userData = userSnap.data() || {};
-
-      const existingIsMaster = userData.isMasterAccount === true;
-      const existingTrialUsed = userData.trialUsed === true;
-      let trialStartedAt = userData.trialStartedAt?.toDate ? userData.trialStartedAt.toDate() : null;
-      let trialEndsAt = userData.trialEndsAt?.toDate ? userData.trialEndsAt.toDate() : null;
-      let trialUsed = existingTrialUsed || !!trialStartedAt || !!trialEndsAt;
-      let trialStartedNow = false;
-
-      if (requestTrial && !trialUsed) {
-        trialStartedAt = new Date(nowMs);
-        trialEndsAt = new Date(nowMs + (SERVER_TRIAL_DAYS * 24 * 60 * 60 * 1000));
-        trialUsed = true;
-        trialStartedNow = true;
-      }
-
-      const trialActive = !!trialEndsAt && trialEndsAt.getTime() > nowMs;
-      const subscriptionActive = activeProductIDs.length > 0;
-
-      let entitlementTier = "free";
-      if (existingIsMaster) {
-        entitlementTier = "all_access";
-      } else if (subscriptionActive || trialActive) {
-        entitlementTier = "pro";
-      }
-      const isPro = entitlementTier !== "free";
-
-      const payload = {
-        subscriptionActive,
-        subscriptionProductIDs: activeProductIDs,
-        entitlementTier,
-        isPro,
-        trialUsed,
-        trialStartedAt: trialStartedAt ? admin.firestore.Timestamp.fromDate(trialStartedAt) : null,
-        trialEndsAt: trialEndsAt ? admin.firestore.Timestamp.fromDate(trialEndsAt) : null,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-      if (isPro && !userData.proSince) {
-        payload.proSince = admin.firestore.FieldValue.serverTimestamp();
-      }
-
-      txn.set(userRef, payload, {merge: true});
-
-      return {
-        uid,
-        entitlementTier,
-        isPro,
-        subscriptionActive,
-        subscriptionProductIDs: activeProductIDs,
-        trialUsed,
-        trialActive,
-        trialStartedNow,
-        trialStartedAtMs: trialStartedAt ? trialStartedAt.getTime() : null,
-        trialEndsAtMs: trialEndsAt ? trialEndsAt.getTime() : null,
-        trialSecondsRemaining: trialEndsAt ? Math.max(0, Math.floor((trialEndsAt.getTime() - nowMs) / 1000)) : 0,
-      };
+    const trial = await claimEntitlementTrial(uid, requestTrial);
+    const entitlementTier = trial.serverAllAccess ?
+      "all_access" :
+      (trial.trialActive ? "pro" : "free");
+    res.status(200).json({
+      ok: true,
+      uid,
+      entitlementTier,
+      isPro: entitlementTier !== "free",
+      subscriptionActive: false,
+      subscriptionProductIDs: [],
+      ...trial,
     });
-
-    res.status(200).json({ok: true, ...result});
   } catch (error) {
     logger.error("syncEntitlements failed", error);
     res.status(400).json({error: String(error.message || error)});
@@ -436,6 +395,26 @@ exports.identityUpdatePrivacyV2 = onCall(
         return {ok: true};
       } catch (error) {
         logger.warn("identityUpdatePrivacyV2 failed", {error: String(error?.message || error)});
+        throw asCallableError(error);
+      }
+    },
+);
+
+// StoreKit remains the source of truth for subscription ownership on device.
+// This callable owns only the server-issued trial, so a client can never grant
+// itself a paid product by posting product identifiers.
+exports.entitlementTrialV2 = onCall(
+    {enforceAppCheck: true, maxInstances: 3},
+    async (request) => {
+      try {
+        const auth = requireCallablePermanentAuth(request);
+        const output = await claimEntitlementTrial(
+            auth.uid,
+            request.data?.requestTrial === true,
+        );
+        return {ok: true, ...output};
+      } catch (error) {
+        logger.warn("entitlementTrialV2 failed", {error: String(error?.message || error)});
         throw asCallableError(error);
       }
     },
@@ -1830,6 +1809,47 @@ async function createFriendInviteByCode(fromUID, code) {
   if (target.empty) throw new Error("No musician found for that code.");
   const targetUID = target.docs[0].id;
   return createFriendInvite(fromUID, targetUID);
+}
+
+async function claimEntitlementTrial(uid, requestTrial) {
+  return db.runTransaction(async (txn) => {
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await txn.get(userRef);
+    if (!userSnap.exists) throw new Error("Finish setting up your account first.");
+    const user = userSnap.data() || {};
+    const nowMs = Date.now();
+    const existingTrialUsed = user.trialUsed === true;
+    let trialStartedAt = user.trialStartedAt?.toDate ? user.trialStartedAt.toDate() : null;
+    let trialEndsAt = user.trialEndsAt?.toDate ? user.trialEndsAt.toDate() : null;
+    let trialUsed = existingTrialUsed || !!trialStartedAt || !!trialEndsAt;
+    let trialStartedNow = false;
+
+    if (requestTrial && !trialUsed) {
+      trialStartedAt = new Date(nowMs);
+      trialEndsAt = new Date(nowMs + (SERVER_TRIAL_DAYS * 24 * 60 * 60 * 1000));
+      trialUsed = true;
+      trialStartedNow = true;
+      txn.set(userRef, {
+        trialUsed: true,
+        trialStartedAt: admin.firestore.Timestamp.fromDate(trialStartedAt),
+        trialEndsAt: admin.firestore.Timestamp.fromDate(trialEndsAt),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+
+    const trialActive = !!trialEndsAt && trialEndsAt.getTime() > nowMs;
+    return {
+      trialUsed,
+      trialActive,
+      trialStartedNow,
+      trialStartedAtMs: trialStartedAt ? trialStartedAt.getTime() : null,
+      trialEndsAtMs: trialEndsAt ? trialEndsAt.getTime() : null,
+      trialSecondsRemaining: trialEndsAt ?
+        Math.max(0, Math.floor((trialEndsAt.getTime() - nowMs) / 1000)) :
+        0,
+      serverAllAccess: user.isMasterAccount === true || user.entitlementTier === "all_access",
+    };
+  });
 }
 
 async function createFriendInvite(fromUID, targetUID) {

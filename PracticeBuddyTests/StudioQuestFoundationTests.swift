@@ -946,6 +946,94 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertFalse(defaults.publicExplore)
     }
 
+    func testEntitlementPolicyRecognizesLegacyAndCurrentProductsWithoutTrustingStaleTierState() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [PurchaseManager.adFreeMonthlyProductID],
+                trialEndsAt: nil,
+                hasServerAllAccess: false,
+                hasLocalMasterAccess: false,
+                simulatesFreeMode: false,
+                now: now
+            ),
+            .pro
+        )
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [PurchaseManager.proMonthlyProductID],
+                trialEndsAt: nil,
+                hasServerAllAccess: false,
+                hasLocalMasterAccess: false,
+                simulatesFreeMode: false,
+                now: now
+            ),
+            .pro
+        )
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [],
+                trialEndsAt: now.addingTimeInterval(-1),
+                hasServerAllAccess: false,
+                hasLocalMasterAccess: false,
+                simulatesFreeMode: false,
+                now: now
+            ),
+            .free
+        )
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [],
+                trialEndsAt: nil,
+                hasServerAllAccess: true,
+                hasLocalMasterAccess: false,
+                simulatesFreeMode: false,
+                now: now
+            ),
+            .allAccess
+        )
+        XCTAssertEqual(
+            PBEntitlementAccessPolicy.tier(
+                activeProductIDs: [PurchaseManager.proMonthlyProductID],
+                trialEndsAt: now.addingTimeInterval(86_400),
+                hasServerAllAccess: true,
+                hasLocalMasterAccess: true,
+                simulatesFreeMode: true,
+                now: now
+            ),
+            .free
+        )
+    }
+
+    func testTrialClaimUsesAppCheckCallableWithoutPostingProductIdentifiers() async throws {
+        let expiry = Date(timeIntervalSince1970: 2_000_086_400)
+        let transport = SocialCallableTransportStub(responses: [
+            "entitlementTrialV2": [
+                "ok": true,
+                "trialUsed": true,
+                "trialStartedNow": true,
+                "trialEndsAtMs": NSNumber(value: expiry.timeIntervalSince1970 * 1_000),
+                "serverAllAccess": false
+            ]
+        ])
+        let repository = PBTrialEntitlementRepository(callable: transport)
+
+        let state = try await repository.claim()
+
+        XCTAssertTrue(state.trialUsed)
+        XCTAssertTrue(state.trialStartedNow)
+        XCTAssertEqual(
+            try XCTUnwrap(state.trialEndsAt).timeIntervalSince1970,
+            expiry.timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(state.serverAllAccess)
+        XCTAssertEqual(transport.calls.map(\.name), ["entitlementTrialV2"])
+        XCTAssertEqual(transport.calls.first?.data["requestTrial"] as? Bool, true)
+        XCTAssertNil(transport.calls.first?.data["activeProductIDs"])
+    }
+
     func testSocialActionsUseTheAppCheckCallableSurface() async throws {
         let transport = SocialCallableTransportStub(responses: [
             "socialActionV2": ["ok": true, "status": "requested"]

@@ -1,37 +1,77 @@
 import SwiftUI
 import Combine
 import os
-import FirebaseAuth
 import FirebaseFirestore
 import StoreKit
 import UIKit
-
-@MainActor
-enum PBAccountType: String, CaseIterable, Identifiable {
-    case student
-    case teacher
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .student: return "Student"
-        case .teacher: return "Teacher"
-        }
-    }
-}
 
 @MainActor
 enum PBEntitlementTier: String, CaseIterable {
     case free
     case pro
     case allAccess = "all_access"
+}
 
-    var isUnlocked: Bool {
-        switch self {
-        case .free: return false
-        case .pro, .allAccess: return true
+@MainActor
+enum PBEntitlementAccessPolicy {
+    static func tier(
+        activeProductIDs: Set<String>,
+        trialEndsAt: Date?,
+        hasServerAllAccess: Bool,
+        hasLocalMasterAccess: Bool,
+        simulatesFreeMode: Bool,
+        now: Date = .now
+    ) -> PBEntitlementTier {
+        if simulatesFreeMode {
+            return .free
         }
+        if hasServerAllAccess || hasLocalMasterAccess {
+            return .allAccess
+        }
+        if !activeProductIDs.isDisjoint(with: Set(PurchaseManager.proSubscriptionProductIDs)) {
+            return .pro
+        }
+        if let trialEndsAt, trialEndsAt > now {
+            return .pro
+        }
+        return .free
+    }
+}
+
+struct PBTrialEntitlementState: Equatable {
+    let trialUsed: Bool
+    let trialEndsAt: Date?
+    let trialStartedNow: Bool
+    let serverAllAccess: Bool
+}
+
+final class PBTrialEntitlementRepository {
+    private let callable: FirebaseCallableTransport
+
+    init(callable: FirebaseCallableTransport = FirebaseCallableClient()) {
+        self.callable = callable
+    }
+
+    func claim() async throws -> PBTrialEntitlementState {
+        let response = try await callable.call(
+            "entitlementTrialV2",
+            data: ["requestTrial": true]
+        )
+        guard response["ok"] as? Bool == true else {
+            throw FirebaseCallableError.invalidResponse
+        }
+        let trialEndsAt: Date?
+        if let ms = response["trialEndsAtMs"] as? NSNumber {
+            trialEndsAt = Date(timeIntervalSince1970: ms.doubleValue / 1000.0)
+        } else {
+            trialEndsAt = nil
+        }
+        return PBTrialEntitlementState(
+            trialUsed: response["trialUsed"] as? Bool ?? false,
+            trialEndsAt: trialEndsAt,
+            trialStartedNow: response["trialStartedNow"] as? Bool ?? false,
+            serverAllAccess: response["serverAllAccess"] as? Bool ?? false
+        )
     }
 }
 
@@ -43,10 +83,8 @@ final class PurchaseManager: ObservableObject {
     // subscribers are grandfathered without an account or receipt migration.
     static let adFreeSubscriptionProductIDs = [proMonthlyProductID, adFreeMonthlyProductID]
     static let proSubscriptionProductIDs = adFreeSubscriptionProductIDs
-    static let entitlementSyncEndpointName = "syncEntitlements"
     static let subscriptionActiveKey = "pb.pro.subscriptionActive"
     static let subscriptionProductIDsKey = "pb.pro.subscriptionProductIDs"
-    static let accountTypeKey = "pb.pro.accountType"
     static let entitlementTierKey = "pb.pro.entitlementTier"
     static let masterSimulateFreeModeKey = "pb.master.simulateFreeMode"
 
@@ -54,7 +92,6 @@ final class PurchaseManager: ObservableObject {
     @Published private(set) var isPro: Bool
     @Published private(set) var hasActiveSubscription: Bool
     @Published private(set) var entitlementTier: PBEntitlementTier
-    @Published private(set) var accountType: PBAccountType
     @Published private(set) var masterSimulateFreeMode: Bool
     @Published private(set) var trialUsed: Bool = false
     @Published private(set) var trialEndsAt: Date?
@@ -68,29 +105,24 @@ final class PurchaseManager: ObservableObject {
     var featuresUnlocked: Bool { isPro }
 
     private var db: Firestore { Firestore.firestore() }
-    private let urlSession = URLSession.shared
+    private lazy var trialRepository = PBTrialEntitlementRepository()
     private var userListener: ListenerRegistration?
     private var linkedUID: String?
     private var linkedEmail: String?
     private var isMasterOverride = false
+    private var hasServerAllAccess = false
     private var updatesTask: Task<Void, Never>?
     private var foregroundCancellable: AnyCancellable?
-    private var lastSyncedUID: String?
-    private var lastSyncedStateFingerprint: String?
 
     init() {
         let defaults = UserDefaults.standard
         let storedSubscriptionActive = defaults.bool(forKey: Self.subscriptionActiveKey)
         let storedSubscriptionIDs = Set(defaults.stringArray(forKey: Self.subscriptionProductIDsKey) ?? [])
-        let storedTier = PBEntitlementTier(rawValue: defaults.string(forKey: Self.entitlementTierKey) ?? "") ?? .free
-        let storedTypeRaw = defaults.string(forKey: Self.accountTypeKey) ?? PBAccountType.student.rawValue
-        let storedType = PBAccountType(rawValue: storedTypeRaw) ?? .student
         let storedMasterSimulateFree = defaults.bool(forKey: Self.masterSimulateFreeModeKey)
 
         hasActiveSubscription = storedSubscriptionActive
-        entitlementTier = storedTier
+        entitlementTier = .free
         isPro = false
-        accountType = storedType
         masterSimulateFreeMode = storedMasterSimulateFree
         ownedProductIDs = storedSubscriptionIDs
         if hasActiveSubscription && ownedProductIDs.isEmpty {
@@ -185,28 +217,7 @@ final class PurchaseManager: ObservableObject {
                 }
 
                 guard let data = snapshot?.data() else {
-                    await self.pushLocalStateToFirestore()
                     return
-                }
-
-                if !self.isMasterOverride {
-                    let remoteSubscription = data["subscriptionActive"] as? Bool
-                    if let remoteSubscription, remoteSubscription != self.hasActiveSubscription {
-                        let remoteProductIDs = Set((data["subscriptionProductIDs"] as? [String]) ?? [])
-                        self.applySubscriptionState(remoteSubscription, productIDs: remoteProductIDs)
-                    }
-
-                    if let tierRaw = data["entitlementTier"] as? String,
-                       let tier = PBEntitlementTier(rawValue: tierRaw),
-                       tier != self.entitlementTier {
-                        self.applyEntitlementTier(tier)
-                    }
-                }
-
-                if let raw = data["accountType"] as? String,
-                   let remoteType = PBAccountType(rawValue: raw),
-                   remoteType != self.accountType {
-                    self.applyAccountType(remoteType)
                 }
 
                 self.trialUsed = data["trialUsed"] as? Bool ?? self.trialUsed
@@ -215,57 +226,31 @@ final class PurchaseManager: ObservableObject {
                 } else {
                     self.trialEndsAt = nil
                 }
-
-                if self.isMasterOverride {
-                    self.enforceMasterAccessValues()
-                }
+                self.hasServerAllAccess =
+                    data["isMasterAccount"] as? Bool == true ||
+                    data["entitlementTier"] as? String == PBEntitlementTier.allAccess.rawValue
+                self.recalculateProAccess()
             }
         }
-
-        Task {
-            await pushLocalStateToFirestore()
-        }
-    }
-
-    func setAccountType(_ newType: PBAccountType) {
-        guard newType != accountType else { return }
-        applyAccountType(newType)
-        syncStatus = "Switched to \(newType.title) tools."
-        Task { await pushLocalStateToFirestore() }
     }
 
     func setMasterSimulateFreeMode(_ enabled: Bool) {
         guard masterSimulateFreeMode != enabled else { return }
         masterSimulateFreeMode = enabled
         UserDefaults.standard.set(enabled, forKey: Self.masterSimulateFreeModeKey)
-
-        if isMasterOverride {
-            enforceMasterAccessValues()
-        } else {
-            recalculateProAccess()
-        }
-    }
-
-    func completeInitialAccountSetup(as type: PBAccountType) {
-        applyAccountType(type)
-        syncStatus = nil
-        Task { await pushLocalStateToFirestore() }
+        recalculateProAccess()
     }
 
     func debugUnlockPro() {
-        applyEntitlementTier(.allAccess)
-        applySubscriptionState(true, productIDs: Set(Self.adFreeSubscriptionProductIDs))
-        Task {
-            await pushLocalStateToFirestore()
-        }
+        hasServerAllAccess = true
+        recalculateProAccess()
     }
 
     func debugLockPro() {
-        applyEntitlementTier(.free)
+        hasServerAllAccess = false
         applySubscriptionState(false, productIDs: [])
-        Task {
-            await pushLocalStateToFirestore()
-        }
+        trialEndsAt = nil
+        recalculateProAccess()
     }
 
     func loadProducts() async {
@@ -289,41 +274,26 @@ final class PurchaseManager: ObservableObject {
         }
 
         if isMasterOverride {
-            enforceMasterAccessValues()
-            await pushLocalStateToFirestore()
+            recalculateProAccess()
             return
         }
 
-        do {
-            let server = try await syncEntitlementsWithServer(activeProductIDs: activeProductIDs, requestTrial: false)
-            applySubscriptionState(server.subscriptionActive, productIDs: server.subscriptionProductIDs)
-            applyEntitlementTier(server.entitlementTier)
-            trialUsed = server.trialUsed
-            trialEndsAt = server.trialEndsAt
-            syncStatus = nil
-        } catch {
-            // Keep local StoreKit-derived access as fallback when endpoint is unreachable.
-            applySubscriptionState(!activeProductIDs.isEmpty, productIDs: activeProductIDs)
-            if !activeProductIDs.isEmpty && entitlementTier == .free {
-                applyEntitlementTier(.pro)
-            }
-            PBLog.firebase.warning("Entitlement server sync failed; using local fallback: \(error.localizedDescription, privacy: .public)")
-        }
-        await pushLocalStateToFirestore()
+        // Verified StoreKit 2 transactions are the paid-entitlement source of
+        // truth. Product identifiers are never posted to a server endpoint that
+        // could accidentally trust client-supplied ownership.
+        applySubscriptionState(!activeProductIDs.isEmpty, productIDs: activeProductIDs)
+        recalculateProAccess()
+        syncStatus = nil
     }
 
     @discardableResult
     func startServerTrialIfEligible() async -> Bool {
         do {
-            let server = try await syncEntitlementsWithServer(
-                activeProductIDs: ownedProductIDs,
-                requestTrial: true
-            )
-            applySubscriptionState(server.subscriptionActive, productIDs: server.subscriptionProductIDs)
-            applyEntitlementTier(server.entitlementTier)
+            let server = try await trialRepository.claim()
             trialUsed = server.trialUsed
             trialEndsAt = server.trialEndsAt
-            await pushLocalStateToFirestore()
+            hasServerAllAccess = server.serverAllAccess
+            recalculateProAccess()
             return server.trialStartedNow || (server.trialEndsAt?.timeIntervalSinceNow ?? 0) > 0
         } catch {
             syncStatus = "Could not start trial right now."
@@ -340,137 +310,30 @@ final class PurchaseManager: ObservableObject {
         recalculateProAccess()
     }
 
-    private func applyEntitlementTier(_ value: PBEntitlementTier) {
-        guard entitlementTier != value else { return }
-        entitlementTier = value
-        UserDefaults.standard.set(value.rawValue, forKey: Self.entitlementTierKey)
-        recalculateProAccess()
-    }
-
     private func recalculateProAccess(now: Date = Date()) {
-        let _ = now
-        let masterUnlocked = isMasterOverride && !masterSimulateFreeMode
-        let newPro = masterUnlocked || entitlementTier.isUnlocked || hasActiveSubscription
+        let nextTier = PBEntitlementAccessPolicy.tier(
+            activeProductIDs: ownedProductIDs,
+            trialEndsAt: trialEndsAt,
+            hasServerAllAccess: hasServerAllAccess,
+            hasLocalMasterAccess: isMasterOverride,
+            simulatesFreeMode: masterSimulateFreeMode,
+            now: now
+        )
+        if entitlementTier != nextTier {
+            entitlementTier = nextTier
+            UserDefaults.standard.set(nextTier.rawValue, forKey: Self.entitlementTierKey)
+        }
+        let newPro = nextTier != .free
         if isPro != newPro { isPro = newPro }
     }
 
     private func applyMasterOverride(_ enabled: Bool) {
-        guard enabled != isMasterOverride else {
-            if enabled {
-                enforceMasterAccessValues()
-            }
-            return
-        }
-
+        guard enabled != isMasterOverride else { return }
         isMasterOverride = enabled
         if enabled {
-            enforceMasterAccessValues()
             syncStatus = nil
-        } else {
-            if entitlementTier == .allAccess {
-                applyEntitlementTier(hasActiveSubscription ? .pro : .free)
-            }
-            recalculateProAccess()
-        }
-    }
-
-    private func enforceMasterAccessValues() {
-        if masterSimulateFreeMode {
-            applySubscriptionState(false, productIDs: [])
-            applyEntitlementTier(.free)
-        } else {
-            applyEntitlementTier(.allAccess)
         }
         recalculateProAccess()
-    }
-
-    private func applyAccountType(_ value: PBAccountType) {
-        guard accountType != value else { return }
-        accountType = value
-        UserDefaults.standard.set(value.rawValue, forKey: Self.accountTypeKey)
-    }
-
-    private func pushLocalStateToFirestore() async {
-        guard let uid = linkedUID else { return }
-        guard let authUID = Auth.auth().currentUser?.uid, authUID == uid else {
-            PBLog.firebase.warning("Skipped purchase sync: auth user mismatch or missing. uid=\(uid, privacy: .private)")
-            return
-        }
-        let fingerprint = localStateFingerprint()
-        if lastSyncedUID == uid, lastSyncedStateFingerprint == fingerprint {
-            return
-        }
-        do {
-            // Keep entitlement/subscription fields server-authoritative.
-            let payload: [String: Any] = [
-                "accountType": accountType.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ]
-            try await db.collection("users").document(uid).setData(payload, merge: true)
-            lastSyncedUID = uid
-            lastSyncedStateFingerprint = fingerprint
-            syncStatus = nil
-        } catch {
-            syncStatus = "Subscription sync failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func localStateFingerprint() -> String {
-        return accountType.rawValue
-    }
-
-    private func syncEntitlementsWithServer(
-        activeProductIDs: Set<String>,
-        requestTrial: Bool
-    ) async throws -> EntitlementServerState {
-        guard let user = Auth.auth().currentUser else {
-            throw NSError(
-                domain: "PracticeBuddy.Purchase",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "No authenticated Firebase user."]
-            )
-        }
-        guard let baseURL = AppInfo.duelFunctionsBaseURL else {
-            throw NSError(
-                domain: "PracticeBuddy.Purchase",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Cloud Functions URL is missing."]
-            )
-        }
-        let token = try await user.getIDToken()
-        let endpoint = baseURL.appendingPathComponent(Self.entitlementSyncEndpointName)
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 20
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(
-            withJSONObject: [
-                "activeProductIDs": Array(activeProductIDs).sorted(),
-                "requestTrial": requestTrial
-            ],
-            options: []
-        )
-
-        let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw NSError(
-                domain: "PracticeBuddy.Purchase",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid entitlement server response."]
-            )
-        }
-        let json = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
-        guard (200..<300).contains(http.statusCode) else {
-            let message = (json?["error"] as? String) ?? "Entitlement sync failed (\(http.statusCode))."
-            throw NSError(
-                domain: "PracticeBuddy.Purchase",
-                code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: message]
-            )
-        }
-        return EntitlementServerState(payload: json ?? [:], fallbackProductIDs: activeProductIDs)
     }
 
     private func observeTransactionUpdates() -> Task<Void, Never> {
@@ -487,40 +350,7 @@ final class PurchaseManager: ObservableObject {
 
     private func applyVerifiedTransaction(_ transaction: StoreKit.Transaction) async {
         if Self.adFreeSubscriptionProductIDs.contains(transaction.productID) {
-            if entitlementTier == .free {
-                applyEntitlementTier(.pro)
-            }
             applySubscriptionState(true, productIDs: [transaction.productID])
-            await pushLocalStateToFirestore()
         }
-    }
-}
-
-private struct EntitlementServerState {
-    let subscriptionActive: Bool
-    let subscriptionProductIDs: Set<String>
-    let entitlementTier: PBEntitlementTier
-    let trialUsed: Bool
-    let trialEndsAt: Date?
-    let trialStartedNow: Bool
-
-    init(payload: [String: Any], fallbackProductIDs: Set<String>) {
-        if let rawIDs = payload["subscriptionProductIDs"] as? [String] {
-            subscriptionProductIDs = Set(rawIDs.filter {
-                PurchaseManager.adFreeSubscriptionProductIDs.contains($0)
-            })
-        } else {
-            subscriptionProductIDs = fallbackProductIDs
-        }
-        subscriptionActive = payload["subscriptionActive"] as? Bool ?? !subscriptionProductIDs.isEmpty
-        let tierRaw = (payload["entitlementTier"] as? String ?? PBEntitlementTier.free.rawValue)
-        entitlementTier = PBEntitlementTier(rawValue: tierRaw) ?? .free
-        trialUsed = payload["trialUsed"] as? Bool ?? false
-        if let ms = payload["trialEndsAtMs"] as? NSNumber {
-            trialEndsAt = Date(timeIntervalSince1970: ms.doubleValue / 1000.0)
-        } else {
-            trialEndsAt = nil
-        }
-        trialStartedNow = payload["trialStartedNow"] as? Bool ?? false
     }
 }
