@@ -42,7 +42,7 @@ struct ContentView: View {
     @StateObject private var presenceManager = FirebasePresenceManager()
     @StateObject private var socialChatManager = StudioChatViewModel()
     @StateObject private var notificationStore = PBNotificationStore.shared
-    @StateObject private var versionGate = AppVersionGateManager()
+    @StateObject private var versionGate: AppVersionGateManager
     @StateObject private var practiceCoordinator = PracticeSessionCoordinator()
     @StateObject private var appRouter = AppRouter()
     @StateObject private var buddiesManager = BuddiesViewModel()
@@ -65,6 +65,21 @@ struct ContentView: View {
 
     init(launchConfiguration: AppLaunchConfiguration) {
         self.launchConfiguration = launchConfiguration
+        let versionGateState: AppVersionGateManager.State
+        switch launchConfiguration.versionGateFixture {
+        case .checking:
+            versionGateState = .checking
+        case .updateRequired:
+            versionGateState = .updateRequired(
+                latestVersion: "2.1.0",
+                storeURL: URL(string: "https://apps.apple.com/app/id\(AppInfo.appStoreAppleID)")!
+            )
+        case nil:
+            versionGateState = .idle
+        }
+        _versionGate = StateObject(
+            wrappedValue: AppVersionGateManager(initialState: versionGateState)
+        )
         _appRouter = StateObject(
             wrappedValue: AppRouter(
                 selectedDestination: launchConfiguration.initialDestination,
@@ -356,19 +371,16 @@ struct ContentView: View {
     @ViewBuilder
     private var rootContent: some View {
         if !firebase.isReady {
-            VStack(spacing: 14) {
-                PBSkeletonCard(lines: 2)
-                    .padding(PBLayout.padMD)
-                    .pbModernCard(palette: theme.resolvedPalette(for: colorScheme))
-                PBSkeletonCard(lines: 3)
-                    .padding(PBLayout.padMD)
-                    .pbModernCard(palette: theme.resolvedPalette(for: colorScheme))
-                ProgressView()
-                    .padding(.top, 6)
+            ZStack {
+                StudioQuestBackground()
+                StudioQuestLoadingState(title: "Preparing your practice world…")
+                    .padding(StudioQuestTokens.Spacing.lg)
+                    .frame(maxWidth: 420)
+                    .studioQuestSurface(.resting)
+                    .padding(StudioQuestTokens.Spacing.lg)
+                    .accessibilityIdentifier("launch.firebase.loading")
             }
-            .padding(PBLayout.padLG)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(PBBackdropView(palette: theme.resolvedPalette(for: colorScheme)))
         } else if !v2OnboardingCompleted {
             PracticeFirstOnboardingView {
                 v2OnboardingCompleted = true
@@ -387,48 +399,48 @@ struct ContentView: View {
 
     @ViewBuilder
     private var versionGateView: some View {
-        let palette = theme.resolvedPalette(for: colorScheme)
         ZStack {
-            PBBackdropView(palette: palette)
-                .ignoresSafeArea()
+            StudioQuestBackground()
 
-            VStack(spacing: 14) {
+            VStack(spacing: StudioQuestTokens.Spacing.md) {
                 switch versionGate.state {
                 case .checking, .idle:
-                    ProgressView()
-                    Text("Checking for updates…")
-                        .font(.headline)
-                        .foregroundStyle(palette.textPrimary)
+                    StudioQuestLoadingState(title: "Checking for updates…")
+                        .accessibilityIdentifier("versionGate.checking")
                 case .updateRequired(let latestVersion, _):
                     Image(systemName: "arrow.down.app.fill")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(palette.accent)
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        .accessibilityHidden(true)
                     Text("Update Required")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(palette.textPrimary)
+                        .font(StudioQuestTokens.Typography.heroTitle)
+                        .multilineTextAlignment(.center)
                     Text("A newer version (\(latestVersion)) is available. Please update to continue.")
                         .font(.subheadline)
-                        .foregroundStyle(palette.textSecondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    VStack(spacing: 8) {
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(spacing: StudioQuestTokens.Spacing.sm) {
                         Button("Update") {
                             versionGate.openUpdate()
                         }
-                        .buttonStyle(PBActionButtonStyle(variant: .primary, palette: palette))
+                        .buttonStyle(StudioQuestPrimaryButtonStyle())
+                        .accessibilityIdentifier("versionGate.update")
 
                         Button("I Updated, Check Again") {
                             versionGate.recheckNow()
                         }
-                        .buttonStyle(PBActionButtonStyle(variant: .secondary, palette: palette))
+                        .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .accessibilityIdentifier("versionGate.recheck")
                     }
                 case .upToDate:
                     EmptyView()
                 }
             }
-            .padding(PBLayout.padLG)
+            .padding(StudioQuestTokens.Spacing.lg)
             .frame(maxWidth: 420)
-            .pbModernCard(palette: palette)
-            .padding(PBLayout.padLG)
+            .studioQuestSurface(.lifted)
+            .padding(StudioQuestTokens.Spacing.lg)
         }
         .allowsHitTesting(true)
     }
@@ -450,8 +462,6 @@ struct ContentView: View {
         guard !needsAccountSetup else { return false }
         return true
     }
-
-    private var theme: PBTheme { themeManager.theme }
 
     private func refreshRuntimePipelines(forceUserPipeline: Bool) {
         syncUserPipelines(force: forceUserPipeline)

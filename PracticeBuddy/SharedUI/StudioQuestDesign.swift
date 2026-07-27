@@ -339,6 +339,8 @@ struct StudioQuestQAStateOverlay: View {
                 ProgressView("Loading your practice world…")
                     .controlSize(.large)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("qa.loading")
         case "offline":
             VStack {
                 StudioQuestInlineStatus(

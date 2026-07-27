@@ -65,6 +65,25 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(configuration.fixtureSet, .complete)
     }
 
+    func testLaunchConfigurationParsesDeterministicVersionGateFixture() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.versionGate.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let configuration = AppLaunchConfiguration(
+            arguments: [
+                "PracticeBuddy",
+                "--qa-skip-version-gate",
+                "--qa-version-gate", "updateRequired"
+            ],
+            defaults: defaults,
+            qaOverridesEnabled: true
+        )
+
+        XCTAssertEqual(configuration.versionGateFixture, .updateRequired)
+        XCTAssertTrue(configuration.skipVersionGate)
+    }
+
     func testRouterStartsWithOneExactPathWithoutOnAppearMutation() throws {
         let router = AppRouter(
             selectedDestination: .you,

@@ -61,6 +61,26 @@ final class StudioQuestNavigationUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Quest"].exists)
     }
 
+    func testLaunchLoadingAndMandatoryUpdateUseStudioQuestStates() {
+        let loadingApp = launch(
+            populated: false,
+            communityPopulated: false,
+            extraArguments: ["--qa-state", "loading"]
+        )
+        XCTAssertTrue(
+            loadingApp.staticTexts["Loading your practice world…"].waitForExistence(timeout: 8)
+        )
+        loadingApp.terminate()
+
+        let updateApp = launch(
+            populated: false,
+            communityPopulated: false,
+            extraArguments: ["--qa-version-gate", "updateRequired"]
+        )
+        XCTAssertTrue(updateApp.buttons["versionGate.update"].waitForExistence(timeout: 8))
+        XCTAssertTrue(updateApp.buttons["versionGate.recheck"].exists)
+    }
+
     func testEveryFeaturedQuestNodeOpensAFunctionalDetail() {
         let app = launch(destination: 1, populated: false)
         let questNames = [

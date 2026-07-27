@@ -318,6 +318,11 @@ struct AppLaunchConfiguration: Equatable {
         case paused
     }
 
+    enum VersionGateFixture: String, Equatable {
+        case checking
+        case updateRequired
+    }
+
     let initialDestination: AppDestination
     let initialRoute: AppRoute?
     let skipOnboarding: Bool
@@ -327,6 +332,7 @@ struct AppLaunchConfiguration: Equatable {
     let qaState: String?
     let toolState: StudioQuestQAToolState?
     let practiceState: PracticeState
+    let versionGateFixture: VersionGateFixture?
     let roomEditorPresented: Bool
     let isQA: Bool
 
@@ -369,6 +375,7 @@ struct AppLaunchConfiguration: Equatable {
             qaState = nil
             toolState = nil
             practiceState = .idle
+            versionGateFixture = nil
             roomEditorPresented = false
             isQA = false
             return
@@ -393,6 +400,8 @@ struct AppLaunchConfiguration: Equatable {
         practiceState = Self.value(after: "--qa-practice-state", in: arguments)
             .flatMap(PracticeState.init(rawValue:))
             ?? (arguments.contains("--qa-open-studio") ? .running : .idle)
+        versionGateFixture = Self.value(after: "--qa-version-gate", in: arguments)
+            .flatMap(VersionGateFixture.init(rawValue:))
         roomEditorPresented = requestedRoute?.opensRoomEditor == true
         isQA = arguments.contains(where: { $0.hasPrefix("--qa-") })
 

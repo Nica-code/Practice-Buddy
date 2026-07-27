@@ -1524,5 +1524,19 @@
   "ro:What comes next?": "Ce urmează?",
   "ro:Warm-up complete": "Încălzirea completă",
   "ro:Your circle": "Cercul tău",
-  "ro:Your sequence": "Secvența ta"
+  "ro:Your sequence": "Secvența ta",
+  "ko:Preparing your practice world…": "실습 세계를 준비하는 중…",
+  "ko:Reconnect your profile, progress, and community.": "프로필, 진행 상황, 커뮤니티를 다시 연결하세요.",
+  "ko:Create a permanent account without losing this device’s practice history.": "이 기기의 연습 기록을 잃지 않고 영구 계정을 만드세요.",
+  "ko:A permanent profile is required only for community, duels, and cloud-linked identity. Private practice remains available without it.": "영구 프로필은 커뮤니티, 결투, 클라우드 연결 ID에만 필요합니다. 그것 없이도 개인 연습은 계속 가능합니다.",
+  "ko:PractiQuest can let you know when a friend reaches out or a duel needs your attention.": "PractiQuest는 친구가 연락하거나 결투에 주의가 필요할 때 알려줍니다.",
+  "ko:Use 2–30 letters, numbers, spaces, apostrophes, periods, underscores, or hyphens.": "2~30자의 문자, 숫자, 공백, 아포스트로피, 마침표, 밑줄 또는 하이픈을 사용하세요.",
+  "ko:Use at least 8 characters with at least one letter and one number.": "최소 8자 이상이어야 하며 문자 하나와 숫자 하나 이상을 사용하세요.",
+  "ro:Use 2–30 letters, numbers, spaces, apostrophes, periods, underscores, or hyphens.": "Folosiți 2–30 de litere, cifre, spații, apostrofe, puncte, caractere de subliniere sau cratime.",
+  "ro:PractiQuest can let you know when a friend reaches out or a duel needs your attention.": "PractiQuest te poate anunța când un prieten se adresează sau când un duel are nevoie de atenția ta.",
+  "ro:Create a permanent account without losing this device’s practice history.": "Creați un cont permanent fără a pierde istoricul de practică al acestui dispozitiv.",
+  "ro:A permanent profile is required only for community, duels, and cloud-linked identity. Private practice remains available without it.": "Un profil permanent este necesar numai pentru comunitate, dueluri și identitate legată de cloud. Practica privată rămâne disponibilă fără ea.",
+  "ro:Reconnect your profile, progress, and community.": "Reconectați-vă profilul, progresul și comunitatea.",
+  "ro:Preparing your practice world…": "Îți pregătești lumea de practică...",
+  "ro:Use at least 8 characters with at least one letter and one number.": "Utilizați cel puțin 8 caractere cu cel puțin o literă și un număr."
 }

@@ -11,10 +11,15 @@ final class AppVersionGateManager: ObservableObject {
         case updateRequired(latestVersion: String, storeURL: URL)
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State
 
-    private var hasCheckedThisLaunch = false
+    private var hasCheckedThisLaunch: Bool
     private var checkTask: Task<Void, Never>?
+
+    init(initialState: State = .idle) {
+        state = initialState
+        hasCheckedThisLaunch = initialState != .idle
+    }
 
     var shouldBlockLaunch: Bool {
         if case .updateRequired = state { return true }

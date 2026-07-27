@@ -881,22 +881,6 @@
         }
       }
     },
-    "2-30 chars. Letters, numbers, spaces, apostrophes, dots, underscores, or hyphens.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2~30자. 문자, 숫자, 공백, 아포스트로피, 점, 밑줄 또는 하이픈."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2-30 de caractere. Litere, cifre, spații, apostrofe, puncte, caractere de subliniere sau cratime."
-          }
-        }
-      }
-    },
     "30 sessions": {
       "localizations": {
         "ko": {
@@ -1037,6 +1021,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Este disponibilă o versiune mai nouă (%@). Actualizați pentru a continua."
+          }
+        }
+      }
+    },
+    "A permanent profile is required only for community, duels, and cloud-linked identity. Private practice remains available without it.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "영구 프로필은 커뮤니티, 결투, 클라우드 연결 ID에만 필요합니다. 그것 없이도 개인 연습은 계속 가능합니다."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un profil permanent este necesar numai pentru comunitate, dueluri și identitate legată de cloud. Practica privată rămâne disponibilă fără ea."
           }
         }
       }
@@ -1217,22 +1217,6 @@
         }
       }
     },
-    "Account details": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "계정 세부정보"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detaliile contului"
-          }
-        }
-      }
-    },
     "Accuracy": {
       "localizations": {
         "ko": {
@@ -1325,22 +1309,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adăugați note detaliate ale piesei"
-          }
-        }
-      }
-    },
-    "Add Friend": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "친구 추가"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adaugă prieten"
           }
         }
       }
@@ -1597,22 +1565,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "La %@:00"
-          }
-        }
-      }
-    },
-    "At least 8 characters, with at least 1 letter and 1 number.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최소 8자 이상이어야 하며 문자 1개 이상, 숫자 1개 이상이어야 합니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cel puțin 8 caractere, cu cel puțin 1 literă și 1 număr."
           }
         }
       }
@@ -2785,18 +2737,18 @@
         }
       }
     },
-    "Create account details": {
+    "Create a permanent account without losing this device’s practice history.": {
       "localizations": {
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "계정 세부정보 만들기"
+            "value": "이 기기의 연습 기록을 잃지 않고 영구 계정을 만드세요."
           }
         },
         "ro": {
           "stringUnit": {
             "state": "translated",
-            "value": "Creați detaliile contului"
+            "value": "Creați un cont permanent fără a pierde istoricul de practică al acestui dispozitiv."
           }
         }
       }
@@ -4065,22 +4017,6 @@
         }
       }
     },
-    "Friend": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "친구"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prieten"
-          }
-        }
-      }
-    },
     "Friend activity": {
       "localizations": {
         "ko": {
@@ -4125,22 +4061,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cod prieten"
-          }
-        }
-      }
-    },
-    "Friend request pending.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "친구 요청 대기 중입니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cerere de prietenie în așteptare."
           }
         }
       }
@@ -4413,22 +4333,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Haptică"
-          }
-        }
-      }
-    },
-    "Header": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "헤더"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Antet"
           }
         }
       }
@@ -5281,22 +5185,6 @@
         }
       }
     },
-    "Mark all read": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모두 읽은 것으로 표시"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marcați toate citite"
-          }
-        }
-      }
-    },
     "Mark last completed loop clean": {
       "localizations": {
         "ko": {
@@ -6097,22 +5985,6 @@
         }
       }
     },
-    "No notifications yet.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 알림이 없습니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicio notificare încă."
-          }
-        }
-      }
-    },
     "No permanent account required.": {
       "localizations": {
         "ko": {
@@ -6577,22 +6449,6 @@
         }
       }
     },
-    "Open Social > Friends to respond.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소셜 > 친구를 열어 응답하세요."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deschideți Social > Prieteni pentru a răspunde."
-          }
-        }
-      }
-    },
     "Open system notification settings": {
       "localizations": {
         "ko": {
@@ -6925,22 +6781,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Piesă sau sarcină"
-          }
-        }
-      }
-    },
-    "Pieces": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "곡"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Piese"
           }
         }
       }
@@ -7489,6 +7329,22 @@
         }
       }
     },
+    "PractiQuest can let you know when a friend reaches out or a duel needs your attention.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PractiQuest는 친구가 연락하거나 결투에 주의가 필요할 때 알려줍니다."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PractiQuest te poate anunța când un prieten se adresează sau când un duel are nevoie de atenția ta."
+          }
+        }
+      }
+    },
     "PractiQuest is measuring the room floor so quiet background sound is not mistaken for an attack.": {
       "localizations": {
         "ko": {
@@ -7581,6 +7437,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pregătiți %@."
+          }
+        }
+      }
+    },
+    "Preparing your practice world…": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실습 세계를 준비하는 중…"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Îți pregătești lumea de practică..."
           }
         }
       }
@@ -7841,22 +7713,6 @@
         }
       }
     },
-    "Public Profile": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "공개 프로필"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil public"
-          }
-        }
-      }
-    },
     "Publish Moment": {
       "localizations": {
         "ko": {
@@ -8065,6 +7921,22 @@
         }
       }
     },
+    "Reconnect your profile, progress, and community.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필, 진행 상황, 커뮤니티를 다시 연결하세요."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconectați-vă profilul, progresul și comunitatea."
+          }
+        }
+      }
+    },
     "Record": {
       "localizations": {
         "ko": {
@@ -8221,38 +8093,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reflectează acum"
-          }
-        }
-      }
-    },
-    "Reflection": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "성찰"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reflecție"
-          }
-        }
-      }
-    },
-    "Reject": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "거부하다"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respinge"
           }
         }
       }
@@ -9041,22 +8881,6 @@
         }
       }
     },
-    "Saved": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장됨"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salvat"
-          }
-        }
-      }
-    },
     "Saved plans": {
       "localizations": {
         "ko": {
@@ -9345,22 +9169,6 @@
         }
       }
     },
-    "Session Journal": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "세션 저널"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jurnal sesiune"
-          }
-        }
-      }
-    },
     "Session map": {
       "localizations": {
         "ko": {
@@ -9373,22 +9181,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Harta sesiunii"
-          }
-        }
-      }
-    },
-    "Session not found.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "세션을 찾을 수 없습니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesiunea nu a fost găsită."
           }
         }
       }
@@ -11265,22 +11057,6 @@
         }
       }
     },
-    "This is your profile.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이것은 귀하의 프로필입니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acesta este profilul tău."
-          }
-        }
-      }
-    },
     "This keeps your practice private by default.": {
       "localizations": {
         "ko": {
@@ -11373,22 +11149,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aceasta stabilește un punct de plecare util. Îl poți schimba oricând."
-          }
-        }
-      }
-    },
-    "This user sent you a friend request.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 사용자가 귀하에게 친구 요청을 보냈습니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acest utilizator v-a trimis o cerere de prietenie."
           }
         }
       }
@@ -11665,22 +11425,6 @@
         }
       }
     },
-    "Turn on notifications so PractiQuest can reach you when it matters.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PractiQuest가 중요한 순간에 연락할 수 있도록 알림을 켜세요."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activați notificările pentru ca PractiQuest să vă poată contacta atunci când este important."
-          }
-        }
-      }
-    },
     "Turn the session into a useful next step.": {
       "localizations": {
         "ko": {
@@ -11857,6 +11601,22 @@
         }
       }
     },
+    "Use 2–30 letters, numbers, spaces, apostrophes, periods, underscores, or hyphens.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2~30자의 문자, 숫자, 공백, 아포스트로피, 마침표, 밑줄 또는 하이픈을 사용하세요."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folosiți 2–30 de litere, cifre, spații, apostrofe, puncte, caractere de subliniere sau cratime."
+          }
+        }
+      }
+    },
     "Use a friend code or search for a musician to make a connection.": {
       "localizations": {
         "ko": {
@@ -11869,6 +11629,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Utilizați un cod de prieten sau căutați un muzician pentru a stabili o conexiune."
+          }
+        }
+      }
+    },
+    "Use at least 8 characters with at least one letter and one number.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최소 8자 이상이어야 하며 문자 하나와 숫자 하나 이상을 사용하세요."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizați cel puțin 8 caractere cu cel puțin o literă și un număr."
           }
         }
       }
@@ -12337,22 +12113,6 @@
         }
       }
     },
-    "You are friends": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "당신은 친구입니다"
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ești deja prieten cu acest utilizator"
-          }
-        }
-      }
-    },
     "You need more tokens": {
       "localizations": {
         "ko": {
@@ -12461,22 +12221,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Următorul tău plan este gata de conturat"
-          }
-        }
-      }
-    },
-    "Your notes were updated.": {
-      "localizations": {
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트가 업데이트되었습니다."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notițele tale au fost actualizate."
           }
         }
       }
