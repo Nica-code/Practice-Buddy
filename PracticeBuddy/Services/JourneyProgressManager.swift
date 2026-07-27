@@ -233,6 +233,7 @@ final class JourneyProgressManager: ObservableObject {
     private var inventoryLinkedUID: String?
     private var isApplyingRemoteInventory = false
     private var economyOperationKeysInFlight: Set<String> = []
+    private let isDeterministicQAFixture: Bool
     private let defaults = UserDefaults.standard
     private let db = Firestore.firestore()
     private let isoDayFormatter: DateFormatter = {
@@ -245,16 +246,24 @@ final class JourneyProgressManager: ObservableObject {
     }()
 
     init() {
-        totalXP = defaults.integer(forKey: Keys.totalXP)
+        let deterministicQAFixture =
+            ProcessInfo.processInfo.arguments.contains("--qa-populated")
+            || ProcessInfo.processInfo.arguments.contains("--qa-community-populated")
+        isDeterministicQAFixture = deterministicQAFixture
+        totalXP = deterministicQAFixture ? 2_856 : defaults.integer(forKey: Keys.totalXP)
         loadProcessedIDs()
         loadLedger()
         loadClaimedQuestRewards()
         loadOwnedAvatars()
         loadOwnedRewards()
         loadEquippedRewards()
-        tokenBalance = max(0, defaults.integer(forKey: Keys.tokenBalance))
+        tokenBalance = deterministicQAFixture
+            ? 320
+            : max(0, defaults.integer(forKey: Keys.tokenBalance))
         recalculateLevel()
-        todayXP = xpLedgerByDay[dayKey(for: Date())] ?? 0
+        todayXP = deterministicQAFixture
+            ? 180
+            : xpLedgerByDay[dayKey(for: Date())] ?? 0
         refreshRewards()
         telemetryCancellable = NotificationCenter.default.publisher(for: DuelQuestNotification.telemetryDidChange)
             .sink { [weak self] _ in
@@ -271,6 +280,10 @@ final class JourneyProgressManager: ObservableObject {
 
     func handleSessionSnapshot(_ sessions: [PracticeSessionModel]) {
         lastSessions = sessions
+        if isDeterministicQAFixture {
+            updateQuestProgress(from: sessions)
+            return
+        }
         if !defaults.bool(forKey: Keys.seeded) {
             seedFromExistingSessions(sessions)
             defaults.set(true, forKey: Keys.seeded)

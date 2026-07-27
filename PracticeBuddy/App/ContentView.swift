@@ -133,7 +133,7 @@ struct ContentView: View {
             store.configure(context: modelContext)
             #if DEBUG
             if launchConfiguration.fixtureSet.includesPracticeHistory {
-                store.applyStudioQuestFixtureIfNeeded()
+                store.applyStudioQuestFixture()
                 PracticeQuestProgressStore.shared.applyStudioQuestFixture()
             }
             applyInitialPracticeStateIfNeeded()

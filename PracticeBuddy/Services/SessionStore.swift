@@ -425,27 +425,101 @@ final class SessionStore: ObservableObject {
     }
 
     #if DEBUG
-    func applyStudioQuestFixtureIfNeeded() {
-        guard sessions.isEmpty else { return }
+    /// Replaces QA-only history on every deterministic populated launch.
+    ///
+    /// UI tool tests intentionally save real sessions through the production
+    /// persistence path. Without a reset, those three-second test saves leaked
+    /// into later screenshots and made identical launch arguments produce
+    /// different Today and You states. This method is compiled only in DEBUG
+    /// and is called only for an explicit QA fixture set.
+    func applyStudioQuestFixture() {
+        guard let modelContext else { return }
+
+        for session in sessions {
+            modelContext.delete(session)
+        }
+
+        do {
+            try modelContext.save()
+            sessions = []
+        } catch {
+            PBLog.sessionStore.error(
+                "Could not reset deterministic session fixtures: \(String(describing: error), privacy: .public)"
+            )
+            lastAppError = PBAppError(
+                title: "Fixture Setup Failed",
+                message: "The deterministic practice history could not be prepared."
+            )
+            return
+        }
+
         let calendar = Calendar.current
-        let fixtures: [(daysAgo: Int, duration: Int, verified: Int, title: String, focus: String, mood: String)] = [
-            (0, 2_520, 2_340, "Bach: Partita No. 2", "Rhythm clarity", "focused"),
-            (1, 1_860, 1_860, "Technique and scales", "Even tone", "energized"),
-            (3, 3_300, 2_700, "Brahms: Sonata in F minor", "Dynamic control", "reflective"),
-            (5, 1_440, 1_260, "Sight-reading", "Keep moving", "calm")
+        let fixtures: [(id: UUID, daysAgo: Int, duration: Int, verified: Int, title: String, focus: String, mood: String)] = [
+            (
+                UUID(uuidString: "00000000-0000-4000-8000-000000000001")!,
+                0,
+                2_520,
+                2_340,
+                "Bach: Partita No. 2",
+                "Rhythm clarity",
+                "focused"
+            ),
+            (
+                UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
+                1,
+                1_860,
+                1_860,
+                "Technique and scales",
+                "Even tone",
+                "energized"
+            ),
+            (
+                UUID(uuidString: "00000000-0000-4000-8000-000000000003")!,
+                3,
+                3_300,
+                2_700,
+                "Brahms: Sonata in F minor",
+                "Dynamic control",
+                "reflective"
+            ),
+            (
+                UUID(uuidString: "00000000-0000-4000-8000-000000000004")!,
+                5,
+                1_440,
+                1_260,
+                "Sight-reading",
+                "Keep moving",
+                "calm"
+            )
         ]
 
         for fixture in fixtures.reversed() {
             guard let date = calendar.date(byAdding: .day, value: -fixture.daysAgo, to: Date()) else { continue }
-            _ = addSession(
-                date: date,
-                durationSeconds: fixture.duration,
-                verifiedSeconds: fixture.verified,
-                unverifiedSeconds: max(0, fixture.duration - fixture.verified),
-                notes: "A focused session with a clear next step.",
-                noteTitle: fixture.title,
-                noteFocus: fixture.focus,
-                noteMoodRaw: fixture.mood
+            modelContext.insert(
+                PracticeSessionModel(
+                    id: fixture.id,
+                    date: date,
+                    durationSeconds: fixture.duration,
+                    verifiedSeconds: fixture.verified,
+                    unverifiedSeconds: max(0, fixture.duration - fixture.verified),
+                    notes: "A focused session with a clear next step.",
+                    noteTitle: fixture.title,
+                    noteFocus: fixture.focus,
+                    noteMoodRaw: fixture.mood
+                )
+            )
+        }
+
+        do {
+            try modelContext.save()
+            reload()
+        } catch {
+            PBLog.sessionStore.error(
+                "Could not commit deterministic session fixtures: \(String(describing: error), privacy: .public)"
+            )
+            lastAppError = PBAppError(
+                title: "Fixture Setup Failed",
+                message: "The deterministic practice history could not be prepared."
             )
         }
     }

@@ -10,7 +10,9 @@ struct StudioQuestQuestView: View {
 
     @EnvironmentObject private var journey: JourneyProgressManager
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var buddies: BuddiesViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("practiquest.avatar.loadout") private var loadoutData = Data()
     @State private var section: QuestSection = .journey
     @State private var selectedQuest: QuestPresentation?
     @StateObject private var progressStore = PracticeQuestProgressStore.shared
@@ -23,6 +25,19 @@ struct StudioQuestQuestView: View {
                 sectionPicker
                 if section == .journey {
                     questPath
+                    if let rewardQuest = firstClaimableFeaturedQuest {
+                        RewardUnlockedView(
+                            rewardTitle: rewardQuest.title,
+                            rewardTokens: rewardQuest.rewardTokens
+                        ) {
+                            Task {
+                                _ = await journey.claimFeaturedQuestReward(
+                                    questID: rewardQuest.id,
+                                    rewardTokens: rewardQuest.rewardTokens
+                                )
+                            }
+                        }
+                    }
                 } else {
                     competitionSummary
                     duelArenaLink
@@ -124,21 +139,16 @@ struct StudioQuestQuestView: View {
                         }
                     }
 
-                if let rewardQuest = firstClaimableFeaturedQuest {
-                    RewardUnlockedView(
-                        rewardTitle: rewardQuest.title,
-                        rewardTokens: rewardQuest.rewardTokens
-                    ) {
-                        Task {
-                            _ = await journey.claimFeaturedQuestReward(
-                                questID: rewardQuest.id,
-                                rewardTokens: rewardQuest.rewardTokens
-                            )
-                        }
-                    }
-                    .frame(width: 180)
-                    .position(x: proxy.size.width * 0.70, y: proxy.size.height * 0.72)
-                }
+                StudioQuestAvatarRenderer(
+                    loadout: questAvatarLoadout,
+                    displayName: questAvatarName,
+                    size: min(proxy.size.width * 0.29, proxy.size.height * 0.19)
+                )
+                .position(
+                    x: proxy.size.width * 0.39,
+                    y: proxy.size.height * 0.57
+                )
+                .allowsHitTesting(false)
 
                 ForEach(featuredQuests) { quest in
                     let point = nodePosition(for: quest.id)
@@ -161,6 +171,17 @@ struct StudioQuestQuestView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Quest path")
+    }
+
+    private var questAvatarLoadout: AvatarLoadout {
+        (try? JSONDecoder().decode(AvatarLoadout.self, from: loadoutData))
+            ?? .starter(for: buddies.myProfile?.avatarID)
+    }
+
+    private var questAvatarName: String {
+        let name = buddies.myProfile?.displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Your musician" : name
     }
 
     private func questNode(_ quest: QuestPresentation) -> some View {
@@ -432,31 +453,46 @@ private struct RewardUnlockedView: View {
     let collect: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 12) {
             // A claimable reward sits somewhere on a tall quest map, so it needs
             // to keep drawing the eye rather than animating once on appear —
             // `.symbolEffect(value: true)` never fired again after the first.
             Image(systemName: "shippingbox.fill")
-                .font(.title)
+                .font(.title2)
                 .foregroundStyle(StudioQuestTokens.ColorRole.gold)
+                .frame(width: 48, height: 48)
+                .background(
+                    StudioQuestTokens.ColorRole.gold.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
                 .modifier(RewardPulse(isEnabled: !reduceMotion))
-            Text("Reward unlocked")
-                .font(.caption.weight(.bold))
-            Text("\(rewardTokens) tokens · \(rewardTitle)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Reward unlocked")
+                    .font(.subheadline.weight(.semibold))
+                Text("\(rewardTokens) tokens · \(rewardTitle)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 4)
+
             Button("Collect", action: collect)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 7)
+                .frame(minHeight: 44)
                 .background(StudioQuestTokens.ColorRole.coral, in: Capsule())
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(StudioQuestTokens.Spacing.sm)
+        .background(
+            StudioQuestTokens.ColorRole.surface(colorScheme),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(StudioQuestTokens.ColorRole.coral.opacity(0.45), lineWidth: 1)

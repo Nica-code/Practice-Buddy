@@ -348,6 +348,17 @@ final class BuddiesViewModel: ObservableObject {
         isShowingDebugFixtures = true
         configuredUID = configuredUID ?? "fixture-me"
         let now = Date()
+        myProfile = FirebaseUserProfile(
+            uid: "fixture-me",
+            displayName: "Julian Marco",
+            friendCode: "JULI-2048",
+            nameEditUsed: false,
+            avatarID: "avatar_note",
+            profilePhotoURL: "",
+            bio: "Violinist building expressive, dependable technique.",
+            instrument: "Violin",
+            publicLevel: 18
+        )
         buddies = [
             BuddySummary(
                 id: "fixture-aya",

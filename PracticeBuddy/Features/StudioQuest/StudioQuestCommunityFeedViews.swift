@@ -208,8 +208,12 @@ struct StudioQuestCommunityFeedView: View {
                 }
             }
         }
-        .padding(StudioQuestTokens.Spacing.md)
-        .studioQuestSurface()
+        .padding(.bottom, StudioQuestTokens.Spacing.md)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(StudioQuestTokens.ColorRole.separator(colorScheme))
+                .frame(height: 0.75)
+        }
     }
 
     private func socialIdentity(photoURL: String, avatarID: String, name: String) -> some View {

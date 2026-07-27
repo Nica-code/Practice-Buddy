@@ -568,7 +568,7 @@ struct StudioQuestTodayView: View {
 
     var body: some View {
         StudioQuestScrollPage {
-            VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
                 nextPracticeHero
                 dailyGoalSummary
@@ -607,13 +607,16 @@ struct StudioQuestTodayView: View {
     }
 
     private var nextPracticeHero: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 14) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "music.note")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(StudioQuestTokens.ColorRole.cobalt, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        StudioQuestTokens.ColorRole.cobalt,
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    )
 
                 VStack(alignment: .leading, spacing: 4) {
                     StudioQuestEyebrow("Next practice")
@@ -627,42 +630,57 @@ struct StudioQuestTodayView: View {
                 Spacer(minLength: 0)
             }
 
-            Button {
-                coordinator.quickStart()
-            } label: {
-                Label(
-                    coordinator.elapsedSeconds > 0 ? "Resume practice" : "Start practice",
-                    systemImage: "play.fill"
-                )
-            }
-            .buttonStyle(StudioQuestPrimaryButtonStyle())
-            .accessibilityIdentifier("today.startPractice")
+            HStack(spacing: 10) {
+                Button {
+                    coordinator.quickStart()
+                } label: {
+                    Label(
+                        coordinator.elapsedSeconds > 0 ? "Resume practice" : "Start practice",
+                        systemImage: "play.fill"
+                    )
+                }
+                .buttonStyle(StudioQuestPrimaryButtonStyle())
+                .accessibilityIdentifier("today.startPractice")
 
-            NavigationLink(value: AppRoute.practiceSetup(preset: suggestedPreset)) {
-                Text("Set up a session")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
+                NavigationLink(value: AppRoute.practiceSetup(preset: suggestedPreset)) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.headline)
+                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
+                            in: RoundedRectangle(
+                                cornerRadius: StudioQuestTokens.Radius.control,
+                                style: .continuous
+                            )
+                        )
+                        .contentShape(
+                            RoundedRectangle(
+                                cornerRadius: StudioQuestTokens.Radius.control,
+                                style: .continuous
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Set up a session")
+                .accessibilityIdentifier("today.setupPractice")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("today.setupPractice")
         }
         .padding(StudioQuestTokens.Spacing.md)
         .frame(maxWidth: .infinity)
-        .studioQuestSurface(.lifted)
+        .studioQuestSurface()
     }
 
     private var dailyGoalSummary: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 5)
+                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 4)
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
                         StudioQuestTokens.ColorRole.cobalt,
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                     .animation(StudioQuestTokens.Motion.gentle, value: progress)
@@ -670,7 +688,7 @@ struct StudioQuestTodayView: View {
                     .font(.caption.weight(.semibold).monospacedDigit())
                     .contentTransition(.numericText())
             }
-            .frame(width: 62, height: 62)
+            .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 4) {
                 StudioQuestEyebrow("Daily goal")
@@ -682,8 +700,14 @@ struct StudioQuestTodayView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(StudioQuestTokens.Spacing.md)
-        .studioQuestSurface()
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
+        .padding(.bottom, 12)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(StudioQuestTokens.ColorRole.separator(colorScheme))
+                .frame(height: 0.75)
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Daily practice goal")
         .accessibilityValue("\(store.totalTodaySeconds / 60) of \(goalMinutes) minutes")
@@ -709,8 +733,8 @@ struct StudioQuestTodayView: View {
         return Label(text, systemImage: symbol)
             .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
             .background(tint.opacity(0.12), in: Capsule())
     }
 

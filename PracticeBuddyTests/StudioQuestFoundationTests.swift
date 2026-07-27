@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import PracticeBuddy
 
 @MainActor
@@ -997,6 +998,55 @@ final class StudioQuestFoundationTests: XCTestCase {
 
         XCTAssertEqual(state, .mutualFollowing)
         XCTAssertEqual(transport.calls.first?.name, "socialRelationshipV2")
+    }
+
+    func testDeterministicPracticeFixtureReplacesPriorQASaves() throws {
+        let schema = Schema([
+            PracticeSessionModel.self,
+            LoopPracticeLogModel.self,
+            PracticePlanLogModel.self,
+            RhythmAccuracyTakeModel.self,
+            RunThroughModel.self,
+            ScaleIntonationTakeModel.self
+        ])
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let store = SessionStore()
+        store.configure(context: ModelContext(container))
+
+        store.applyStudioQuestFixture()
+        XCTAssertEqual(store.sessions.count, 4)
+        XCTAssertEqual(store.sessions.first?.noteTitle, "Bach: Partita No. 2")
+
+        XCTAssertTrue(
+            store.addSession(
+                date: .now,
+                durationSeconds: 3,
+                notes: "",
+                noteTitle: "UI test save"
+            )
+        )
+        XCTAssertEqual(store.sessions.count, 5)
+
+        store.applyStudioQuestFixture()
+
+        XCTAssertEqual(store.sessions.count, 4)
+        XCTAssertFalse(store.sessions.contains { $0.noteTitle == "UI test save" })
+        XCTAssertEqual(
+            Set(store.sessions.map(\.noteTitle)),
+            Set([
+                "Bach: Partita No. 2",
+                "Technique and scales",
+                "Brahms: Sonata in F minor",
+                "Sight-reading"
+            ])
+        )
     }
 }
 
