@@ -87,6 +87,8 @@ Twenty-three launch-hardening commits now sit after the design handoff. They:
 Latest commits:
 
 ```text
+bd88167 Correct App Store identity and legacy Pro access
+43e54b0 Harden App Store export contents
 8b0e6c2 Record staged Firebase production rollout
 4d0955a Enforce callable rate limits
 ee26541 Refresh launch state and release runbooks
@@ -149,8 +151,8 @@ command.
 The clean build-31 release artifacts are:
 
 ```text
-/private/tmp/PractiQuest-2.0.0-31-clean.xcarchive
-/private/tmp/PractiQuest-2.0.0-31-clean-export/PracticeBuddy.ipa
+/private/tmp/PractiQuest-2.0.0-31-final.xcarchive
+/private/tmp/PractiQuest-2.0.0-31-final-export/PracticeBuddy.ipa
 ```
 
 The first export exposed a filesystem-synchronized-target packaging defect:
@@ -181,8 +183,9 @@ currently offline in Xcode, so no physical-device checklist item is verified.
 
 The public PractiQuest App Store ID is `6759354312`. The prior in-app and Hosting
 value `6744359618` was wrong. The app and invite fallback are corrected and
-covered by a unit assertion; redeploy Hosting before considering invite sharing
-release-ready.
+covered by a unit assertion. Hosting and `syncEntitlements` were redeployed from
+`bd88167`. The live invite contains the correct link, and the legacy endpoint
+still rejects unauthenticated product assertions.
 
 ## Landmines
 

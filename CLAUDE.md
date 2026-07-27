@@ -20,7 +20,9 @@ Before code:
 - Clean App Store archive/export: passed; exported IPA contains no internal
   Markdown resources
 - Firebase deployed from this branch: indexes, Functions, Hosting, and Storage
-  are live from `3898fe9`; owner-only Firestore rules are held for client cutover
+  are live; the base rollout is from `3898fe9`, with corrected Hosting and
+  `syncEntitlements` from `bd88167`; owner-only Firestore rules are held for
+  client cutover
 
 ## Locked decisions
 

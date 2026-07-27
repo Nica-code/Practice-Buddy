@@ -4,8 +4,9 @@ Project: `practicebuddytracker`
 Current deployment status for `codex/launch-hardening`:
 
 - indexes: deployed from `3898fe9` on 2026-07-27;
-- Functions: deployed from `3898fe9`; 41/41 active;
-- Hosting: deployed from `3898fe9` and HTTPS-verified;
+- Functions: 41/41 active from `3898fe9`; `syncEntitlements` corrected from
+  `bd88167`;
+- Hosting: corrected from `bd88167` and HTTPS-verified;
 - Storage rules: current/released;
 - Firestore rules: held for coordinated v2 client cutover.
 

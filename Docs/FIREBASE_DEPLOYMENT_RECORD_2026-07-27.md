@@ -48,8 +48,11 @@ The Storage rules were already current; Firebase compiled and re-released them.
   - `/join-studio?code=*`
 - The initial invite fallback contained the incorrect App Store ID
   `6744359618`. App Store Connect and the public listing both confirm the
-  PractiQuest record is `6759354312`; a corrective Hosting deployment is
-  required before the invite fallback is release-ready.
+  PractiQuest record is `6759354312`.
+- Corrected Hosting and `syncEntitlements` were deployed from commit `bd88167`.
+- The live invite fallback now contains `6759354312` and no stale ID.
+- The updated legacy entitlement endpoint still rejects an unauthenticated
+  assertion of `practicebuddy.pro.lifetime` with HTTP 400.
 - Invite fallback validates the `XXXX-XXXX` code and hides the app-open action
   for malformed codes.
 

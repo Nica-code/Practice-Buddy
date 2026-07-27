@@ -19,6 +19,8 @@ Internal Xcode target/scheme: `PracticeBuddy`
   IPA was inspected and contains no repository Markdown/internal planning files.
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `bd88167` — correct App Store identity and lifetime Pro recognition.
+  - `43e54b0` — clean App Store export membership hardening.
   - `8b0e6c2` — staged Firebase rollout record and compatibility hold.
   - `4d0955a` — callable rate limits and client recovery copy.
   - `ee26541` — release state and operational runbooks.
@@ -230,9 +232,9 @@ Build 31 was archived with the `PracticeBuddy` scheme and exported using the
 `app-store-connect` export method:
 
 - archive:
-  `/private/tmp/PractiQuest-2.0.0-31-clean.xcarchive`
+  `/private/tmp/PractiQuest-2.0.0-31-final.xcarchive`
 - exported IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-clean-export/PracticeBuddy.ipa`
+  `/private/tmp/PractiQuest-2.0.0-31-final-export/PracticeBuddy.ipa`
 
 The filesystem-synchronized app target initially copied seven repository
 Markdown documents into the bundle. They are now explicit target-membership
@@ -242,7 +244,18 @@ was repeated, and the resulting IPA contains no `.md` resources.
 App Store Connect and the public App Store listing confirm the live PractiQuest
 Apple ID is `6759354312`. The previously configured `6744359618` was incorrect.
 The app fallback and Hosting invite page now use the published ID and have a
-unit regression assertion.
+unit regression assertion. Hosting and `syncEntitlements` were redeployed from
+`bd88167`; the public invite page now contains only the correct App Store link,
+and the legacy HTTP endpoint still rejects unauthenticated entitlement claims.
+
+The final IPA was inspected after these corrections:
+
+- bundle ID `com.alexmalaimare.practicebuddy`;
+- version `2.0.0` build `31`;
+- correct App Store ID embedded;
+- current monthly Pro and approved lifetime Pro IDs embedded;
+- no stale App Store ID;
+- no `.md` resources.
 
 ## Current Firebase rollout status
 
