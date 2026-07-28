@@ -56,12 +56,6 @@ struct PracticeStudioView: View {
                 coordinator.studioPresented = false
             }
         }
-        .overlay {
-            if coordinator.checkInManager.isAwaitingResponse {
-                PracticeStudioCheckInOverlay()
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
     }
 
     private var studioHero: some View {
@@ -187,7 +181,7 @@ struct PracticeStudioView: View {
                 }
                 .font(.caption.weight(.semibold))
 
-                if let status = coordinator.checkInStatusMessage, !status.isEmpty {
+                if let status = coordinator.verificationStatusMessage, !status.isEmpty {
                     Text(status)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -220,6 +214,7 @@ struct PracticeStudioView: View {
                     coordinator.requestFinish()
                 }
                 .disabled(coordinator.elapsedSeconds == 0)
+                .accessibilityIdentifier("studio.finish")
             }
 
             Capsule()
@@ -355,7 +350,7 @@ struct PracticeSetupView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Verified practice")
                                     .font(.headline)
-                                Text("Counts only time protected by distraction blocking and check-ins.")
+                                Text("Counts only time protected by distraction blocking, so it's a trustworthy record of focused practice.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -366,17 +361,6 @@ struct PracticeSetupView: View {
                             Divider()
                             Toggle("Block distracting apps", isOn: $coordinator.distractionBlockEnabled)
                                 .tint(StudioQuestTokens.ColorRole.cobalt)
-                            Toggle("Practice check-ins", isOn: $coordinator.checkInsEnabled)
-                                .tint(StudioQuestTokens.ColorRole.cobalt)
-
-                            if coordinator.checkInsEnabled {
-                                Picker("Check-in interval", selection: $coordinator.checkInInterval) {
-                                    ForEach(PracticeCheckInInterval.allCases) { interval in
-                                        Text(interval.title).tag(interval)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                            }
 
                             if !coordinator.appShield.isVerificationConfigured {
                                 Button {
@@ -738,81 +722,6 @@ struct PracticeLibraryView: View {
             .prefix(8)
             .map { "\($0.key)=\($0.value.timeIntervalSince1970)" }
             .joined(separator: ";")
-    }
-}
-
-private struct PracticeStudioCheckInOverlay: View {
-    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var selectedFocus = ""
-
-    private let focusOptions = [
-        "Intonation",
-        "Rhythm",
-        "Tone",
-        "Technique",
-        "Expression",
-        "Run-through"
-    ]
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.34)
-                .ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Image(systemName: "checkmark.shield.fill")
-                        .font(.title2)
-                        .foregroundStyle(StudioQuestTokens.ColorRole.mint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Practice check-in")
-                            .font(StudioQuestTokens.Typography.sectionTitle)
-                        Text("\(coordinator.checkInManager.secondsUntilDeadline)s to confirm")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Text("Are you still practicing? Add an optional focus so the check-in is useful in your history.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 94))], spacing: 8) {
-                    ForEach(focusOptions, id: \.self) { focus in
-                        Button(focus) {
-                            selectedFocus = focus
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(selectedFocus == focus ? .white : .primary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 9)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            selectedFocus == focus
-                                ? StudioQuestTokens.ColorRole.cobalt
-                                : StudioQuestTokens.ColorRole.raisedSurface(colorScheme),
-                            in: Capsule()
-                        )
-                    }
-                }
-
-                Button("Still practicing") {
-                    coordinator.respondToCheckIn(focusTag: selectedFocus)
-                }
-                .buttonStyle(StudioQuestPrimaryButtonStyle())
-            }
-            .padding(22)
-            .frame(maxWidth: 360)
-            .background(
-                StudioQuestTokens.ColorRole.surface(colorScheme),
-                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-            )
-            .shadow(color: .black.opacity(0.18), radius: 24, y: 12)
-            .padding(24)
-        }
-        .accessibilityAddTraits(.isModal)
     }
 }
 
@@ -1520,12 +1429,6 @@ struct PracticeReflectionView: View {
                                     coordinator.unverifiedSeconds,
                                     color: .secondary
                                 )
-                                sessionMetric(
-                                    "Check-ins",
-                                    coordinator.checkInManager.checkInCount,
-                                    suffix: "",
-                                    color: StudioQuestTokens.ColorRole.cobalt
-                                )
                             }
                         }
 
@@ -1608,15 +1511,20 @@ struct PracticeReflectionView: View {
                         }
                         .buttonStyle(StudioQuestPrimaryButtonStyle())
                         .disabled(isSaving || coordinator.elapsedSeconds == 0)
+                        .accessibilityIdentifier("studio.reflection.save")
 
                         Button("Discard session", role: .destructive) {
                             discardConfirmationPresented = true
                         }
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("studio.reflection.discard")
                     }
-                    .padding(StudioQuestTokens.Spacing.lg)
+                    .padding(.horizontal, StudioQuestTokens.Spacing.lg)
+                    .padding(.top, StudioQuestTokens.Spacing.lg)
+                    .padding(.bottom, StudioQuestTokens.Spacing.xl)
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear(perform: prepareDraft)

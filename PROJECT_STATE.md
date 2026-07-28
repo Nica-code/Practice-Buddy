@@ -1,9 +1,199 @@
 # PractiQuest — Authoritative Development State
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
 Release train: 2.0.0 (build 31), not uploaded
 Branch: `codex/launch-hardening`
 Internal Xcode target/scheme: `PracticeBuddy`
+
+## 2026-07-28 session (part 2) — practice session bug fix, check-ins purged, verification onboarding
+
+Uncommitted, same branch, continuing the same day. Follows directly on part 1
+below.
+
+- **Root-caused and fixed the "Finish refreshes repeatedly / can't tap
+  Finish" bug.** The Practice Studio (`PracticeStudioView`) had a
+  full-screen `.overlay` (`PracticeStudioCheckInOverlay`, a "Are you still
+  practicing?" modal driven by `checkInManager.isAwaitingResponse`) active
+  on the exact same view that also presents `.sheet(isPresented:
+  $coordinator.reflectionPresented)` for the post-Finish reflection form.
+  `requestFinish()` calls `pause()`, which does not clear a check-in already
+  awaiting response — so if a check-in prompt was live when Finish was
+  tapped, the full-screen check-in overlay and the reflection sheet
+  competed for the same presentation layer simultaneously, which is what
+  produced the repeated-refresh/unresponsive-Finish symptom. Fixed by
+  deleting the entire check-in mechanism (see below), which removes the
+  overlay and the conflict outright. Verified via a new UI test exercising
+  the real interaction path (tap "Start practice" → tap Finish → reveal and
+  tap "Save session" → confirm return to Today) — see Tests below.
+- **Check-ins purged completely**, per explicit instruction ("I don't intend
+  to have that implemented anymore"). Deleted
+  `Services/PracticeCheckInManager.swift` and `Models/PracticeCheckInModels.swift`
+  outright. Removed all check-in state, settings, notification scheduling,
+  and persistence keys from `PracticeSessionCoordinator` (renamed
+  `checkInStatusMessage` → `verificationStatusMessage`, since that property
+  is also used for non-check-in verification messages). Removed the
+  check-in fields (`checkInCount`, `missedCheckInCount`, `checkInLogJSON`)
+  from `PracticeSessionModel` (SwiftData `@Model` — a schema change; see
+  migration note below), `PracticeSessionSnapshot`, `SessionStore`, and
+  `SessionExportService`'s CSV/JSON export. Removed the "Check-ins" metric
+  from the reflection sheet and the History detail screen (replaced with
+  "Unverified" in both places). Removed the "Practice check-ins" toggle and
+  interval picker from Practice Setup. Also deleted
+  `Models/PracticeSession.swift` — a separate, entirely unused legacy
+  `Codable` struct (confirmed zero call sites) that also carried check-in
+  fields; simpler to remove than to edit dead code.
+  - **SwiftData migration note:** since this is pre-launch (build 31, never
+    submitted, no TestFlight/production users), removing stored properties
+    from `PracticeSessionModel` was done directly rather than kept as
+    unused compatibility columns. Any local dev/QA simulator install with
+    an on-disk store from before this change should be deleted/reinstalled
+    if it exhibits any SwiftData issue (none observed in this session's
+    testing, including on a simulator with pre-existing local session data).
+- **Verified/Unverified practice made discoverable**, per instruction that
+  it was "too hidden." Two changes:
+  1. New onboarding step in `PracticeFirstOnboardingView` — "How should we
+     track your practice?" — inserted between the instrument/goal step and
+     the avatar step (i.e. before avatar setup, as requested). Lets the user
+     choose Verified vs. "just track time" up front; sets
+     `coordinator.isVerified` accordingly. Existing skip/complete buttons
+     updated to use the chosen value instead of a hardcoded `verified: true`.
+  2. New "Practice verification" section in Settings
+     (`StudioQuestSettingsView`, new `StudioQuestSettingsSection.practiceVerification`
+     case) — exposes the same Verified toggle, distraction-blocking toggle,
+     and "Set up distraction protection" action that previously only
+     existed inside the Practice Setup sheet. Help screen copy updated to
+     point here.
+- Also fixed, while in this code: the reflection sheet
+  (`PracticeReflectionView`)'s Save/Discard buttons were tight against the
+  bottom edge with minimal clearance. Increased bottom padding to
+  `StudioQuestTokens.Spacing.xl` and added `.scrollBounceBehavior(.basedOnSize)`.
+
+### Files changed this part
+
+`Services/PracticeSessionCoordinator.swift`, `Services/SessionStore.swift`,
+`Services/Export/SessionExportService.swift`,
+`Models/PracticeRuntimeModels.swift`, `Models/PracticeSessionModel.swift`,
+`Models/PracticeSessionModel+Journal.swift`,
+`Features/StudioQuest/PracticeStudioView.swift`,
+`Features/StudioQuest/StudioQuestSecondaryViews.swift`,
+`Features/Onboarding/PracticeFirstOnboardingView.swift`, `App/AppNavigation.swift`,
+`PracticeBuddyUITests/StudioQuestNavigationUITests.swift` (new test:
+`testPracticeStudioFinishReachesReflectionAndSaves`). Deleted:
+`Services/PracticeCheckInManager.swift`, `Models/PracticeCheckInModels.swift`,
+`Models/PracticeSession.swift`.
+
+### Tests (this part)
+
+Same command as below. Added accessibility identifiers `studio.finish`,
+`studio.reflection.save`, `studio.reflection.discard` to support the new
+test. Full-suite runs during this part surfaced two false leads, both
+confirmed unrelated to this session's app-code changes before moving on:
+
+- `testWarmUpRuntimePausesResumesAndReachesAResult` flaked under full-suite
+  load (dock/tool-clock drift assertion), passed cleanly in isolation both
+  times it was checked — this is the same pre-existing timing-sensitive
+  test documented in part 1 of this same day's session, not a regression.
+- `testPracticeLibraryCardsAndFavoritesUseTheirFullSurfaces` failed
+  reproducibly, including after a full CoreSimulator reset — traced to this
+  session's own earlier accessibility-testing artifact: the simulator's
+  system-wide Dynamic Type size had been left at `medium` (from testing the
+  Today redesign at accessibility sizes) instead of the true default
+  `large`. Fixed with `xcrun simctl ui <device> content_size large`; test
+  passed immediately after. Not an app bug — a leftover simulator setting
+  from this session. Worth knowing if a future session sees unexplained
+  layout/hit-testing test failures: check `xcrun simctl ui <device>
+  content_size` first.
+
+Final confirmed state after the content-size fix: a clean full-suite run of
+94/94 (63 unit + 31 UI, including the new test), 0 failures.
+
+## 2026-07-28 session — audit + dock fix + Journey rename + Today recomposition
+
+Uncommitted on this branch as of this update (not yet committed — no commit
+was requested this session):
+
+- `Docs/RebuildAudit.md`, `Docs/RebuildPlan.md` — Phase 0 architecture audit.
+  Finding: the "generic AI UI / broken navigation / duplicated timer state"
+  premise assumed by the rebuild brief does not match this repo. The
+  four-tab shell, typed `AppRoute`/`AppRouter`, single
+  `PracticeSessionCoordinator`, and `StudioQuestTokens` design system are
+  already structurally sound and were explicitly preserved, not rebuilt.
+- `Docs/VisualProductAudit.md`, `Docs/ScreenRedesignSpecifications.md` —
+  Phase E1/E2 screen-by-screen audit and redesign spec for Today, Journey,
+  Community, You, and practice completion.
+- **Dock/safe-area fix**: removed the manually-measured
+  `studioQuestDockClearance` environment value (`StudioQuestShell.swift`'s
+  `dockHeight`/`onGeometryChange` + the `max(92, dockHeight + 26)` estimate)
+  that duplicated what the native `.tabViewBottomAccessory` already reserves
+  via safe area. `StudioQuestScrollPage` and the You-tab scroll view now use
+  a small fixed `StudioQuestTokens.Spacing.lg` bottom margin instead of
+  trying to replicate the accessory's height. Verified live on simulator
+  (Journey/Quest tab and You tab, light + dark): content now reaches the
+  safe-area boundary correctly, with the standard translucent-tab-bar
+  blur-through of the topmost scrolled-past row — no dead gap, no hard
+  overlap. Files: `StudioQuestShell.swift`, `StudioQuestDesign.swift`,
+  `StudioQuestDestinationViews.swift`.
+- **"Quest" tab renamed to "Journey"**: user-facing label only
+  (`AppDestination.quest.title`, the Quest-screen page title, one
+  accessibility hint, one code comment). `AppDestination.quest`'s Swift
+  case name and `Int` rawValue are unchanged — no persisted-state migration
+  needed (`AppStorage("practiquest.v2.destination")` stores the raw `Int`).
+  Individual challenges are still called Quests. Updated 2 UI test
+  assertions (`StudioQuestNavigationUITests.swift`) and the
+  `Localizable.xcstrings` entry (Korean/Romanian marked `needs_review` —
+  not professionally translated, flagged for review before shipping).
+- **Today screen recomposed** (Phase E3): replaced four identically-styled
+  `studioQuestSurface()` cards (Smart Coach, Next Quest, Recent Session,
+  Community Pulse) with one unsurfaced row list under a single "Next steps"
+  label, so the hero ("Next practice"/active-session) is the only card on
+  the screen. Added one new shared component, `StudioQuestPlainRow`, to
+  `StudioQuestDesign.swift`. No data/service/business-logic changes — this
+  is a composition-only change; `store.sessions.first` is now typed
+  correctly as `PracticeSessionModel` in the new row helper (was a
+  build-breaking typo during editing, fixed before this state was recorded).
+  Verified live on simulator: light mode, dark mode, and accessibility XXXL
+  Dynamic Type (see known issue below).
+- **Known issue found, not fixed this session**: at accessibility XXXL
+  Dynamic Type, the Today hero's primary button label truncates to "Start"
+  (from "Start practice"), and the hero card alone can reach the fold before
+  any scrolling — pre-existing hero-layout behavior, not introduced by the
+  dock-clearance fix or the Today recomposition. Not fixed in this pass;
+  flagged in `Docs/VisualProductAudit.md` for a future accessibility pass.
+- **No preview infrastructure was added.** Zero `#Preview` blocks exist
+  anywhere in this codebase; adding real ones for Today's 12 requested
+  states would require building fixture-friendly initializers for
+  `SessionStore`, `PracticeSessionCoordinator`, `AppRouter`,
+  `BuddiesViewModel`, and an in-memory SwiftData container — a genuinely
+  separate infrastructure task, not a Today-specific change. Deliberately
+  not built this session; live-simulator verification was used instead.
+  Flagging as a real gap against the request, not a silent omission.
+- Journey, Community, You, and practice-session-completion redesigns are
+  **specified but not implemented** — `Docs/ScreenRedesignSpecifications.md`
+  covers them; only Today was rebuilt this session, per instruction to stop
+  after Today for product review.
+
+### Exact tests run this session
+
+```text
+xcodebuild test \
+  -project PracticeBuddy.xcodeproj \
+  -scheme PracticeBuddy \
+  -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' \
+  -parallel-testing-enabled NO
+```
+
+- Baseline (before any change): 93/93 passed (63 unit + 30 UI), 0 failures.
+- After dock fix + Journey rename: 93/93 passed, 0 failures.
+- After Today recomposition: two consecutive full-suite runs each showed one
+  failure, `testWarmUpRuntimePausesResumesAndReachesAResult`, on the same
+  dock/tool-clock timing assertion (2s drift vs. an allowed 1s). It passed
+  cleanly every time it was run in isolation. After a clean CoreSimulator
+  reset (`killall -9 CoreSimulatorService` + reboot, the recovery sequence
+  this file already documents), a third full-suite run passed 93/93 with 0
+  failures. Conclusion: simulator-load-induced flakiness in a timing-
+  sensitive test that samples two independently-updating live values
+  sequentially (not a regression — no timer/clock code was touched this
+  session, only layout, padding, and string literals).
 
 ## Current verification
 

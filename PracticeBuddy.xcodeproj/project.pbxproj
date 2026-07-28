@@ -72,13 +72,13 @@
 		043129512F495A3F000E827A /* Exceptions for "PracticeBuddy" folder in "PracticeBuddy" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Docs/APP_REVIEW_3_1_2C_CUSTOM_EULA.md",
-				"Docs/AVATAR_ASSET_SPEC.md",
-				"Docs/FIRESTORE_RULES_BUDDIES.md",
-				"Docs/GOOGLE_FONTS_PALETTES.md",
-				"Docs/LAUNCH_RESET.md",
-				"Docs/LIVE_ACTIVITY_EXTENSION_SETUP.md",
-				"Docs/PROJECT_SNAPSHOT.md",
+				Docs/APP_REVIEW_3_1_2C_CUSTOM_EULA.md,
+				Docs/AVATAR_ASSET_SPEC.md,
+				Docs/FIRESTORE_RULES_BUDDIES.md,
+				Docs/GOOGLE_FONTS_PALETTES.md,
+				Docs/LAUNCH_RESET.md,
+				Docs/LIVE_ACTIVITY_EXTENSION_SETUP.md,
+				Docs/PROJECT_SNAPSHOT.md,
 				Info.plist,
 			);
 			target = 042C311D2F27FD2F00529D2C /* PracticeBuddy */;

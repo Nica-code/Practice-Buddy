@@ -68,7 +68,7 @@ struct StudioQuestQuestView: View {
     }
 
     private var questTitle: some View {
-        StudioQuestPageTitle(title: "Quest", subtitle: "Your path. Your music.")
+        StudioQuestPageTitle(title: "Journey", subtitle: "Your path. Your music.")
     }
 
     private var tokenBalance: some View {
@@ -528,7 +528,6 @@ struct StudioQuestYouView: View {
     @EnvironmentObject private var buddies: BuddiesViewModel
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.studioQuestDockClearance) private var dockClearance
     @AppStorage("practiquest.avatar.loadout") private var loadoutData = Data()
     @AppStorage("pb.settings.dailyGoalMinutes") private var goalMinutes = 30
 
@@ -553,7 +552,7 @@ struct StudioQuestYouView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, margin)
                         .padding(.top, StudioQuestTokens.Spacing.md)
-                        .padding(.bottom, dockClearance + StudioQuestTokens.Spacing.lg)
+                        .padding(.bottom, StudioQuestTokens.Spacing.lg)
                         .background(
                             StudioQuestTokens.ColorRole.background(colorScheme)
                                 // The body slides up over the artwork, so the

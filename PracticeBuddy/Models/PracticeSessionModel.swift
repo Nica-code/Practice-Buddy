@@ -8,9 +8,6 @@ final class PracticeSessionModel {
     var durationSeconds: Int
     var verifiedSeconds: Int
     var unverifiedSeconds: Int
-    var checkInCount: Int
-    var missedCheckInCount: Int
-    var checkInLogJSON: String
     var notes: String
     var noteTitle: String
     var noteFocus: String
@@ -44,9 +41,6 @@ final class PracticeSessionModel {
         durationSeconds: Int,
         verifiedSeconds: Int = 0,
         unverifiedSeconds: Int = 0,
-        checkInCount: Int = 0,
-        missedCheckInCount: Int = 0,
-        checkInLogJSON: String = "",
         notes: String = "",
         noteTitle: String = "",
         noteFocus: String = "",
@@ -61,9 +55,6 @@ final class PracticeSessionModel {
         self.durationSeconds = durationSeconds
         self.verifiedSeconds = verifiedSeconds
         self.unverifiedSeconds = unverifiedSeconds
-        self.checkInCount = checkInCount
-        self.missedCheckInCount = missedCheckInCount
-        self.checkInLogJSON = checkInLogJSON
         self.notes = notes
         self.noteTitle = noteTitle
         self.noteFocus = noteFocus

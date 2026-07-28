@@ -85,7 +85,7 @@ struct StudioQuestShopView: View {
                     .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Goes to the Quest tab")
+            .accessibilityHint("Goes to the Journey tab")
             .accessibilityIdentifier("shop.earnMore")
         }
         .padding(StudioQuestTokens.Spacing.md)

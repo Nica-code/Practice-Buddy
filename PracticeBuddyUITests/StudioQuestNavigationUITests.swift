@@ -88,10 +88,10 @@ final class StudioQuestNavigationUITests: XCTestCase {
         let app = launch(destination: 1)
 
         XCTAssertTrue(app.tabBars.buttons["Today"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.tabBars.buttons["Quest"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Journey"].exists)
         XCTAssertTrue(app.tabBars.buttons["Community"].exists)
         XCTAssertTrue(app.tabBars.buttons["You"].exists)
-        XCTAssertTrue(app.staticTexts["Quest"].exists)
+        XCTAssertTrue(app.staticTexts["Journey"].exists)
     }
 
     func testLaunchLoadingAndMandatoryUpdateUseStudioQuestStates() {
@@ -392,6 +392,39 @@ final class StudioQuestNavigationUITests: XCTestCase {
         )
     }
 
+    func testPracticeStudioFinishReachesReflectionAndSaves() {
+        let app = launch(
+            populated: false,
+            extraArguments: ["--qa-appearance", "light"]
+        )
+
+        let startPractice = app.buttons["today.startPractice"]
+        XCTAssertTrue(startPractice.waitForExistence(timeout: 8), "Today did not load its primary action")
+        startPractice.tap()
+
+        let finish = app.buttons["studio.finish"]
+        XCTAssertTrue(finish.waitForExistence(timeout: 8), "Practice Studio did not present after starting practice")
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: finish)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(finish.isHittable, "Finish was covered by another presentation")
+        finish.tap()
+
+        let save = app.buttons["studio.reflection.save"]
+        XCTAssertTrue(
+            reveal(save, in: app, maximumSwipes: 8),
+            "Save session was not reachable in the reflection sheet"
+        )
+        XCTAssertTrue(save.isHittable, "Save session was covered by another presentation")
+        save.tap()
+
+        XCTAssertTrue(
+            app.tabBars.buttons["Today"].waitForExistence(timeout: 8),
+            "Saving the session did not return to the main shell"
+        )
+        XCTAssertFalse(app.buttons["studio.reflection.save"].exists)
+        XCTAssertFalse(app.staticTexts["Practice check-in"].exists)
+    }
+
     func testPracticeLibraryCardsAndFavoritesUseTheirFullSurfaces() {
         let app = launch(route: "library", populated: false)
         let warmUpCard = app.buttons["library.tool.warm-up"]
@@ -436,8 +469,8 @@ final class StudioQuestNavigationUITests: XCTestCase {
         let earnMore = app.buttons["shop.earnMore"]
         XCTAssertTrue(earnMore.waitForExistence(timeout: 8))
         earnMore.tap()
-        XCTAssertTrue(app.staticTexts["Quest"].waitForExistence(timeout: 6))
-        XCTAssertTrue(app.tabBars.buttons["Quest"].isSelected)
+        XCTAssertTrue(app.staticTexts["Journey"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.tabBars.buttons["Journey"].isSelected)
     }
 
     func testDuelCaptureFixtureUsesTheSharedRecordingSurface() {

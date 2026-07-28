@@ -7,7 +7,6 @@ struct StudioQuestShell: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var featureFlags: StudioQuestFeatureFlags
     @Environment(\.scenePhase) private var scenePhase
-    @State private var dockHeight: CGFloat = 58
 
     var body: some View {
         TabView(selection: $router.selectedDestination) {
@@ -32,14 +31,8 @@ struct StudioQuestShell: View {
         .tabViewBottomAccessory {
             StudioQuestPracticeDock()
                 .padding(.horizontal, StudioQuestTokens.Spacing.md)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { measuredHeight in
-                    dockHeight = measuredHeight
-                }
         }
         .environmentObject(router)
-        .environment(\.studioQuestDockClearance, max(92, dockHeight + 26))
         .fullScreenCover(isPresented: $router.roomEditorPresented) {
             StudioQuestRoomEditorView()
         }
@@ -574,14 +567,30 @@ struct StudioQuestTodayView: View {
                 header
                 nextPracticeHero
                 dailyGoalSummary
-                smartCoachSuggestion
-                nextQuest
-                recentSession
-                communityPulse
+                nextStepsSection
             }
             .padding(.top, StudioQuestTokens.Spacing.sm)
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    /// One list under a shared label, rather than the Smart Coach, Next
+    /// Quest, Recent Session, and Community Pulse cards each competing for
+    /// the same visual weight as the hero above them.
+    private var nextStepsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Next steps")
+            VStack(spacing: 0) {
+                smartCoachRow
+                if let quest = nextQuestPresentation {
+                    nextQuestRow(quest)
+                }
+                if let session = store.sessions.first {
+                    recentSessionRow(session)
+                }
+                communityPulseRow
+            }
+        }
     }
 
     private var header: some View {
@@ -740,36 +749,29 @@ struct StudioQuestTodayView: View {
             .background(tint.opacity(0.12), in: Capsule())
     }
 
-    private var smartCoachSuggestion: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Smart Coach")
-            NavigationLink(value: AppRoute.smartCoach) {
-                HStack(spacing: 12) {
+    private var smartCoachRow: some View {
+        NavigationLink(value: AppRoute.smartCoach) {
+            StudioQuestPlainRow(
+                title: "Build today’s focused plan",
+                subtitle: "A practical next step from your recent sessions",
+                leading: {
                     Image(systemName: "wand.and.stars")
                         .font(.title3)
                         .foregroundStyle(StudioQuestTokens.ColorRole.violet)
-                        .frame(width: 44, height: 44)
-                        .background(StudioQuestTokens.ColorRole.violet.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Build today’s focused plan")
-                            .font(.headline)
-                        Text("A practical next step from your recent sessions")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
+                        .frame(width: 40, height: 40)
+                        .background(StudioQuestTokens.ColorRole.violet.opacity(0.11), in: RoundedRectangle(cornerRadius: 11))
+                },
+                trailing: {
                     Image(systemName: "arrow.up.right")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                 }
-                .foregroundStyle(.primary)
-                .padding(StudioQuestTokens.Spacing.md)
-                .contentShape(RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous))
-                .studioQuestSurface()
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("today.smartCoach")
+            )
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("today.smartCoach")
     }
 
     private var suggestedPreset: PracticePreset {
@@ -783,79 +785,60 @@ struct StudioQuestTodayView: View {
         )
     }
 
-    @ViewBuilder
-    private var nextQuest: some View {
-        if let quest = nextQuestPresentation {
-            Button {
-                router.navigate(to: .questDetail(quest))
-            } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    sectionLabel("Next quest")
-                    HStack(spacing: 14) {
-                        Image(systemName: quest.systemImage)
-                            .font(.title2)
-                            .foregroundStyle(StudioQuestTokens.ColorRole.gold)
-                            .frame(width: 48, height: 48)
-                            .background(StudioQuestTokens.ColorRole.gold.opacity(0.12), in: Circle())
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(quest.title)
-                                .font(.headline)
-                            Text(quest.subtitle)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 8)
-                        Label("\(quest.rewardTokens)", systemImage: "diamond.fill")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(StudioQuestTokens.ColorRole.violet)
-                    }
-                    .padding(StudioQuestTokens.Spacing.md)
-                    .studioQuestSurface()
+    private func nextQuestRow(_ quest: QuestPresentation) -> some View {
+        Button {
+            router.navigate(to: .questDetail(quest))
+        } label: {
+            StudioQuestPlainRow(
+                title: quest.title,
+                subtitle: quest.subtitle,
+                leading: {
+                    Image(systemName: quest.systemImage)
+                        .font(.title3)
+                        .foregroundStyle(StudioQuestTokens.ColorRole.gold)
+                        .frame(width: 40, height: 40)
+                        .background(StudioQuestTokens.ColorRole.gold.opacity(0.12), in: Circle())
+                },
+                trailing: {
+                    Label("\(quest.rewardTokens)", systemImage: "diamond.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(StudioQuestTokens.ColorRole.violet)
                 }
-                .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
+            )
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     /// The first outstanding quest, rather than a hand-copied duplicate of
-    /// one specific quest that had already drifted from the Quest tab.
+    /// one specific quest that had already drifted from the Journey tab.
     private var nextQuestPresentation: QuestPresentation? {
         StudioQuestCatalog.next { questProgress.count(for: $0) }
     }
 
-    private var recentSession: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Recent session")
-            if let session = store.sessions.first {
-                NavigationLink(value: AppRoute.sessionDetail(sessionID: session.id)) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(session.noteTitle.isEmpty ? "Practice session" : session.noteTitle)
-                                .font(.headline)
-                            Text("\(DurationFormatter.string(from: session.durationSeconds)) · \(session.date.formatted(.relative(presentation: .named)))")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: session.verifiedSeconds > 0 ? "checkmark.shield.fill" : "clock")
-                            .foregroundStyle(session.verifiedSeconds > 0 ? StudioQuestTokens.ColorRole.mint : .secondary)
+    private func recentSessionRow(_ session: PracticeSessionModel) -> some View {
+        NavigationLink(value: AppRoute.sessionDetail(sessionID: session.id)) {
+            StudioQuestPlainRow(
+                title: session.noteTitle.isEmpty ? "Practice session" : session.noteTitle,
+                subtitle: "\(DurationFormatter.string(from: session.durationSeconds)) · \(session.date.formatted(.relative(presentation: .named)))",
+                leading: {
+                    Image(systemName: "clock")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, height: 40)
+                },
+                trailing: {
+                    if session.verifiedSeconds > 0 {
+                        Image(systemName: "checkmark.shield.fill")
+                            .foregroundStyle(StudioQuestTokens.ColorRole.mint)
                     }
-                    .foregroundStyle(.primary)
-                    .padding(StudioQuestTokens.Spacing.md)
-                    .studioQuestSurface()
                 }
-                .buttonStyle(.plain)
-            } else {
-                Text("Your first completed session will appear here.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(StudioQuestTokens.Spacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .studioQuestSurface()
-            }
+            )
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     /// Friends who actually practised in the last seven days. The previous copy
@@ -868,48 +851,31 @@ struct StudioQuestTodayView: View {
             .sorted { ($0.lastPracticedAt ?? .distantPast) > ($1.lastPracticedAt ?? .distantPast) }
     }
 
-    @ViewBuilder
-    private var communityPulse: some View {
+    private var communityPulseRow: some View {
         let active = activeBuddiesThisWeek
-        Button {
+        return Button {
             router.popToRoot()
             router.selectedDestination = .community
         } label: {
-            HStack(spacing: StudioQuestTokens.Spacing.sm) {
-                VStack(alignment: .leading, spacing: 3) {
-                    StudioQuestEyebrow("Community pulse")
-                    Text(pulseHeadline(activeCount: active.count))
-                        .font(.subheadline.weight(.medium))
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                if !active.isEmpty {
-                    HStack(spacing: -8) {
-                        ForEach(Array(active.prefix(3))) { buddy in
-                            PBAvatarView(
-                                avatarID: buddy.avatarID,
-                                displayName: buddy.displayName,
-                                profilePhotoURL: buddy.profilePhotoURL,
-                                size: 32
-                            )
-                            .overlay(
-                                Circle().stroke(
-                                    StudioQuestTokens.ColorRole.surface(colorScheme),
-                                    lineWidth: 2
-                                )
-                            )
-                        }
-                        if active.count > 3 {
-                            Text("+\(active.count - 3)")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    StudioQuestTokens.ColorRole.cobalt.opacity(0.14),
-                                    in: Circle()
+            StudioQuestPlainRow(
+                title: "Community pulse",
+                subtitle: pulseHeadline(activeCount: active.count),
+                showsSeparator: false,
+                leading: {
+                    Image(systemName: "person.2.wave.2")
+                        .font(.subheadline)
+                        .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                        .frame(width: 40, height: 40)
+                },
+                trailing: {
+                    if !active.isEmpty {
+                        HStack(spacing: -8) {
+                            ForEach(Array(active.prefix(3))) { buddy in
+                                PBAvatarView(
+                                    avatarID: buddy.avatarID,
+                                    displayName: buddy.displayName,
+                                    profilePhotoURL: buddy.profilePhotoURL,
+                                    size: 28
                                 )
                                 .overlay(
                                     Circle().stroke(
@@ -917,13 +883,29 @@ struct StudioQuestTodayView: View {
                                         lineWidth: 2
                                     )
                                 )
+                            }
+                            if active.count > 3 {
+                                Text("+\(active.count - 3)")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(StudioQuestTokens.ColorRole.cobalt)
+                                    .frame(width: 28, height: 28)
+                                    .background(
+                                        StudioQuestTokens.ColorRole.cobalt.opacity(0.14),
+                                        in: Circle()
+                                    )
+                                    .overlay(
+                                        Circle().stroke(
+                                            StudioQuestTokens.ColorRole.surface(colorScheme),
+                                            lineWidth: 2
+                                        )
+                                    )
+                            }
                         }
                     }
                 }
-            }
+            )
             .foregroundStyle(.primary)
-            .padding(StudioQuestTokens.Spacing.md)
-            .studioQuestSurface()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens Community")

@@ -17,7 +17,7 @@ final class PracticeSessionCoordinator: ObservableObject {
     @Published private(set) var elapsedSeconds = 0
     @Published private(set) var verifiedSeconds = 0
     @Published private(set) var unverifiedSeconds = 0
-    @Published private(set) var checkInStatusMessage: String?
+    @Published private(set) var verificationStatusMessage: String?
     @Published private(set) var activeTaskIndex = 0
     @Published private(set) var launchContext: PracticeLaunchContext?
     @Published private(set) var activeToolID: PracticeToolID?
@@ -38,8 +38,7 @@ final class PracticeSessionCoordinator: ObservableObject {
             defaults.set(isVerified, forKey: Key.verified)
             if !isVerified {
                 appShield.stopShielding()
-                clearPendingCheckInNotification()
-                checkInStatusMessage = nil
+                verificationStatusMessage = nil
             } else if isRunning {
                 beginVerificationIfNeeded()
             }
@@ -55,35 +54,11 @@ final class PracticeSessionCoordinator: ObservableObject {
             }
         }
     }
-    @Published var checkInsEnabled = true {
-        didSet {
-            defaults.set(checkInsEnabled, forKey: Key.checkInsEnabled)
-            if !checkInsEnabled {
-                clearPendingCheckInNotification()
-                checkInStatusMessage = nil
-            }
-        }
-    }
-    @Published var checkInNotificationsEnabled = true {
-        didSet {
-            defaults.set(checkInNotificationsEnabled, forKey: Key.checkInNotificationsEnabled)
-            if !checkInNotificationsEnabled {
-                clearPendingCheckInNotification()
-            }
-        }
-    }
-    @Published var checkInInterval: PracticeCheckInInterval = .relaxed {
-        didSet {
-            defaults.set(checkInInterval.rawValue, forKey: Key.checkInInterval)
-            checkInManager.updateConfiguration(promptRange: checkInInterval.rangeSeconds)
-        }
-    }
     @Published var studioPresented = false
     @Published var reflectionPresented = false
     @Published var momentPrompt: PracticeMomentPrompt?
 
     let appShield = PracticeAppShieldManager()
-    let checkInManager = PracticeCheckInManager()
     let metronome = MetronomeEngine(managesAudioSession: false)
     let tuner = TunerEngine(managesAudioSession: false)
     let audioSession = PracticeAudioSessionCoordinator()
@@ -101,13 +76,7 @@ final class PracticeSessionCoordinator: ObservableObject {
         static let running = "pb.practice.isRunning"
         static let verifiedSeconds = "pb.practice.verifiedSeconds"
         static let unverifiedSeconds = "pb.practice.unverifiedSeconds"
-        static let checkInCount = "pb.practice.checkinCount"
-        static let missedCheckInCount = "pb.practice.missedCheckInCount"
-        static let checkInEventsJSON = "pb.practice.checkinEventsJSON"
         static let distractionBlockEnabled = "pb.practice.distractionBlockEnabled"
-        static let checkInsEnabled = "pb.practice.checkins.enabled"
-        static let checkInNotificationsEnabled = "pb.practice.checkins.notifications"
-        static let checkInInterval = "pb.practice.checkins.intervalPreset"
         static let task = "practiquest.practice.currentTask"
         static let piece = "practiquest.practice.currentPiece"
         static let plannedMinutes = "practiquest.practice.plannedMinutes"
@@ -143,11 +112,6 @@ final class PracticeSessionCoordinator: ObservableObject {
         plannedMinutes = savedMinutes > 0 ? savedMinutes : 30
         isVerified = defaults.object(forKey: Key.verified) as? Bool ?? true
         distractionBlockEnabled = defaults.object(forKey: Key.distractionBlockEnabled) as? Bool ?? true
-        checkInsEnabled = defaults.object(forKey: Key.checkInsEnabled) as? Bool ?? true
-        checkInNotificationsEnabled = defaults.object(forKey: Key.checkInNotificationsEnabled) as? Bool ?? true
-        checkInInterval = PracticeCheckInInterval(
-            rawValue: defaults.string(forKey: Key.checkInInterval) ?? ""
-        ) ?? .relaxed
 
         if let data = defaults.data(forKey: Key.tasks),
            let decoded = try? JSONDecoder().decode([PracticePlanTask].self, from: data) {
@@ -189,16 +153,6 @@ final class PracticeSessionCoordinator: ObservableObject {
                 from: data
             )
         }
-
-        let checkInCount = max(0, defaults.integer(forKey: Key.checkInCount))
-        let missedCheckInCount = max(0, defaults.integer(forKey: Key.missedCheckInCount))
-        let events = Self.decodeCheckInEvents(defaults.string(forKey: Key.checkInEventsJSON) ?? "")
-        checkInManager.updateConfiguration(promptRange: checkInInterval.rangeSeconds)
-        checkInManager.restoreCounters(
-            checkInCount: checkInCount,
-            missedCheckInCount: missedCheckInCount,
-            events: events
-        )
 
         let epoch = defaults.double(forKey: Key.startEpoch)
         if isRunning, epoch > 0 {
@@ -275,10 +229,6 @@ final class PracticeSessionCoordinator: ObservableObject {
             && appShield.isVerificationConfigured
     }
 
-    var checkInFlowActive: Bool {
-        verificationMechanismActive && checkInsEnabled
-    }
-
     var taskProgress: [PracticeTaskProgress] {
         var cursor = 0
         return tasks.enumerated().map { index, task in
@@ -306,9 +256,6 @@ final class PracticeSessionCoordinator: ObservableObject {
             durationSeconds: max(0, elapsedSeconds),
             verifiedSeconds: max(0, verifiedSeconds),
             unverifiedSeconds: max(0, unverifiedSeconds),
-            checkInCount: checkInManager.checkInCount,
-            missedCheckInCount: checkInManager.missedCheckInCount,
-            checkInLogJSON: checkInManager.eventsJSON(),
             piece: currentPiece,
             tasks: tasks,
             launchContext: launchContext
@@ -677,15 +624,6 @@ final class PracticeSessionCoordinator: ObservableObject {
         reflectionPresented = true
     }
 
-    func respondToCheckIn(focusTag: String = "") {
-        checkInManager.respond(focusTag: focusTag)
-        checkInStatusMessage = focusTag.isEmpty
-            ? "Check-in confirmed."
-            : "Check-in confirmed · \(focusTag)"
-        persistCounters()
-        queueCheckInNotification()
-    }
-
     func handleScenePhase(isActive: Bool) {
         if isActive {
             guard let backgroundEnteredAt else {
@@ -701,16 +639,14 @@ final class PracticeSessionCoordinator: ObservableObject {
                 unverifiedSeconds += backgroundSeconds
                 lastAccountedElapsed = elapsedSeconds
                 if isVerified {
-                    checkInStatusMessage = "Background time counted as unverified."
+                    verificationStatusMessage = "Background time counted as unverified."
                 }
                 persistCounters()
             }
-            clearPendingCheckInNotification()
             queueTaskNotifications()
             updateLiveActivity()
         } else if isRunning {
             backgroundEnteredAt = Date()
-            queueCheckInNotification()
             updateLiveActivity()
         }
     }
@@ -835,8 +771,7 @@ final class PracticeSessionCoordinator: ObservableObject {
         toolErrorMessage = nil
         pendingQuestIDs = []
         toolActivityState = nil
-        checkInStatusMessage = nil
-        checkInManager.reset()
+        verificationStatusMessage = nil
         appShield.stopShielding()
         clearPendingNotifications()
         if !keepLastSetup {
@@ -881,44 +816,13 @@ final class PracticeSessionCoordinator: ObservableObject {
         let delta = max(0, elapsedSeconds - lastAccountedElapsed)
         guard delta > 0 else { return }
 
-        for _ in 0..<delta {
-            if checkInFlowActive {
-                switch checkInManager.tick(enabled: true) {
-                case .none:
-                    break
-                case .triggered:
-                    checkInStatusMessage = "Check-in required."
-                case .missed:
-                    checkInStatusMessage = "Missed check-in. Session paused."
-                    unverifiedSeconds += 1
-                    lastAccountedElapsed += 1
-                    persistCounters()
-                    pauseAfterMissedCheckIn()
-                    return
-                }
-            }
-
-            if checkInFlowActive && checkInManager.isAwaitingResponse {
-                unverifiedSeconds += 1
-            } else if verificationMechanismActive {
-                verifiedSeconds += 1
-            } else {
-                unverifiedSeconds += 1
-            }
-            lastAccountedElapsed += 1
+        if verificationMechanismActive {
+            verifiedSeconds += delta
+        } else {
+            unverifiedSeconds += delta
         }
+        lastAccountedElapsed += delta
         persistCounters()
-    }
-
-    private func pauseAfterMissedCheckIn() {
-        accumulatedSeconds = elapsedSeconds
-        isRunning = false
-        startDate = nil
-        persistClock()
-        stopTicker()
-        appShield.stopShielding()
-        clearPendingNotifications()
-        updateLiveActivity()
     }
 
     private func updateCurrentTask() {
@@ -936,7 +840,7 @@ final class PracticeSessionCoordinator: ObservableObject {
         Task {
             await appShield.startShieldingIfPossible()
             if !appShield.isShieldingActive {
-                checkInStatusMessage = appShield.statusLine
+                verificationStatusMessage = appShield.statusLine
             }
         }
     }
@@ -973,9 +877,6 @@ final class PracticeSessionCoordinator: ObservableObject {
     private func persistCounters() {
         defaults.set(verifiedSeconds, forKey: Key.verifiedSeconds)
         defaults.set(unverifiedSeconds, forKey: Key.unverifiedSeconds)
-        defaults.set(checkInManager.checkInCount, forKey: Key.checkInCount)
-        defaults.set(checkInManager.missedCheckInCount, forKey: Key.missedCheckInCount)
-        defaults.set(checkInManager.eventsJSON(), forKey: Key.checkInEventsJSON)
     }
 
     private func persistActivityIdentity() {
@@ -1096,42 +997,10 @@ final class PracticeSessionCoordinator: ObservableObject {
         }
     }
 
-    private func queueCheckInNotification() {
-        guard checkInNotificationsEnabled, checkInFlowActive, isRunning else { return }
-        let center = UNUserNotificationCenter.current()
-        clearPendingCheckInNotification()
-        let content = UNMutableNotificationContent()
-        content.title = "Practice check-in"
-        content.body = "Still practicing? Open PractiQuest to confirm."
-        content.sound = .default
-        let request = UNNotificationRequest(
-            identifier: "pb.practice.checkin.prompt",
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(
-                timeInterval: TimeInterval(max(10, checkInManager.secondsUntilPrompt)),
-                repeats: false
-            )
-        )
-        center.add(request) { error in
-            if let error {
-                PBLog.sessionStore.error(
-                    "Practice check-in notification failed: \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
-    }
-
-    private func clearPendingCheckInNotification() {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: ["pb.practice.checkin.prompt"]
-        )
-    }
-
     private func clearPendingNotifications() {
         sessionNotificationTask?.cancel()
         sessionNotificationTask = nil
         let center = UNUserNotificationCenter.current()
-        clearPendingCheckInNotification()
         Task {
             let identifiers = await center.pendingNotificationRequests()
                 .map(\.identifier)
@@ -1148,14 +1017,6 @@ final class PracticeSessionCoordinator: ObservableObject {
             guard !title.isEmpty else { return nil }
             return PracticePlanTask(id: task.id, title: title, minutes: max(1, task.minutes))
         }
-    }
-
-    private static func decodeCheckInEvents(_ raw: String) -> [PracticeCheckInEvent] {
-        guard let data = raw.data(using: .utf8),
-              let events = try? JSONDecoder().decode([PracticeCheckInEvent].self, from: data) else {
-            return []
-        }
-        return events
     }
 }
 

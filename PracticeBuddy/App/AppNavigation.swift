@@ -12,7 +12,7 @@ enum AppDestination: Int, CaseIterable, Identifiable, Codable {
     var title: LocalizedStringKey {
         switch self {
         case .today: "Today"
-        case .quest: "Quest"
+        case .quest: "Journey"
         case .community: "Community"
         case .you: "You"
         }
@@ -204,6 +204,7 @@ enum StudioQuestSettingsSection: String, Hashable, Codable {
     case appearance
     case language
     case notifications
+    case practiceVerification
     case privacy
     case history
     case pro

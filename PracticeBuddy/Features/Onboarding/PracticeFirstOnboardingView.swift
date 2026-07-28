@@ -12,6 +12,7 @@ struct PracticeFirstOnboardingView: View {
     @State private var instrument = "Piano"
     @State private var goalMinutes = 30
     @State private var avatarID = "avatar_note"
+    @State private var wantsVerifiedPractice = true
 
     private let instruments = ["Piano", "Strings", "Voice", "Guitar", "Woodwinds", "Brass", "Percussion"]
 
@@ -34,7 +35,8 @@ struct PracticeFirstOnboardingView: View {
                 TabView(selection: $step) {
                     welcome.tag(0)
                     instrumentAndGoal.tag(1)
-                    avatarStarter.tag(2)
+                    verificationChoice.tag(2)
+                    avatarStarter.tag(3)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(reduceMotion ? nil : StudioQuestTokens.Motion.gentle, value: step)
@@ -137,6 +139,94 @@ struct PracticeFirstOnboardingView: View {
         }
     }
 
+    private var verificationChoice: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("How should we track your practice?")
+                .font(.largeTitle.bold())
+            Text("You can change this anytime in Settings.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 12) {
+                verificationOption(
+                    title: "Verified practice",
+                    description: "Distraction blocking confirms you're actually focused, so your time is a trustworthy record.",
+                    systemImage: "checkmark.shield.fill",
+                    tint: StudioQuestTokens.ColorRole.mint,
+                    isSelected: wantsVerifiedPractice
+                ) {
+                    wantsVerifiedPractice = true
+                }
+
+                verificationOption(
+                    title: "Just track time",
+                    description: "No distraction blocking. Simple, unverified practice timing.",
+                    systemImage: "clock",
+                    tint: .secondary,
+                    isSelected: !wantsVerifiedPractice
+                ) {
+                    wantsVerifiedPractice = false
+                }
+            }
+
+            if wantsVerifiedPractice {
+                Text("You'll be asked to allow Screen Time access the first time you start a verified session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("Continue") {
+                coordinator.isVerified = wantsVerifiedPractice
+                advance(to: 3)
+            }
+            .buttonStyle(StudioQuestPrimaryButtonStyle())
+        }
+        .padding(StudioQuestTokens.Spacing.lg)
+    }
+
+    private func verificationOption(
+        title: String,
+        description: String,
+        systemImage: String,
+        tint: Color,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? StudioQuestTokens.ColorRole.cobalt : .secondary)
+            }
+            .padding(StudioQuestTokens.Spacing.md)
+            .background(
+                StudioQuestTokens.ColorRole.surface(colorScheme),
+                in: RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.surface, style: .continuous)
+                    .stroke(isSelected ? StudioQuestTokens.ColorRole.cobalt : .clear, lineWidth: 2)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     private var avatarStarter: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Choose a studio identity")
@@ -185,7 +275,7 @@ struct PracticeFirstOnboardingView: View {
                     task: "Get comfortable and make one clear sound",
                     piece: instrument,
                     durationMinutes: goalMinutes,
-                    verified: true
+                    verified: wantsVerifiedPractice
                 )
             }
             .buttonStyle(StudioQuestPrimaryButtonStyle())
@@ -200,7 +290,7 @@ struct PracticeFirstOnboardingView: View {
                     task: "Get comfortable and make one clear sound",
                     piece: instrument,
                     durationMinutes: goalMinutes,
-                    verified: true
+                    verified: wantsVerifiedPractice
                 )
             }
             .font(.subheadline.weight(.semibold))

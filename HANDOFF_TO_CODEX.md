@@ -2,14 +2,134 @@
 
 Read first:
 
-1. `PROJECT_STATE.md`
+1. `PROJECT_STATE.md` — see its 2026-07-28 session entry first
 2. this file
-3. `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md` before any Firebase action
-4. `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md` before calling the client ready
+3. `Docs/RebuildAudit.md` / `Docs/RebuildPlan.md` — Phase 0 UI/architecture
+   audit; explains why a "rebuild" request was scoped down to targeted fixes
+4. `Docs/VisualProductAudit.md` / `Docs/ScreenRedesignSpecifications.md` —
+   screen-by-screen findings and specs for Today (done), Journey/Community/
+   You/practice-completion (specified, not yet built)
+5. `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md` before any Firebase action
+6. `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md` before calling the client ready
 
 Branch: `codex/launch-hardening`
 Version: 2.0.0 (build 31)
 Firebase deployed from this branch: **Partially — see rollout state below**
+
+## 2026-07-28 session, part 2 (uncommitted) — practice bug fix + check-ins removed + verification onboarding
+
+Same day, continuing directly after part 1 below.
+
+**The reported bug** ("Finish refreshes repeatedly, can't tap it; the
+reflection sheet's Save button isn't fully visible and swiping triggers the
+bug"): root cause was `PracticeStudioView` having a full-screen `.overlay`
+(a "Are you still practicing?" check-in modal) that could remain active at
+the same time `.sheet(isPresented: $coordinator.reflectionPresented)` tries
+to present after Finish — two competing top-level presentations on the same
+view. Fixed by deleting the check-in system entirely (see below), which
+removes the overlay and the conflict. Verified with a new UI test that
+performs the actual user flow: tap "Start practice" → tap Finish → find and
+tap "Save session" → confirm return to Today, with no "Practice check-in"
+text anywhere.
+
+**Check-ins purged completely**, per explicit instruction. Deleted
+`PracticeCheckInManager.swift`, `PracticeCheckInModels.swift`, and (separately)
+the entirely-unused legacy `PracticeSession.swift` struct. Stripped all
+check-in state/settings/notifications/persistence from
+`PracticeSessionCoordinator`, and the check-in fields from
+`PracticeSessionModel` (SwiftData schema — fine pre-launch, no migration
+needed), `SessionStore`, and `SessionExportService`. Removed the "Check-ins"
+metric from the reflection sheet and History detail (both now show
+Verified/Unverified instead).
+
+**Verified/Unverified practice made discoverable**, per instruction it was
+"too hidden":
+- New onboarding step ("How should we track your practice?") inserted
+  before the avatar-setup step in `PracticeFirstOnboardingView`.
+- New "Practice verification" section in Settings, right after
+  Notifications — same toggle/setup flow previously buried only inside
+  Practice Setup.
+
+Also widened the reflection sheet's bottom padding/scroll behavior so
+Save/Discard are comfortably clear of the edge.
+
+**Files changed:** `PracticeSessionCoordinator.swift`, `SessionStore.swift`,
+`SessionExportService.swift`, `PracticeRuntimeModels.swift`,
+`PracticeSessionModel.swift`, `PracticeSessionModel+Journal.swift`,
+`PracticeStudioView.swift`, `StudioQuestSecondaryViews.swift`,
+`PracticeFirstOnboardingView.swift`, `AppNavigation.swift`,
+`StudioQuestNavigationUITests.swift` (new test). Deleted:
+`PracticeCheckInManager.swift`, `PracticeCheckInModels.swift`,
+`PracticeSession.swift`.
+
+**Tests:** full suite clean at 94/94 (63 unit + 31 UI, including the new
+regression test), 0 failures, after two false leads were run down and ruled
+out (see `PROJECT_STATE.md` for detail): one was the same pre-existing
+timing-flaky test from part 1, the other was this session's own leftover
+simulator Dynamic Type setting (`content_size` left at `medium` instead of
+the true default `large` from earlier accessibility testing) — not an app
+bug. If a future session sees unexplained UI test layout/hit-testing
+failures, check `xcrun simctl ui <device> content_size` first.
+
+## 2026-07-28 session summary (uncommitted)
+
+Nica asked for a UI/UX rebuild pass. The Phase 0 audit found the app's
+navigation/session/design-token architecture already sound (see
+`Docs/RebuildAudit.md`), so work was rescoped to: fix the one confirmed
+dock/safe-area bug, rename the "Quest" tab to "Journey", audit all primary
+screens for composition/hierarchy problems, write redesign specs, and
+implement only the Today screen's recomposition (stopping there for product
+review, as instructed).
+
+**What changed (all uncommitted):**
+
+- Dock/safe-area fix: removed manual `studioQuestDockClearance`
+  measurement/padding; now relies on native `.tabViewBottomAccessory` safe
+  area. Files: `StudioQuestShell.swift`, `StudioQuestDesign.swift`,
+  `StudioQuestDestinationViews.swift`.
+- "Quest" → "Journey" tab label (user-facing string only; `AppDestination`
+  case/rawValue unchanged, no migration needed). Files: `AppNavigation.swift`,
+  `StudioQuestDestinationViews.swift`, `StudioQuestShopView.swift`,
+  `StudioQuestNavigationUITests.swift`, `Localizable.xcstrings` (ko/ro marked
+  `needs_review` — not professionally translated).
+  Individual challenges are still "Quests" — only the tab/destination label
+  changed.
+- Today screen recomposed: one hero card instead of five equally-weighted
+  cards; Smart Coach/Next Quest/Recent Session/Community Pulse are now rows
+  in one list under a "Next steps" label. New shared component:
+  `StudioQuestPlainRow` in `StudioQuestDesign.swift`. No data/service changes.
+
+**Not done, by design, this session:**
+
+- Journey, Community, You, and practice-session-completion redesigns —
+  specified in `Docs/ScreenRedesignSpecifications.md`, not implemented.
+  Practice completion (the mandatory two-sheet reflection→Moment chain) is
+  the audit's #1-ranked issue; recommend it next.
+- No SwiftUI `#Preview` infrastructure was built (none existed anywhere in
+  this codebase before this session). Building fixture-friendly initializers
+  for the ~5 environment objects Today depends on is a separate
+  infrastructure task. Today's states were instead verified live on the
+  iPhone 17 Pro Max iOS 26.5 simulator via the app's own
+  `--qa-destination`/`--qa-appearance` launch-argument harness: light mode,
+  dark mode, and accessibility-XXXL Dynamic Type.
+- One accessibility issue found but not fixed: at accessibility XXXL Dynamic
+  Type, Today's hero button label truncates to "Start" and the hero card
+  alone can reach the fold — pre-existing hero layout, not introduced this
+  session. Flagged in `Docs/VisualProductAudit.md`.
+
+**Verification note on tooling:** the native iOS Simulator control tool was
+unavailable this session (`sudo xcode-select` needs to be run once by the
+device owner — cannot be run by an agent). All simulator interaction this
+session used `xcrun simctl` directly (install/launch/screenshot) plus the
+app's own QA launch-argument harness in place of scripted touch input, since
+Simulator accessibility automation was not authorized in this sandbox.
+
+**Tests:** see `PROJECT_STATE.md`'s 2026-07-28 entry for exact run counts.
+One UI test (`testWarmUpRuntimePausesResumesAndReachesAResult`) failed twice
+in full-suite runs on a clock-drift timing assertion, passed every time it
+ran in isolation, then passed in a third full-suite run after a clean
+CoreSimulator reset (93/93, 0 failures) — simulator-load flakiness, not a
+regression (no timer/clock code was touched this session).
 
 ## Verified baseline
 

@@ -670,7 +670,7 @@ struct StudioQuestSessionDetailView: View {
                     HStack(spacing: 10) {
                         detailMetric("Duration", DurationFormatter.string(from: session.durationSeconds))
                         detailMetric("Verified", DurationFormatter.string(from: session.verifiedSeconds))
-                        detailMetric("Check-ins", "\(session.checkInCount)")
+                        detailMetric("Unverified", DurationFormatter.string(from: session.unverifiedSeconds))
                     }
                     if !session.noteFocus.isEmpty {
                         StudioQuestInlineStatus(
@@ -1034,6 +1034,7 @@ struct StudioQuestSettingsView: View {
     @EnvironmentObject private var firebase: FirebaseBootstrap
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var identity: IdentityUpgradeCoordinator
+    @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("practiquest.appearance") private var appearance = "system"
@@ -1053,6 +1054,7 @@ struct StudioQuestSettingsView: View {
     @State private var signOutPresented = false
     @State private var deleteConfirmationPresented = false
     @State private var accountStatus: String?
+    @State private var isConfiguringVerification = false
 
     let initialSection: StudioQuestSettingsSection?
 
@@ -1068,6 +1070,7 @@ struct StudioQuestSettingsView: View {
                     appearanceSection
                     languageSection
                     notificationsSection
+                    practiceVerificationSection
                     privacySection
                     dataSection
                     proSection
@@ -1164,6 +1167,57 @@ struct StudioQuestSettingsView: View {
 
     private var notificationFingerprint: String {
         "\(notifyMessages)|\(notifyFriendRequests)|\(notifyDuels)|\(notifyGoals)|\(notifyBuddies)"
+    }
+
+    private var practiceVerificationSection: some View {
+        settingsSection("Practice verification", systemImage: "checkmark.shield") {
+            VStack(alignment: .leading, spacing: 14) {
+                Toggle(isOn: $coordinator.isVerified) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Verified practice")
+                            .font(.headline)
+                        Text("Counts only time protected by distraction blocking, so it's a trustworthy record of focused practice.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(StudioQuestTokens.ColorRole.mint)
+
+                if coordinator.isVerified {
+                    Divider()
+                    Toggle("Block distracting apps", isOn: $coordinator.distractionBlockEnabled)
+                        .tint(StudioQuestTokens.ColorRole.cobalt)
+
+                    if !coordinator.appShield.isVerificationConfigured {
+                        Button {
+                            isConfiguringVerification = true
+                            Task {
+                                await coordinator.configureVerificationIfNeeded()
+                                isConfiguringVerification = false
+                            }
+                        } label: {
+                            Label(
+                                isConfiguringVerification ? "Setting up…" : "Set up distraction protection",
+                                systemImage: "shield.lefthalf.filled"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(StudioQuestSecondaryButtonStyle())
+                        .disabled(isConfiguringVerification)
+                    } else {
+                        StudioQuestInlineStatus(
+                            text: "Distraction protection is ready.",
+                            kind: .success
+                        )
+                    }
+                } else {
+                    Text("Unverified time still counts toward your practice history — it's just tracked separately from verified time.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .id(StudioQuestSettingsSection.practiceVerification)
     }
 
     private var privacySection: some View {
@@ -1435,8 +1489,8 @@ struct StudioQuestHelpView: View {
         StudioQuestScrollPage {
             VStack(alignment: .leading, spacing: StudioQuestTokens.Spacing.lg) {
                 StudioQuestPageTitle(title: "Help", subtitle: "Get back to making music quickly.")
-                helpSection("Start and finish practice", icon: "play.fill", body: "Use the Practice Dock from any tab. Quick Start uses your last setup; Set up a session lets you build tasks, verification, and check-ins. Finish opens a short reflection before anything is saved.")
-                helpSection("Verified practice", icon: "checkmark.shield.fill", body: "Configure Screen Time protection in session setup. Verified time is counted while protection is active; background and unprotected time remain visible as unverified.")
+                helpSection("Start and finish practice", icon: "play.fill", body: "Use the Practice Dock from any tab. Quick Start uses your last setup; Set up a session lets you build tasks and choose verification. Finish opens a short reflection before anything is saved.")
+                helpSection("Verified practice", icon: "checkmark.shield.fill", body: "Verified practice only counts time protected by distraction blocking, so it's a trustworthy record of focused practice. Turn it on and configure protection anytime in Settings → Practice verification, or in session setup. Unverified time still counts toward your history, it's just tracked separately.")
                 helpSection("Tools and Library", icon: "square.grid.2x2", body: "Metronome and tuner stay available during a session. Smart Loop, Warm-up, guided plans, rhythm, intonation, and run-through tools are all in the searchable Practice Library.")
                 helpSection("Community and duels", icon: "person.2", body: "Sign in when you want friends, messages, requests, cloud inventory, or fair asynchronous duels. Core practice remains available as a guest.")
                 helpSection("Privacy", icon: "hand.raised", body: "Friend activity shares only a coarse online state and last-practiced date. Notes, pieces, audio, duration, and messages are never included.")

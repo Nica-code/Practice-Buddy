@@ -142,19 +142,7 @@ enum StudioQuestTokens {
     }
 }
 
-private struct StudioQuestDockClearanceKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 104
-}
-
-extension EnvironmentValues {
-    var studioQuestDockClearance: CGFloat {
-        get { self[StudioQuestDockClearanceKey.self] }
-        set { self[StudioQuestDockClearanceKey.self] = newValue }
-    }
-}
-
 struct StudioQuestScrollPage<Content: View>: View {
-    @Environment(\.studioQuestDockClearance) private var dockClearance
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let showsIndicators: Bool
@@ -187,7 +175,7 @@ struct StudioQuestScrollPage<Content: View>: View {
                     content
                         .frame(width: availableWidth, alignment: .leading)
                         .padding(.horizontal, margin)
-                        .padding(.bottom, dockClearance + StudioQuestTokens.Spacing.lg)
+                        .padding(.bottom, StudioQuestTokens.Spacing.lg)
                 }
                 .scrollClipDisabled(false)
             }
@@ -281,6 +269,46 @@ struct StudioQuestRowSurface<Content: View>: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .studioQuestSurface()
+    }
+}
+
+/// A full-width, unsurfaced row: leading content, two lines of text, and a
+/// trailing accessory, divided from the next row by a hairline.
+///
+/// Built so secondary content doesn't have to repeat a card's full
+/// `studioQuestSurface()` treatment just to be tappable — several of these in
+/// a row read as one list under a shared section label, instead of several
+/// equally-weighted cards competing with an actual hero above them.
+struct StudioQuestPlainRow<Leading: View, Trailing: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let subtitle: String
+    var showsSeparator = true
+    @ViewBuilder var leading: () -> Leading
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            leading()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) {
+            if showsSeparator {
+                Rectangle()
+                    .fill(StudioQuestTokens.ColorRole.separator(colorScheme))
+                    .frame(height: 0.75)
+            }
+        }
     }
 }
 
