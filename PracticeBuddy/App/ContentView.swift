@@ -303,6 +303,7 @@ struct ContentView: View {
         guard !didHandleQALaunch else { return }
         didHandleQALaunch = true
         if launchConfiguration.isQA {
+            AppLaunchConfiguration.resetDeterministicUserState()
             practiceCoordinator.resetForDeterministicQA()
         }
 

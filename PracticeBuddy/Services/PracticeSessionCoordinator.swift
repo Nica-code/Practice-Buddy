@@ -763,17 +763,39 @@ final class PracticeSessionCoordinator: ObservableObject {
     }
 
     /// Moves a focused tool clock to a deterministic elapsed value without
-    /// making UI tests wait in real time. This is intentionally DEBUG-only so
-    /// production timing always comes from real timestamps.
+    /// making UI tests wait in real time. A standalone focused tool owns the
+    /// canonical practice clock as well, so both clocks must move together;
+    /// otherwise the tool panel and persistent Dock display contradictory
+    /// durations. Contextual tools deliberately leave the parent clock alone.
+    ///
+    /// This is intentionally DEBUG-only so production timing always comes from
+    /// real timestamps.
     func setToolElapsedForDeterministicQA(
         _ seconds: Int,
         phase: PracticeActivityPhase = .running
     ) {
         guard var state = toolActivityState else { return }
-        state.accumulatedSeconds = max(0, seconds)
+        let normalizedSeconds = max(0, seconds)
+        state.accumulatedSeconds = normalizedSeconds
         state.phase = phase
         state.phaseStartedAt = phase == .running ? .now : nil
         toolActivityState = state
+
+        if toolLaunchContext?.parentSessionID == nil {
+            accumulatedSeconds = normalizedSeconds
+            elapsedSeconds = normalizedSeconds
+            lastAccountedElapsed = normalizedSeconds
+            if phase == .running {
+                isRunning = true
+                startDate = .now
+                startTicker()
+            } else {
+                isRunning = false
+                startDate = nil
+                stopTicker()
+            }
+            persistClock()
+        }
         persistActivityIdentity()
     }
     #endif

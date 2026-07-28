@@ -261,6 +261,8 @@ struct WarmUpGeneratorView: View {
                         detail: isContextual ? "Attached to current practice" : "Focused session",
                         tint: StudioQuestTokens.ColorRole.violet
                     )
+                    .accessibilityValue(DurationFormatter.string(from: elapsedSeconds))
+                    .accessibilityIdentifier("warmup.elapsed")
                 }
 
                 HStack(spacing: StudioQuestTokens.Spacing.sm) {

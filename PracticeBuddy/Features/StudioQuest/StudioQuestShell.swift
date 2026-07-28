@@ -469,7 +469,9 @@ struct StudioQuestPracticeDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title). \(subtitle)")
+        .accessibilityValue(subtitle)
         .accessibilityHint(coordinator.elapsedSeconds > 0 ? "Opens Practice Studio" : "Starts practice")
+        .accessibilityIdentifier("practice.dock")
     }
 
     @ViewBuilder

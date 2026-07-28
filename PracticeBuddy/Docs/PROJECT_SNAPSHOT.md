@@ -53,6 +53,9 @@ Launch arguments can deterministically select:
 - active, paused, recovered, denied-permission, and failed-save tool states.
 
 No `onAppear` path mutation is used to establish the requested launch route.
+Deterministic launches clear fixture-owned room placements and synchronize
+standalone focused-tool elapsed state with the canonical Practice Dock clock,
+so prior tests cannot contaminate visual evidence.
 
 Validated incoming routes include practice, custom friend invites, Universal
 friend invites, notifications, and exact typed app destinations. Friend invite
@@ -272,7 +275,7 @@ complete Korean and Romanian coverage.
 
 ## Verification
 
-- Unit: 58/58
+- Unit: 63/63
 - UI: 30/30
 - Firebase emulator/rules: 10/10
 - Function contracts: 3/3
@@ -289,7 +292,7 @@ Internal implementation is launch-candidate quality, but release is not
 complete until external gates pass:
 
 1. App Store Connect Pro product;
-2. staged Firebase deployment and App Check monitoring;
+2. completion of the staged Firebase rules/App Check rollout and monitoring;
 3. internal and focused external TestFlight migration;
 4. physical-device audio, route, interruption, background, Family Controls,
    Live Activity, APNs, StoreKit, account-upgrade, and Universal Link tests;

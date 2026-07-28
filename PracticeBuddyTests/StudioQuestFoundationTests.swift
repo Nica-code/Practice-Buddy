@@ -240,6 +240,37 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertTrue(configuration.skipVersionGate)
     }
 
+    func testDeterministicLaunchClearsPersistedRoomPlacements() throws {
+        let suiteName = "StudioQuestFoundationTests.launch.avatarRoom.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var dirtyLoadout = AvatarLoadout.starter(for: "avatar_04")
+        dirtyLoadout.setLayout(
+            StudioQuestRoomLayout(
+                roomID: dirtyLoadout.roomID,
+                placements: (0..<6).map { index in
+                    StudioQuestRoomPlacement(
+                        id: "plant-\(index)",
+                        decorationID: "room_decoration_plant",
+                        position: .init(x: 0.25 + Double(index) * 0.02, y: 0.76)
+                    )
+                }
+            )
+        )
+        defaults.set(
+            try JSONEncoder().encode(dirtyLoadout),
+            forKey: "practiquest.avatar.loadout"
+        )
+
+        AppLaunchConfiguration.resetDeterministicUserState(defaults: defaults)
+
+        let data = try XCTUnwrap(defaults.data(forKey: "practiquest.avatar.loadout"))
+        let cleanLoadout = try JSONDecoder().decode(AvatarLoadout.self, from: data)
+        XCTAssertEqual(cleanLoadout.baseID, "avatar_01")
+        XCTAssertTrue(cleanLoadout.layout().placements.isEmpty)
+    }
+
     func testRouterStartsWithOneExactPathWithoutOnAppearMutation() throws {
         let router = AppRouter(
             selectedDestination: .you,
@@ -291,6 +322,30 @@ final class StudioQuestFoundationTests: XCTestCase {
         }
         XCTAssertEqual(tool, .warmUp)
         coordinator.pause()
+    }
+
+    func testDeterministicStandaloneToolKeepsDockAndToolElapsedInSync() throws {
+        let suiteName = "StudioQuestFoundationTests.runtime.qaClock.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        coordinator.beginFocusedTool(
+            .warmUp,
+            durationMinutes: 5,
+            verified: false,
+            source: .qa
+        )
+        coordinator.startToolActivity()
+        coordinator.setToolElapsedForDeterministicQA(12)
+
+        XCTAssertEqual(coordinator.elapsedSeconds, 12)
+        XCTAssertEqual(coordinator.toolElapsedSeconds, 12)
+        guard case .focusedToolRunning(.warmUp, let dockElapsed) = coordinator.state else {
+            return XCTFail("Warm-up did not own the running Practice Dock")
+        }
+        XCTAssertEqual(dockElapsed, 12)
+        coordinator.discard()
     }
 
     func testContextualToolKeepsTheParentSessionIdentity() throws {

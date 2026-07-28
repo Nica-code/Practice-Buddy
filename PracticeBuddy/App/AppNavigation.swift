@@ -417,6 +417,20 @@ struct AppLaunchConfiguration: Equatable {
         }
     }
 
+    #if DEBUG
+    /// Removes mutable identity-scene residue before a deterministic launch.
+    ///
+    /// Room editing intentionally persists every placement for real users.
+    /// Without a QA-only reset, repeated room-editor tests kept adding starter
+    /// plants to the same AppStorage payload and later screenshots no longer
+    /// represented a known state.
+    static func resetDeterministicUserState(defaults: UserDefaults = .standard) {
+        let loadout = AvatarLoadout.starter(for: "avatar_01")
+        guard let data = try? JSONEncoder().encode(loadout) else { return }
+        defaults.set(data, forKey: "practiquest.avatar.loadout")
+    }
+    #endif
+
     private static func value(after flag: String, in arguments: [String]) -> String? {
         guard let index = arguments.firstIndex(of: flag),
               arguments.indices.contains(index + 1) else { return nil }

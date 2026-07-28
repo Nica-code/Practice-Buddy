@@ -59,6 +59,31 @@ final class StudioQuestNavigationUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
+    @discardableResult
+    private func revealAbovePracticeDock(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        maximumSwipes: Int = 14
+    ) -> Bool {
+        let dock = app.buttons["practice.dock"]
+        let scrollView = app.scrollViews.firstMatch
+        for _ in 0..<maximumSwipes {
+            if element.exists,
+               element.isHittable,
+               (!dock.exists || element.frame.maxY <= dock.frame.minY) {
+                return true
+            }
+            if scrollView.exists {
+                scrollView.swipeUp()
+            } else {
+                app.swipeUp()
+            }
+        }
+        return element.exists
+            && element.isHittable
+            && (!dock.exists || element.frame.maxY <= dock.frame.minY)
+    }
+
     func testFourDestinationShellAndQuestPath() {
         let app = launch(destination: 1)
 
@@ -129,6 +154,18 @@ final class StudioQuestNavigationUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
+    private func elapsedSeconds(from accessibilityValue: String) -> Int? {
+        let duration = accessibilityValue
+            .split(separator: "·", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let components = duration
+            .split(separator: ":")
+            .compactMap { Int($0) }
+        guard components.count == 2 else { return nil }
+        return components[0] * 60 + components[1]
+    }
+
     func testYouDestinationLinksOpenTheNewV2Screens() {
         let app = launch(destination: 3)
         for destination in ["Goals", "History", "Avatar Studio", "Settings"] {
@@ -141,12 +178,11 @@ final class StudioQuestNavigationUITests: XCTestCase {
 
             let link = app.buttons[destination]
             XCTAssertTrue(link.waitForExistence(timeout: 6), "Missing You link \(destination)")
-            // The link list sits below the hero, so the lower rows start out
-            // behind the practice dock and tab bar and report as not hittable.
-            // Scroll toward them, then tap by coordinate, which lands correctly
-            // even when XCUITest still considers the element occluded.
-            _ = reveal(link, in: app, maximumSwipes: 12)
-            link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(
+                revealAbovePracticeDock(link, in: app),
+                "\(destination) could not scroll fully above the Practice Dock"
+            )
+            link.tap()
             XCTAssertTrue(
                 app.staticTexts[destination].waitForExistence(timeout: 6),
                 "You link \(destination) did not open its screen"
@@ -327,6 +363,19 @@ final class StudioQuestNavigationUITests: XCTestCase {
 
         let pause = app.buttons["warmup.pause"]
         XCTAssertTrue(pause.waitForExistence(timeout: 8), "Warm-up running fixture did not load")
+        let dock = app.buttons["practice.dock"]
+        XCTAssertTrue(dock.waitForExistence(timeout: 4))
+        let liveElapsed = app.descendants(matching: .any)["warmup.elapsed"]
+        XCTAssertTrue(liveElapsed.waitForExistence(timeout: 4))
+        let dockSeconds = elapsedSeconds(from: dock.value as? String ?? "")
+        let liveSeconds = elapsedSeconds(from: liveElapsed.value as? String ?? "")
+        XCTAssertNotNil(dockSeconds)
+        XCTAssertNotNil(liveSeconds)
+        XCTAssertLessThanOrEqual(
+            abs((dockSeconds ?? 0) - (liveSeconds ?? 0)),
+            1,
+            "The Practice Dock and Warm-up runtime did not share one elapsed clock"
+        )
         pause.tap()
         XCTAssertTrue(app.buttons["warmup.pause"].waitForExistence(timeout: 4))
         app.buttons["warmup.pause"].tap()

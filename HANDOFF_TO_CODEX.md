@@ -15,7 +15,7 @@ Firebase deployed from this branch: **Partially — see rollout state below**
 
 The latest exact run passed:
 
-- 61/61 unit tests
+- 63/63 unit tests
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
@@ -32,10 +32,10 @@ The latest exact run passed:
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
 
-The latest UI target passed 30/30 on that simulator. The unit target passed
-61/61 on the alternate iPhone 17 Pro Max iOS 26.4.1 simulator
-`9D737516-088B-44FD-906D-38375549A920`. This is recorded in `PROJECT_STATE.md`;
-use the alternate simulator if Xcode 26.5 cannot connect the unit-test host.
+The latest complete scheme run passed 63/63 unit and 30/30 UI tests on that
+iPhone 17 Pro Max iOS 26.5 simulator. The alternate iOS 26.4.1 simulator
+`9D737516-088B-44FD-906D-38375549A920` remains a fallback if Xcode cannot
+connect the 26.5 unit-test host.
 
 Run:
 
@@ -161,6 +161,13 @@ first; then continue release operations in this order:
 8. execute the complete physical-device checklist;
 9. fix any device-only defects;
 10. recapture final App Store screenshots and finish metadata.
+
+Before release work resumes, read `Docs/LAUNCH_PLAN_COMPLETION_AUDIT.md`. It
+maps every launch-plan milestone to current evidence and separates implemented
+code from staged rollout and external/physical gates. The latest audit fixed
+two deterministic-QA defects: persisted room decorations no longer leak into
+new fixtures, and standalone focused-tool fixtures keep the Practice Dock and
+tool elapsed value synchronized.
 
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out

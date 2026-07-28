@@ -9,7 +9,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
 
 - Exact simulator command:
   `xcodebuild test -project PracticeBuddy.xcodeproj -scheme PracticeBuddy -destination 'platform=iOS Simulator,id=54EC2207-327E-4262-AE90-3A31D022F394' -parallel-testing-enabled NO`
-- Unit tests: 61/61 passed.
+- Unit tests: 63/63 passed.
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
@@ -66,6 +66,13 @@ Internal Xcode target/scheme: `PracticeBuddy`
 - QA launches explicitly terminate any previous app process before applying
   their immutable launch configuration. This prevents UIKit scene restoration
   from leaking a prior tab into accessibility/pseudolocalization runs.
+- Deterministic launches also reset the local starter room arrangement, so
+  screenshot and room-editor fixtures cannot inherit decorations placed by an
+  earlier test. A standalone focused-tool fixture advances the canonical
+  practice clock as well as the tool phase clock; the Warm-up live panel and
+  Practice Dock are asserted to remain within one second of each other.
+- The current completion audit and milestone evidence matrix is
+  `Docs/LAUNCH_PLAN_COMPLETION_AUDIT.md`.
 - Apple sign-in no longer crashes when no presentation scene exists. It uses a
   retained scene-specific presentation provider and exposes a retryable state
   when the app cannot provide a safe anchor.
@@ -217,6 +224,8 @@ Key safeguards include:
   - `Design/StudioQuest2/QA/launch-quality-root-comparison.png`
   - `Design/StudioQuest2/QA/launch-quality-compact-comparison.png`
   - `Design/StudioQuest2/QA/launch-quality-promax-comparison.png`
+- Current-run root, tool, permission, History, and accessibility captures are
+  recorded in `Docs/LAUNCH_PLAN_COMPLETION_AUDIT.md`.
 - `selected-direction.png` remains the comparison reference, except that its
   baked-in person is explicitly superseded by the empty-room rule.
 - `Localizable.xcstrings` and the translation cache were regenerated after the
