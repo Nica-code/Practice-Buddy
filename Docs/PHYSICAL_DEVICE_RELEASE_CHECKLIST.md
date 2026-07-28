@@ -3,6 +3,18 @@
 Status: automated/archive prerequisites are complete for build 31; physical
 device execution is still required.
 
+Completed non-destructive preflight:
+
+- iPhone 17 Pro discovered over a paired wired connection;
+- developer build 2.0.0 (31) confirmed installed;
+- normal unlocked launch and repeated relaunch succeeded;
+- the main process remained resident;
+- a ten-second idle Time Profiler capture reported no potential hang over
+  250 ms.
+
+See `Docs/PHYSICAL_DEVICE_PREFLIGHT_2026-07-27.md`. The device runs iOS 27 beta,
+so the current-public-iOS and interactive checklist requirements remain open.
+
 Release source:
 
 - commit `9b15f8e253f0a51ef7cc2efda8e1b8703355ab09`;
@@ -207,7 +219,7 @@ Metronome, and Tuner:
 - [x] exact release commit and build recorded
 - [x] Firebase deployed commit recorded
 - [ ] App Check metrics reviewed
-- [x] final automated suite rerun: 61/61 unit and 30/30 UI
+- [x] final automated suite rerun: 63/63 unit and 30/30 UI
 - [x] clean build-31 App Store archive/export contains no repository Markdown
       resources
 - [ ] final App Store screenshots captured

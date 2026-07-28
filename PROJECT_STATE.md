@@ -293,9 +293,14 @@ ID, issuer ID, and private `.p8` file for command-line authentication.
 
 The new Pro creation form is prepared for
 `com.alexmalaimare.practiquest.pro.monthly`, but no product has been created or
-submitted without the required action-time confirmation. The connected
-physical iPhone is currently reported offline by Xcode and has not been used to
-clear any device checklist item.
+submitted without the required action-time confirmation. The paired iPhone 17
+Pro is now available over a wired CoreDevice connection and already has
+developer build 2.0.0 (31) installed. Normal unlocked launch, relaunch, process
+residency, and a ten-second idle Time Profiler capture succeeded. The trace
+reported no potential hang over 250 ms during that idle interval. The device
+runs iOS 27 beta, and no interactive audio, practice, ActivityKit, APNs,
+StoreKit, migration, or accessibility checklist item is cleared by this limited
+preflight. See `Docs/PHYSICAL_DEVICE_PREFLIGHT_2026-07-27.md`.
 
 The legal-site branch is ready for review at:
 <https://github.com/Nica-code/PractiQuest-Website/pull/new/codex/practiquest-v2-legal>.

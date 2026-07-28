@@ -258,8 +258,13 @@ Reauthenticate Xcode Settings → Accounts and confirm provider access, or use a
 App Store Connect API key ID, issuer ID, and `.p8` with Xcode's authentication
 key arguments. Never print or commit the private key.
 
-The connected iPhone is currently offline in Xcode, so no physical-device
-checklist item is verified.
+The paired iPhone 17 Pro is now available over wired CoreDevice and has
+developer build 2.0.0 (31) installed. Normal unlocked launch, repeated relaunch,
+process residency, and a ten-second idle Time Profiler capture succeeded
+without a recorded hang over 250 ms. The device runs iOS 27 beta; this does not
+clear the current-iOS, interactive practice/audio, ActivityKit, APNs, StoreKit,
+migration, or accessibility checklist. Read
+`Docs/PHYSICAL_DEVICE_PREFLIGHT_2026-07-27.md`.
 
 The public PractiQuest App Store ID is `6759354312`. The prior in-app and Hosting
 value `6744359618` was wrong. The app and invite fallback are corrected and

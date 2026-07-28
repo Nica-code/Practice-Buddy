@@ -137,7 +137,8 @@ open until their dedicated device/production evidence is recorded.
 
 1. Restore App Store Connect provider authentication or use an App Store
    Connect API key, then upload the source-exact build-31 archive.
-2. Connect and unlock a physical iPhone and run the complete device checklist.
+2. Continue the interactive physical-device checklist on the now-connected
+   iPhone 17 Pro, and add coverage on the current public iOS 26.x release.
 3. Confirm the monthly Pro price and legacy Ad-Free sale/availability policy,
    then create/configure the new monthly Pro product.
 4. Confirm the monitored legal/support email and approve review/merge/deployment
