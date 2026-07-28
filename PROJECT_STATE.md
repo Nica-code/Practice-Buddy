@@ -17,6 +17,12 @@ Internal Xcode target/scheme: `PracticeBuddy`
   `PracticeBuddyLiveActivityExtension`.
 - Clean App Store archive and `app-store-connect` export: passed. The exported
   IPA was inspected and contains no repository Markdown/internal planning files.
+- The current source-exact archive/export was rebuilt from `e6b3b35` after the
+  Apple sign-in hardening:
+  - `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
+  - `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+  - SHA-256:
+    `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
   - `5a5827d` — deterministic QA process isolation and safe Apple sign-in anchor handling.
@@ -252,13 +258,15 @@ Xcode and has not been used to clear any device checklist item.
 
 ## Release archive audit
 
-Build 31 was archived with the `PracticeBuddy` scheme and exported using the
-`app-store-connect` export method:
+Build 31 was archived from verified commit `e6b3b35` with the `PracticeBuddy`
+scheme and exported using the `app-store-connect` export method:
 
 - archive:
-  `/private/tmp/PractiQuest-2.0.0-31-privacy-final.xcarchive`
+  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
 - exported IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`
+  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+- exported IPA SHA-256:
+  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
 
 The filesystem-synchronized app target initially copied seven repository
 Markdown documents into the bundle. They are now explicit target-membership
@@ -272,7 +280,17 @@ unit regression assertion. Hosting and `syncEntitlements` were redeployed from
 `bd88167`; the public invite page now contains only the correct App Store link,
 and the legacy HTTP endpoint still rejects unauthenticated entitlement claims.
 
-The final IPA was inspected after these corrections:
+The current IPA was inspected after these corrections:
+
+- Cloud Managed Apple Distribution signing expires 2027-02-18.
+- App and Live Activity extension both use production distribution
+  provisioning and `get-task-allow = false`.
+- The app contains the production APNs, Sign in with Apple, associated-domain,
+  and Family Controls entitlements.
+- No Markdown file, retired advertising symbol, stale App Store ID, Calendar
+  permission, Google Play reference, or ad framework is packaged.
+- The current Pro, legacy Ad-Free, and Pro Lifetime product identifiers are
+  embedded as expected.
 
 - bundle ID `com.alexmalaimare.practicebuddy`;
 - version `2.0.0` build `31`;

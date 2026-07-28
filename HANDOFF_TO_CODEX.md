@@ -22,10 +22,12 @@ The latest exact run passed:
 - signed generic iOS build passed for the app and Live Activity extension
 - clean App Store archive/export passed; exported IPA contains no repository
   Markdown or internal planning documents
-- final privacy-corrected archive:
-  `/private/tmp/PractiQuest-2.0.0-31-privacy-final.xcarchive`
-- final privacy-corrected IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-privacy-final-export/PracticeBuddy.ipa`
+- current source-exact archive:
+  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
+- current source-exact IPA:
+  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+- IPA SHA-256:
+  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
@@ -169,17 +171,20 @@ command.
 
 ## Release archive and App Check state
 
-The clean build-31 release artifacts are:
+The source-exact build-31 release artifacts from verified commit `e6b3b35` are:
 
 ```text
-/private/tmp/PractiQuest-2.0.0-31-final.xcarchive
-/private/tmp/PractiQuest-2.0.0-31-final-export/PracticeBuddy.ipa
+/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive
+/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa
 ```
 
 The first export exposed a filesystem-synchronized-target packaging defect:
 seven repository Markdown files were copied into the app bundle. The app-target
 membership exceptions now exclude them. A fresh signed generic build, archive,
-export, and 89-test suite all passed, and the clean IPA contains no `.md` files.
+export, and 91-test suite all passed, and the current IPA contains no `.md`
+files, retired ad symbols/frameworks, stale App Store ID, Calendar permission,
+or Google Play reference. Its SHA-256 is
+`fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`.
 Do not remove those membership exceptions as “unused.”
 
 Firebase Console inspection confirmed:
