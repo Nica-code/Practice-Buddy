@@ -19,6 +19,7 @@ The latest exact run passed:
 - 30/30 UI tests
 - 10/10 Firebase emulator/rules tests
 - 3/3 Function contract tests
+- Xcode static analysis passed with no diagnostics
 - signed generic iOS build passed for the app and Live Activity extension
 - clean App Store archive/export passed; exported IPA contains no repository
   Markdown or internal planning documents
@@ -33,7 +34,13 @@ Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
 
 The latest complete scheme run passed 63/63 unit and 30/30 UI tests on that
-iPhone 17 Pro Max iOS 26.5 simulator. The alternate iOS 26.4.1 simulator
+iPhone 17 Pro Max iOS 26.5 simulator. Its result bundle is:
+
+```text
+/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.07.27_23-12-29--0400.xcresult
+```
+
+The alternate iOS 26.4.1 simulator
 `9D737516-088B-44FD-906D-38375549A920` remains a fallback if Xcode cannot
 connect the 26.5 unit-test host.
 
@@ -98,6 +105,9 @@ The launch-hardening commits after the design handoff:
 Latest commits:
 
 ```text
+3c1b36d Remove obsolete Firebase functions package
+c411640 Record physical device launch preflight
+901a035 Refresh final launch quality evidence
 d92d31a Record source-exact launch audit archive
 9b15f8e Close deterministic launch audit gaps
 f699bca Refresh release handoff checkpoints
@@ -174,6 +184,16 @@ tool elapsed value synchronized.
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
 legitimate builds.
+
+There is now one authoritative deployable Functions tree: root `functions/`,
+as configured by `firebase.json`. Commit `3c1b36d` removed the obsolete,
+undeployed `firebase/functions/` teacher-assignment package after its stale
+dependency graph reported high and critical advisories. The supported root
+package passes 3/3 contract tests and the rules suite passes 10/10. Its npm
+audit reports no high/critical production finding, but a moderate transitive
+`uuid` chain remains and requires a breaking `firebase-admin` 14 upgrade.
+Evaluate that upgrade in a dedicated compatibility slice; do not run
+`npm audit fix --force` as an incidental release operation.
 
 Release metadata is prepared in `Docs/APP_STORE_RELEASE_METADATA_2.0.md`.
 The live privacy, terms, and support pages remain a blocker; the prepared
@@ -283,6 +303,8 @@ still rejects unauthenticated product assertions.
   is superseded by the empty-room decision.
 - Legacy HTTP endpoints, legacy Ad-Free SKU handling, legacy avatar ID, and
   `/join-studio` are compatibility seams, not accidental dead code.
+- The root `functions/` directory is the sole Firebase Functions codebase.
+  Do not restore the deleted `firebase/functions/` package or deploy from it.
 - The Pro product does not exist merely because its identifier is in code.
 - The development-signed archive is not itself distribution proof. The
   successful `app-store-connect` export is the distribution packaging check.

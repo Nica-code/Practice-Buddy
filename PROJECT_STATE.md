@@ -13,6 +13,15 @@ Internal Xcode target/scheme: `PracticeBuddy`
 - UI tests: 30/30 passed.
 - Firebase emulator/rules tests: 10/10 passed.
 - Function contract tests: 3/3 passed.
+- Xcode static analysis: passed with no diagnostics for the app and embedded
+  Live Activity extension.
+- The only deployable Functions source is the root `functions/` codebase named
+  by `firebase.json`. The obsolete, undeployed `firebase/functions/`
+  teacher-assignment package was removed after its stale dependencies reported
+  high and critical advisories. The supported root package reports no
+  high/critical production advisory; its remaining moderate transitive `uuid`
+  chain requires a breaking `firebase-admin` 14 upgrade and should be reviewed
+  separately rather than force-upgraded during release handoff.
 - Signed generic iOS build: passed for the `PracticeBuddy` scheme, including
   `PracticeBuddyLiveActivityExtension`.
 - Clean App Store archive and `app-store-connect` export: passed. The exported
@@ -25,6 +34,9 @@ Internal Xcode target/scheme: `PracticeBuddy`
     `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `3c1b36d` — removed the obsolete undeployed Firebase Functions package.
+  - `c411640` — recorded the physical-device launch preflight.
+  - `901a035` — refreshed final launch-quality evidence.
   - `d92d31a` — recorded the source-exact completion-audit archive.
   - `9b15f8e` — closed deterministic room, Dock, and audit-evidence gaps.
   - `f699bca` — refreshed release handoff checkpoints.
@@ -194,6 +206,10 @@ Key safeguards include:
   friends-only messaging, blocks, Moment audience/expiry, reports, and
   server-owned data.
 - Function instance counts and cleanup jobs are bounded.
+- `firebase.json` has one authoritative Functions codebase (`functions/`).
+  The stale `firebase/functions/` teacher-assignment implementation and its
+  vulnerable lockfile were removed; do not recreate a second deployable
+  Functions tree.
 - V2 callable operations consume server-owned per-user rate-limit windows.
   Clients cannot read or write rate-limit state, and the app maps exhausted
   budgets to recovery-oriented copy.
@@ -273,6 +289,10 @@ External/operational work still required:
    verify the deployed privacy/terms/support pages, then publish the prepared
    App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
+9. When npm registry access is reliable, evaluate the supported root
+   `functions/` package against `firebase-admin` 14 in a dedicated compatibility
+   slice. Do not use `npm audit fix --force` during release operations without
+   contract, emulator, and deployment-compatibility verification.
 
 App Store Connect can be browsed in Xcode, but the source-exact TestFlight
 upload cannot currently authenticate an App Store Connect provider. The upload

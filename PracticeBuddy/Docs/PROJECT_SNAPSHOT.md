@@ -224,6 +224,14 @@ Compound indexes are committed. Cleanup jobs and Function instances are
 bounded. V2 callables use server-owned per-user rate-limit windows. Exhaustion
 returns a typed callable error that becomes recovery-oriented app copy.
 
+`firebase.json` points to one authoritative deployable Functions codebase:
+root `functions/`. The obsolete, undeployed `firebase/functions/`
+teacher-assignment package was removed after its stale dependency graph
+reported high and critical advisories. The supported codebase passes its
+contract and rules suites and currently reports no high/critical production
+advisory. A moderate transitive `uuid` chain remains pending a separately
+verified `firebase-admin` 14 compatibility upgrade.
+
 Feature flags:
 
 - `practiceMoments`: on
@@ -279,7 +287,10 @@ complete Korean and Romanian coverage.
 - UI: 30/30
 - Firebase emulator/rules: 10/10
 - Function contracts: 3/3
+- Xcode static analyzer: passed with no diagnostics
 - Exact simulator: iPhone 17 Pro Max, iOS 26.5
+- Latest complete result:
+  `/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.07.27_23-12-29--0400.xcresult`
 
 Coverage includes launch/router determinism, practice clocks/audio ownership,
 save/retry, tool recovery and permission states, scoring, file lifecycle,
@@ -297,7 +308,9 @@ complete until external gates pass:
 4. physical-device audio, route, interruption, background, Family Controls,
    Live Activity, APNs, StoreKit, account-upgrade, and Universal Link tests;
 5. final deterministic App Store screenshots and metadata;
-6. resolution of every device/TestFlight P0–P2 issue.
+6. resolution of every device/TestFlight P0–P2 issue;
+7. dedicated compatibility review of the remaining moderate root Functions
+   dependency finding before any breaking `firebase-admin` upgrade.
 
 Use `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md` and
 `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md`.

@@ -35,9 +35,10 @@ xcodebuild test \
 - Unit tests: **63/63 passed**
 - UI tests: **30/30 passed**
 - Result bundle:
-  `/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.07.27_21-14-05--0400.xcresult`
+  `/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.07.27_23-12-29--0400.xcresult`
 - Firebase emulator/rules tests: **10/10 passed** in the last rules run
 - Function contract tests: **3/3 passed** in the last Functions run
+- Xcode static analysis: **passed with no diagnostics**
 
 Current visual audit captures:
 
@@ -70,7 +71,7 @@ decorations.
 | 3 — Tool-by-tool rebuild | **Verified in simulator** | Warm-up, Smart Loop, Plan–Execute–Reflect, Run-through, Rhythm, Intonation, Metronome, and Tuner each have setup/runtime/result/recovery/failure coverage. Deterministic scoring, phase timing, audio ownership, orphan-file cleanup, and save retry tests are present. | Microphone latency/accuracy, headphone routes, interruptions, and real recording files on device. |
 | 4 — Root IA polish | **Verified** | Today has one dominant start action; Quest owns Journey plus Duels & Leagues; Community is feed-first with Search/Messages and relationship-aware actions; You owns the separate avatar/room system, Goals, History, Pro, and Settings. Full-surface and Dock-clearance UI assertions pass. | Final release screenshots after production configuration is available. |
 | 5 — Functional parity audit | **Verified for reachable simulator flows** | `Docs/INTERACTION_INVENTORY.md`, typed secondary-route coverage, Quest nodes, full-pill Community actions, exact chat routing, Shop-to-Quest routing, account/auth states, tool lifecycle tests, room editor controls, localization, and error/recovery states. | Test real notifications, APNs, Universal Links, StoreKit sandbox, and migration data through TestFlight/device. |
-| 6 — Backend/security preflight | **Implemented; partially deployed** | V2 App Check callables, hardened compatibility HTTP handlers, private/public projections, age and relationship rules, blocks/reports, rate limits, cleanup jobs, 8 indexes, emulator tests, and bounded Functions. Functions/indexes/Hosting/Storage are deployed. | **Staged hold:** owner-only Firestore rules await v2 cutover. DeviceCheck key, accepted device traffic, App Check observation/enforcement, and production migration remain. |
+| 6 — Backend/security preflight | **Implemented; partially deployed** | V2 App Check callables, hardened compatibility HTTP handlers, private/public projections, age and relationship rules, blocks/reports, rate limits, cleanup jobs, 8 indexes, emulator tests, bounded Functions, and one authoritative root Functions codebase. The obsolete undeployed teacher-assignment package and its high/critical stale dependency graph were removed. Functions/indexes/Hosting/Storage are deployed. | **Staged hold:** owner-only Firestore rules await v2 cutover. DeviceCheck key, accepted device traffic, App Check observation/enforcement, production migration, and a dedicated compatibility review of the remaining moderate root dependency finding remain. |
 | 7 — Monetization/ad cleanup | **Verified** | Google Mobile Ads/UMP and app ad infrastructure are removed; no banner/rewarded/duel ad path exists; verified StoreKit entitlements recognize legacy Ad-Free and current Pro products. IPA inspection found no ad framework or retired placement symbols. | Create/configure the new monthly Pro SKU and confirm price/legacy product availability. |
 | 8 — Testing and quality gates | **Automated gates verified** | Current 63/30 app run, rules 10/10, Functions 3/3, Korean/Romanian coverage, deterministic accessibility/pseudolocalization checks, visual audit, signed generic build, and App Store export. | Complete every item in `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md` and resolve device/TestFlight P0–P2 defects. |
 | 9 — TestFlight and App Store | **Blocked externally** | Valid build-31 archive and exported IPA exist; metadata, privacy answers, release copy, physical checklist, deployment runbook, and legal-site branch are prepared. | Reauthenticate App Store Connect/provider access or supply API credentials; upload; configure Pro; merge/deploy/review legal site; run internal/external beta; capture final screenshots; submit. |
@@ -149,3 +150,5 @@ open until their dedicated device/production evidence is recorded.
 7. Run internal and focused external TestFlight migration testing.
 8. Fix any device/TestFlight P0–P2 defect, capture final deterministic App Store
    screenshots, publish metadata, and submit with the `PracticeBuddy` scheme.
+9. Evaluate `firebase-admin` 14 against the root Functions codebase in a
+   dedicated compatibility slice before using any forced npm audit upgrade.
