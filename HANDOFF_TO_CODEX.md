@@ -98,9 +98,11 @@ The launch-hardening commits after the design handoff:
 Latest commits:
 
 ```text
+f699bca Refresh release handoff checkpoints
 43e68b8 Record legal site review branch
 d79152a Pin physical release checklist to current artifact
 5a924e7 Record source-exact release archive
+e6b3b35 Record launch hardening verification
 5a5827d Harden deterministic launch and Apple sign-in
 852697e Record privacy release hardening
 c152689 Prepare PractiQuest 2.0 release metadata
@@ -137,22 +139,28 @@ before merging; merging `main` may deploy the live site.
 
 ## Current priority
 
-The simulator implementation is past the main functional rewrite. The next
-priority is release operations, in this order:
+The simulator implementation is past the main functional rewrite. The
+source-exact TestFlight upload is currently blocked by the Xcode account's
+missing App Store Connect provider relationship. Resolve that credential gate
+first; then continue release operations in this order:
 
-1. review, merge, and deploy website branch
+1. reauthenticate the Apple ID in Xcode Settings → Accounts and confirm App
+   Store Connect provider access, or supply an App Store Connect API key ID,
+   issuer ID, and `.p8` private key;
+2. upload build 31 from
+   `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`;
+3. review, merge, and deploy website branch
    `codex/practiquest-v2-legal` (`8788602`) using
    `Docs/LEGAL_SITE_V2_UPDATE.md`;
-2. publish the prepared App Store privacy/age/social answers and create/verify
+4. publish the prepared App Store privacy/age/social answers and create/verify
    the Pro product;
-3. register DeviceCheck in Firebase Console using the Apple `.p8` key and Key
+5. register DeviceCheck in Firebase Console using the Apple `.p8` key and Key
    ID; App Attest is already registered;
-4. upload an internal TestFlight build from the clean archive/export path;
-5. verify App Check and migration behavior on a physical device;
-6. coordinate the owner-only Firestore-rule cutover with the v2 client;
-7. execute the complete physical-device checklist;
-8. fix any device-only defects;
-9. recapture final App Store screenshots and finish metadata.
+6. verify App Check and migration behavior on a physical device;
+7. coordinate the owner-only Firestore-rule cutover with the v2 client;
+8. execute the complete physical-device checklist;
+9. fix any device-only defects;
+10. recapture final App Store screenshots and finish metadata.
 
 Do not deploy Firebase casually. Legacy HTTP endpoints remain intentionally for
 old App Store clients, and App Check enforcement is staged to avoid locking out
@@ -221,12 +229,28 @@ Do not describe DeviceCheck fallback as operational or enable broader product
 enforcement until the credential is registered and valid TestFlight/device
 traffic appears in metrics.
 
-App Store Connect is authenticated. The existing account contains an approved
-monthly Ad-Free subscription and an approved `practicebuddy.pro.lifetime`
-non-consumable. Both are now recognized as Pro from verified StoreKit
-transactions. The new Pro monthly creation dialog is filled but not submitted;
-creating it requires action-time user confirmation. The connected iPhone is
-currently offline in Xcode, so no physical-device checklist item is verified.
+App Store Connect content can be browsed in Xcode. The existing account
+contains an approved monthly Ad-Free subscription and an approved
+`practicebuddy.pro.lifetime` non-consumable. Both are now recognized as Pro from
+verified StoreKit transactions. The new Pro monthly creation dialog is filled
+but not submitted; creating it requires action-time user confirmation.
+
+The 2026-07-27 upload attempt failed before any transfer with exit 70:
+
+```text
+IDEDistribution.DistributionCredentialedProviderLocatorError.providerRequestFailed(
+Unexpected nil property at path: 'Actor/relationships/providerId')
+```
+
+Xcode also logged `App Store Connect team IDs for account (null)`. This is an
+account/provider credential failure, not an archive rejection. No standard
+local App Store Connect API-key directory or `.p8` credential was found.
+Reauthenticate Xcode Settings → Accounts and confirm provider access, or use an
+App Store Connect API key ID, issuer ID, and `.p8` with Xcode's authentication
+key arguments. Never print or commit the private key.
+
+The connected iPhone is currently offline in Xcode, so no physical-device
+checklist item is verified.
 
 The public PractiQuest App Store ID is `6759354312`. The prior in-app and Hosting
 value `6744359618` was wrong. The app and invite fallback are corrected and
@@ -248,6 +272,8 @@ still rejects unauthenticated product assertions.
 - The Pro product does not exist merely because its identifier is in code.
 - The development-signed archive is not itself distribution proof. The
   successful `app-store-connect` export is the distribution packaging check.
+- Do not describe build 31 as uploaded. The provider-credential failure happened
+  before transfer and App Store Connect did not receive the archive.
 - Do not say Firebase is deployed, App Check enforcement is observed, or
   physical-device behavior is verified until those steps actually occur.
 

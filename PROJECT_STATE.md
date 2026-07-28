@@ -25,9 +25,11 @@ Internal Xcode target/scheme: `PracticeBuddy`
     `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `f699bca` — refreshed release handoff checkpoints.
   - `43e68b8` — recorded the pushed v2 legal-site review branch and browser QA.
   - `d79152a` — pinned the physical release checklist to the source-exact artifact.
   - `5a924e7` — recorded the source-exact signed archive and IPA audit.
+  - `e6b3b35` — recorded launch-hardening verification.
   - `5a5827d` — deterministic QA process isolation and safe Apple sign-in anchor handling.
   - `852697e` — recorded privacy release hardening and remaining gates.
   - `c152689` — validated App Store metadata and v2 legal-site requirements.
@@ -261,11 +263,28 @@ External/operational work still required:
    App Store privacy/age/moderation metadata and submit with the
    `PracticeBuddy` scheme.
 
-App Store Connect is authenticated. The new Pro creation form is prepared for
+App Store Connect can be browsed in Xcode, but the source-exact TestFlight
+upload cannot currently authenticate an App Store Connect provider. The upload
+attempt on 2026-07-27 failed before any transfer with exit 70 and:
+
+```text
+IDEDistribution.DistributionCredentialedProviderLocatorError.providerRequestFailed(
+Unexpected nil property at path: 'Actor/relationships/providerId')
+```
+
+Xcode also logged `App Store Connect team IDs for account (null)`. The archive
+was not rejected and nothing was uploaded. No App Store Connect API-key
+directory or `.p8` credential exists in the standard local
+`~/.appstoreconnect` or `~/.private_keys` locations. Recovery requires either
+reauthenticating the Apple ID in Xcode Settings → Accounts and confirming its
+App Store Connect provider access, or supplying an App Store Connect API key
+ID, issuer ID, and private `.p8` file for command-line authentication.
+
+The new Pro creation form is prepared for
 `com.alexmalaimare.practiquest.pro.monthly`, but no product has been created or
-submitted without the required action-time confirmation. No TestFlight upload
-has occurred. The connected physical iPhone is currently reported offline by
-Xcode and has not been used to clear any device checklist item.
+submitted without the required action-time confirmation. The connected
+physical iPhone is currently reported offline by Xcode and has not been used to
+clear any device checklist item.
 
 The legal-site branch is ready for review at:
 <https://github.com/Nica-code/PractiQuest-Website/pull/new/codex/practiquest-v2-legal>.
