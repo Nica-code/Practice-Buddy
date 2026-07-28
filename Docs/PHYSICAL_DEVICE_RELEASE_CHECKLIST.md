@@ -1,6 +1,15 @@
 # PractiQuest 2.0 — Physical-Device Release Checklist
 
-Status: not yet completed for build 31.
+Status: automated/archive prerequisites are complete for build 31; physical
+device execution is still required.
+
+Release source:
+
+- commit `e6b3b354af607602a6c3b0d0eefaf944be84402b`;
+- archive `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`;
+- IPA `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`;
+- IPA SHA-256
+  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`.
 
 Record device model, iOS version, build, tester, date, network condition, audio
 route, and account type for every run. A release candidate fails if any P0, P1,
@@ -195,10 +204,10 @@ Metronome, and Tuner:
 
 - [ ] all findings have severity and owner
 - [ ] all P0/P1/P2 findings are closed and retested
-- [ ] exact release commit and build recorded
-- [ ] Firebase deployed commit recorded
+- [x] exact release commit and build recorded
+- [x] Firebase deployed commit recorded
 - [ ] App Check metrics reviewed
-- [ ] final automated suite rerun
+- [x] final automated suite rerun: 61/61 unit and 30/30 UI
 - [x] clean build-31 App Store archive/export contains no repository Markdown
       resources
 - [ ] final App Store screenshots captured
