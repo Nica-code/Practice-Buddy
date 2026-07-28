@@ -1,8 +1,32 @@
 # PractiQuest 2.0 — Legal and Support Site Update
 
-Status: required before App Store submission. This is an implementation
-requirements document, not legal advice. Final language should be reviewed by
-qualified counsel for the countries in which PractiQuest is offered.
+Status: implementation prepared for review; merge, deployment, and final legal
+review remain required before App Store submission. This is not legal advice.
+Final language should be reviewed by qualified counsel for the countries in
+which PractiQuest is offered.
+
+Prepared website change:
+
+- repository: `Nica-code/PractiQuest-Website`;
+- branch: `codex/practiquest-v2-legal`;
+- commit: `8788602`;
+- review URL:
+  <https://github.com/Nica-code/PractiQuest-Website/pull/new/codex/practiquest-v2-legal>;
+- production `main` and the live site have not been changed.
+
+Browser verification completed before the branch was pushed:
+
+- desktop and 390-point mobile layouts;
+- true light and dark appearances;
+- Reduce Motion;
+- keyboard skip-link focus;
+- 44-point header navigation targets;
+- no horizontal overflow at 390 points;
+- privacy, terms, support, and shared stylesheet return HTTP 200 locally;
+- internal page navigation and semantic heading/landmark structure.
+
+Before merging, confirm that `contact@alexmalaimare.com` is actively monitored
+for support, privacy, moderation, accessibility, and parental requests.
 
 ## Why the live pages must change
 
@@ -21,9 +45,8 @@ The website source is in a separate repository:
 
 `/Users/nica/Downloads/Code/Apps/PractiQuest-Website`
 
-That repository is not currently inside this coding workspace's writable root.
-The pages must be updated in that repository, reviewed, deployed, and verified
-at the public URLs before submission.
+The source update is now on the review branch above. It must still be reviewed,
+merged, deployed, and verified at the public URLs before submission.
 
 ## Locked product facts
 

@@ -115,12 +115,30 @@ d8d82b0 Retire legacy theme compatibility and expand launch QA
 40a40e9 Polish deterministic launch states
 ```
 
+The separate website repository now has a complete v2 legal/support review
+branch:
+
+```text
+repository: Nica-code/PractiQuest-Website
+branch: codex/practiquest-v2-legal
+commit: 8788602
+review: https://github.com/Nica-code/PractiQuest-Website/pull/new/codex/practiquest-v2-legal
+```
+
+It replaces v1 privacy, terms, and support copy and adds a responsive semantic
+light/dark system. Real-browser QA covered desktop, 390-point mobile, dark
+appearance, Reduce Motion, keyboard skip-link focus, 44-point navigation, and
+horizontal overflow. The branch is pushed but not merged or deployed. Confirm
+the published contact email is actively monitored and obtain final legal review
+before merging; merging `main` may deploy the live site.
+
 ## Current priority
 
 The simulator implementation is past the main functional rewrite. The next
 priority is release operations, in this order:
 
-1. update and deploy the v2 privacy, terms, and support pages using
+1. review, merge, and deploy website branch
+   `codex/practiquest-v2-legal` (`8788602`) using
    `Docs/LEGAL_SITE_V2_UPDATE.md`;
 2. publish the prepared App Store privacy/age/social answers and create/verify
    the Pro product;
@@ -138,9 +156,9 @@ old App Store clients, and App Check enforcement is staged to avoid locking out
 legitimate builds.
 
 Release metadata is prepared in `Docs/APP_STORE_RELEASE_METADATA_2.0.md`.
-The live privacy, terms, and support pages remain a blocker; implement
-`Docs/LEGAL_SITE_V2_UPDATE.md` in the separate `PractiQuest-Website` repository
-before submission.
+The live privacy, terms, and support pages remain a blocker; the prepared
+website branch must be reviewed, merged, deployed, and verified before
+submission.
 
 ## Firebase rollout state — 2026-07-27
 

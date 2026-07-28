@@ -43,6 +43,13 @@ Internal Xcode target/scheme: `PracticeBuddy`
   - Storage rules were already current and were re-released successfully;
   - the owner-only Firestore rules are intentionally **not deployed yet**.
 - Physical-device and TestFlight release checks remain open.
+- The PractiQuest website v2 legal/support rewrite is prepared and pushed:
+  - repository `Nica-code/PractiQuest-Website`;
+  - branch `codex/practiquest-v2-legal`;
+  - commit `8788602`;
+  - not merged or deployed;
+  - browser-verified in desktop/mobile, light/dark, Reduce Motion, keyboard,
+    44-point navigation, and no-horizontal-overflow states.
 - Release privacy hardening is implemented locally:
   - stale Calendar permission copy was removed;
   - microphone copy now covers every microphone-backed v2 capability;
@@ -246,15 +253,23 @@ External/operational work still required:
    upgrade, and Universal Links.
 6. Run internal then focused external TestFlight migration testing.
 7. Capture final release screenshots from the deployed release configuration.
-8. Deploy the v2 privacy/terms/support pages from the separate website
-   repository, then publish the prepared App Store privacy/age/moderation
-   metadata and submit with the `PracticeBuddy` scheme.
+8. Review and merge website branch `codex/practiquest-v2-legal` at `8788602`,
+   verify the deployed privacy/terms/support pages, then publish the prepared
+   App Store privacy/age/moderation metadata and submit with the
+   `PracticeBuddy` scheme.
 
 App Store Connect is authenticated. The new Pro creation form is prepared for
 `com.alexmalaimare.practiquest.pro.monthly`, but no product has been created or
 submitted without the required action-time confirmation. No TestFlight upload
 has occurred. The connected physical iPhone is currently reported offline by
 Xcode and has not been used to clear any device checklist item.
+
+The legal-site branch is ready for review at:
+<https://github.com/Nica-code/PractiQuest-Website/pull/new/codex/practiquest-v2-legal>.
+Merging may deploy the public site. Before merging, confirm
+`contact@alexmalaimare.com` is monitored for support, privacy, moderation,
+accessibility, and parental requests, and obtain final legal review as
+appropriate.
 
 ## Release archive audit
 
