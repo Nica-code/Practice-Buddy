@@ -98,6 +98,9 @@ The launch-hardening commits after the design handoff:
 Latest commits:
 
 ```text
+43e68b8 Record legal site review branch
+d79152a Pin physical release checklist to current artifact
+5a924e7 Record source-exact release archive
 5a5827d Harden deterministic launch and Apple sign-in
 852697e Record privacy release hardening
 c152689 Prepare PractiQuest 2.0 release metadata

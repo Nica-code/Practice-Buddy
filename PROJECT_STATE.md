@@ -25,6 +25,9 @@ Internal Xcode target/scheme: `PracticeBuddy`
     `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `43e68b8` — recorded the pushed v2 legal-site review branch and browser QA.
+  - `d79152a` — pinned the physical release checklist to the source-exact artifact.
+  - `5a924e7` — recorded the source-exact signed archive and IPA audit.
   - `5a5827d` — deterministic QA process isolation and safe Apple sign-in anchor handling.
   - `852697e` — recorded privacy release hardening and remaining gates.
   - `c152689` — validated App Store metadata and v2 legal-site requirements.
