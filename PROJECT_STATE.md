@@ -25,6 +25,7 @@ Internal Xcode target/scheme: `PracticeBuddy`
     `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `d92d31a` — recorded the source-exact completion-audit archive.
   - `9b15f8e` — closed deterministic room, Dock, and audit-evidence gaps.
   - `f699bca` — refreshed release handoff checkpoints.
   - `43e68b8` — recorded the pushed v2 legal-site review branch and browser QA.

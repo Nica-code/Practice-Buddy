@@ -49,8 +49,13 @@ Current visual audit captures:
 - `/private/tmp/practiquest-completion-audit/06-rhythm-denied-dark.png`
 - `/private/tmp/practiquest-completion-audit/07-history-light.png`
 - `/private/tmp/practiquest-completion-audit/08-settings-ax-dark.png`
+- `/private/tmp/practiquest-completion-audit/09-today-dark.png`
+- `/private/tmp/practiquest-completion-audit/10-quest-dark.png`
+- `/private/tmp/practiquest-completion-audit/11-community-dark.png`
+- `/private/tmp/practiquest-completion-audit/12-you-dark.png`
 
-Durable comparison boards remain in `Design/StudioQuest2/QA/`. The older
+The refreshed light/dark root comparison is
+`Design/StudioQuest2/QA/launch-quality-promax-comparison.png`. The older
 reference's baked-in person is not authoritative; the accepted target is an
 empty room with a separately rendered runtime avatar and independent
 decorations.

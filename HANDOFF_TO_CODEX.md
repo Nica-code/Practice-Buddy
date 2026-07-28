@@ -98,6 +98,7 @@ The launch-hardening commits after the design handoff:
 Latest commits:
 
 ```text
+d92d31a Record source-exact launch audit archive
 9b15f8e Close deterministic launch audit gaps
 f699bca Refresh release handoff checkpoints
 43e68b8 Record legal site review branch
