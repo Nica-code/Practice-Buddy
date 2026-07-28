@@ -5,11 +5,11 @@ device execution is still required.
 
 Release source:
 
-- commit `e6b3b354af607602a6c3b0d0eefaf944be84402b`;
-- archive `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`;
-- IPA `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`;
+- commit `9b15f8e253f0a51ef7cc2efda8e1b8703355ab09`;
+- archive `/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive`;
+- IPA `/private/tmp/PractiQuest-2.0.0-31-9b15f8e-export/PracticeBuddy.ipa`;
 - IPA SHA-256
-  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`.
+  `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`.
 
 Record device model, iOS version, build, tester, date, network condition, audio
 route, and account type for every run. A release candidate fails if any P0, P1,

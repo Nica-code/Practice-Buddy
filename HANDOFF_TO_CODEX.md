@@ -23,11 +23,11 @@ The latest exact run passed:
 - clean App Store archive/export passed; exported IPA contains no repository
   Markdown or internal planning documents
 - current source-exact archive:
-  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
+  `/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive`
 - current source-exact IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+  `/private/tmp/PractiQuest-2.0.0-31-9b15f8e-export/PracticeBuddy.ipa`
 - IPA SHA-256:
-  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
+  `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`
 
 Simulator:
 `54EC2207-327E-4262-AE90-3A31D022F394` (iPhone 17 Pro Max, iOS 26.5)
@@ -98,6 +98,7 @@ The launch-hardening commits after the design handoff:
 Latest commits:
 
 ```text
+9b15f8e Close deterministic launch audit gaps
 f699bca Refresh release handoff checkpoints
 43e68b8 Record legal site review branch
 d79152a Pin physical release checklist to current artifact
@@ -148,7 +149,7 @@ first; then continue release operations in this order:
    Store Connect provider access, or supply an App Store Connect API key ID,
    issuer ID, and `.p8` private key;
 2. upload build 31 from
-   `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`;
+   `/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive`;
 3. review, merge, and deploy website branch
    `codex/practiquest-v2-legal` (`8788602`) using
    `Docs/LEGAL_SITE_V2_UPDATE.md`;
@@ -207,20 +208,20 @@ command.
 
 ## Release archive and App Check state
 
-The source-exact build-31 release artifacts from verified commit `e6b3b35` are:
+The source-exact build-31 release artifacts from verified commit `9b15f8e` are:
 
 ```text
-/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive
-/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa
+/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive
+/private/tmp/PractiQuest-2.0.0-31-9b15f8e-export/PracticeBuddy.ipa
 ```
 
 The first export exposed a filesystem-synchronized-target packaging defect:
 seven repository Markdown files were copied into the app bundle. The app-target
 membership exceptions now exclude them. A fresh signed generic build, archive,
-export, and 91-test suite all passed, and the current IPA contains no `.md`
+export, and 93-test suite all passed, and the current IPA contains no `.md`
 files, retired ad symbols/frameworks, stale App Store ID, Calendar permission,
 or Google Play reference. Its SHA-256 is
-`fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`.
+`f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`.
 Do not remove those membership exceptions as “unused.”
 
 Firebase Console inspection confirmed:

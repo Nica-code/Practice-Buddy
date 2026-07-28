@@ -17,14 +17,15 @@ Internal Xcode target/scheme: `PracticeBuddy`
   `PracticeBuddyLiveActivityExtension`.
 - Clean App Store archive and `app-store-connect` export: passed. The exported
   IPA was inspected and contains no repository Markdown/internal planning files.
-- The current source-exact archive/export was rebuilt from `e6b3b35` after the
-  Apple sign-in hardening:
-  - `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
-  - `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+- The current source-exact archive/export was rebuilt from `9b15f8e` after the
+  completion audit:
+  - `/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive`
+  - `/private/tmp/PractiQuest-2.0.0-31-9b15f8e-export/PracticeBuddy.ipa`
   - SHA-256:
-    `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
+    `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`
 - Korean and Romanian source-key coverage: complete.
 - Latest verified commits:
+  - `9b15f8e` — closed deterministic room, Dock, and audit-evidence gaps.
   - `f699bca` — refreshed release handoff checkpoints.
   - `43e68b8` — recorded the pushed v2 legal-site review branch and browser QA.
   - `d79152a` — pinned the physical release checklist to the source-exact artifact.
@@ -304,15 +305,15 @@ appropriate.
 
 ## Release archive audit
 
-Build 31 was archived from verified commit `e6b3b35` with the `PracticeBuddy`
+Build 31 was archived from verified commit `9b15f8e` with the `PracticeBuddy`
 scheme and exported using the `app-store-connect` export method:
 
 - archive:
-  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35.xcarchive`
+  `/private/tmp/PractiQuest-2.0.0-31-9b15f8e.xcarchive`
 - exported IPA:
-  `/private/tmp/PractiQuest-2.0.0-31-e6b3b35-export/PracticeBuddy.ipa`
+  `/private/tmp/PractiQuest-2.0.0-31-9b15f8e-export/PracticeBuddy.ipa`
 - exported IPA SHA-256:
-  `fff0be53382872d71444ba02cce2835a241f6f4c7f450bdc6441c24a6e7cf5c8`
+  `f0112da19527f47ed2ce436378c239036b886f5caa7db061fcfcf358a2b9b26c`
 
 The filesystem-synchronized app target initially copied seven repository
 Markdown documents into the bundle. They are now explicit target-membership
