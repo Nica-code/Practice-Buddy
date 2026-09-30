@@ -1,9 +1,47 @@
 # PractiQuest — Authoritative Development State
 
-Last updated: 2026-07-28
+Last updated: 2026-09-30
 Release train: 2.0.0 (build 31), not uploaded
-Branch: `codex/launch-hardening`
+Branch: `Development`
 Internal Xcode target/scheme: `PracticeBuddy`
+
+## 2026-09-30 session — dock polish and audio thermal hardening
+
+- Confirmed the UI/UX overhaul is present on both `Development` and
+  `codex/launch-hardening` at the same starting commit (`67d6f9d`). Continued
+  work on `Development`; `main` remains 95 commits behind this line of work
+  and should only receive release-ready updates.
+- Fixed the mixed-color Quick Start/practice dock. Its content was applying a
+  second custom material inside the system `.tabViewBottomAccessory`
+  material, while the horizontal inset exposed the system layer at the two
+  edges. The dock now uses the system accessory material as its single,
+  uniform background. Verified visually in light and dark appearance on the
+  iPhone 17 Pro Max iOS 26.5 simulator.
+- Investigated the reported iPhone warmth. The largest code-level risk was
+  the tuner: every accepted 4,096-frame microphone buffer performed a full
+  normalized autocorrelation on the audio callback path and issued several
+  main-actor updates. Tuner analysis now runs on a dedicated serial queue,
+  permits at most one analysis at a time and ten analyses per second,
+  downsamples toward 12 kHz before pitch detection, and publishes one
+  consolidated UI result.
+- Closed two additional audio-lifecycle leaks: stopping the metronome now
+  stops its `AVAudioEngine`, not just its player node; moving the app inactive
+  stops an active tuner/reference tone, releases microphone ownership, and
+  pauses tuner activity. Background metronome behavior remains intentional.
+- Added regression coverage for pitch detection, silence rejection, tuner
+  work throttling, background tuner shutdown, and metronome engine shutdown.
+
+### Verification (2026-09-30)
+
+- Full scheme: 99/99 tests passed, 0 failures (68 unit + 31 UI) on iPhone 17
+  Pro Max, iOS 26.5 simulator.
+- Result bundle:
+  `/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.09.30_13-37-00--0400.xcresult`
+- Xcode static analysis: succeeded.
+- Physical-device follow-up remains important: run tuner and metronome for
+  10–15 minutes each on representative iPhones and compare Energy Log and
+  thermal state. Simulator tests prove lifecycle/correctness but cannot prove
+  chassis temperature.
 
 ## 2026-07-28 session (part 2) — practice session bug fix, check-ins purged, verification onboarding
 

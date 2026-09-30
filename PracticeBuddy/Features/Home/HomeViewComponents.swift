@@ -122,6 +122,7 @@ final class MetronomeEngine: ObservableObject {
     @Published private(set) var statusMessage: String?
 
     private(set) var bpm: Int = 80
+    var isAudioEngineRunning: Bool { engine.isRunning }
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -208,6 +209,7 @@ final class MetronomeEngine: ObservableObject {
         currentSubdivision = 0
         stepIndex = 0
         player.stop()
+        engine.stop()
     }
 
     func applyUpdatedConfiguration(beatsPerBar: Int, subdivision: Subdivision, soundStyle: SoundStyle) {

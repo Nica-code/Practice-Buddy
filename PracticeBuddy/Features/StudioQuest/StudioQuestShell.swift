@@ -407,7 +407,6 @@ private struct StudioQuestFixtureConversationView: View {
 struct StudioQuestPracticeDock: View {
     @EnvironmentObject private var coordinator: PracticeSessionCoordinator
     @EnvironmentObject private var router: AppRouter
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button {
@@ -454,11 +453,6 @@ struct StudioQuestPracticeDock: View {
             }
             .padding(.horizontal, 10)
             .frame(height: isCompactTodayDock ? 50 : 58)
-            .modifier(StudioQuestDockMaterial())
-            .overlay {
-                RoundedRectangle(cornerRadius: StudioQuestTokens.Radius.dock, style: .continuous)
-                    .stroke(StudioQuestTokens.ColorRole.separator(colorScheme), lineWidth: 0.75)
-            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title). \(subtitle)")

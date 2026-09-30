@@ -2,7 +2,7 @@
 
 Read first:
 
-1. `PROJECT_STATE.md` — see its 2026-07-28 session entry first
+1. `PROJECT_STATE.md` — see its 2026-09-30 session entry first
 2. this file
 3. `Docs/RebuildAudit.md` / `Docs/RebuildPlan.md` — Phase 0 UI/architecture
    audit; explains why a "rebuild" request was scoped down to targeted fixes
@@ -12,9 +12,45 @@ Read first:
 5. `Docs/FIREBASE_DEPLOYMENT_RUNBOOK.md` before any Firebase action
 6. `Docs/PHYSICAL_DEVICE_RELEASE_CHECKLIST.md` before calling the client ready
 
-Branch: `codex/launch-hardening`
+Branch: `Development`
 Version: 2.0.0 (build 31)
 Firebase deployed from this branch: **Partially — see rollout state below**
+
+## 2026-09-30 session — Development branch, dock and thermal work
+
+The UI/UX overhaul from `codex/launch-hardening` was confirmed present on
+`Development` at the same starting commit (`67d6f9d`). Continue normal product
+work on `Development`; merge/copy release-ready updates to `main` only when an
+App Store update is being prepared. At this checkpoint, `main` is 95 commits
+behind `Development`.
+
+The Quick Start/practice dock's split tint was caused by nested materials: a
+custom rounded material inside the system `.tabViewBottomAccessory`, with the
+outer horizontal padding revealing the system material at the edges. The
+custom inner material/stroke was removed so the entire accessory has one
+system-managed background. Light and dark simulator screenshots were checked.
+
+The reported device warmth was investigated in the audio paths. The tuner was
+the primary CPU risk: it ran full-buffer normalized autocorrelation frequently
+and too close to the real-time microphone callback. It now gates work to 10 Hz,
+allows only one analysis in flight, downsamples to about 12 kHz, performs pitch
+analysis on a dedicated serial queue, and consolidates each result into one
+main-actor update. The metronome now stops its audio engine when stopped. An
+active tuner also shuts down and releases the microphone when the app becomes
+inactive; intentional background metronome behavior was preserved.
+
+New regression tests cover tuner frequency/silence analysis, throttling,
+background shutdown/audio ownership, and metronome engine shutdown. Full
+verification passed 99/99 (68 unit + 31 UI), and Xcode static analysis
+succeeded. Result bundle:
+
+```text
+/Users/nica/Library/Developer/Xcode/DerivedData/PracticeBuddy-cbtxogwfmhmjhogojkyhvrbwjxoa/Logs/Test/Test-PracticeBuddy-2026.09.30_13-37-00--0400.xcresult
+```
+
+Remaining validation: run 10–15 minute tuner-only and metronome-only sessions
+on representative physical iPhones while recording Energy Log/thermal state.
+The simulator cannot validate chassis temperature.
 
 ## 2026-07-28 session, part 2 (uncommitted) — practice bug fix + check-ins removed + verification onboarding
 

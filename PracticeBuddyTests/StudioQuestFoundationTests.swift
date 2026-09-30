@@ -960,6 +960,74 @@ final class StudioQuestFoundationTests: XCTestCase {
         XCTAssertEqual(MetronomeEngine.clampBeatsPerBar(5), 4)
     }
 
+    func testStoppingMetronomeStopsItsAudioEngine() throws {
+        let metronome = MetronomeEngine(managesAudioSession: false)
+        let started = metronome.start(
+            beatsPerBar: 4,
+            subdivision: .none,
+            soundStyle: .click
+        )
+        try XCTSkipUnless(started, "Simulator audio route is unavailable")
+        XCTAssertTrue(metronome.isAudioEngineRunning)
+
+        metronome.stop()
+
+        XCTAssertFalse(metronome.isAudioEngineRunning)
+    }
+
+    func testTunerPitchAnalyzerFindsConcertAFromSyntheticSamples() throws {
+        let sampleRate = 12_000.0
+        let samples = (0..<1_024).map { index in
+            Float(sin(2 * Double.pi * 440 * Double(index) / sampleRate))
+        }
+
+        let frequency = try XCTUnwrap(
+            TunerPitchAnalyzer.detectFrequency(in: samples, sampleRate: sampleRate)
+        )
+
+        XCTAssertEqual(frequency, 440, accuracy: 1)
+    }
+
+    func testTunerPitchAnalyzerRejectsSilence() {
+        let samples = Array(repeating: Float.zero, count: 1_024)
+
+        XCTAssertNil(
+            TunerPitchAnalyzer.detectFrequency(in: samples, sampleRate: 12_000)
+        )
+    }
+
+    func testTunerAnalysisGateLimitsWorkToTenUpdatesPerSecond() {
+        var gate = TunerAnalysisGate(minimumInterval: 0.1)
+
+        XCTAssertTrue(gate.shouldAnalyze(at: 10))
+        XCTAssertFalse(gate.shouldAnalyze(at: 10.05))
+        XCTAssertTrue(gate.shouldAnalyze(at: 10.10))
+    }
+
+    func testBackgroundingStopsActiveTunerAndReleasesAudioOwnership() throws {
+        let suiteName = "StudioQuestFoundationTests.audio.background.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = PracticeSessionCoordinator(defaults: defaults)
+
+        _ = coordinator.beginFocusedTool(
+            .tuner,
+            title: "Tuner practice",
+            durationMinutes: 10,
+            source: .qa
+        )
+        coordinator.tuner.applyStudioQuestFixture(isListening: true)
+        coordinator.audioSession.applyStudioQuestFixture(
+            owner: .tuner,
+            requirements: .microphone
+        )
+
+        coordinator.handleScenePhase(isActive: false)
+
+        XCTAssertFalse(coordinator.tuner.isListening)
+        XCTAssertNil(coordinator.audioSession.owner)
+    }
+
     func testLegacyTabsMigrateToFourDestinationShell() {
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 0), .today)
         XCTAssertEqual(AppDestination.migrated(fromLegacyTab: 1), .quest)

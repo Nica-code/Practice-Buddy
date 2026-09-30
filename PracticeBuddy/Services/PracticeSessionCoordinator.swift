@@ -645,9 +645,19 @@ final class PracticeSessionCoordinator: ObservableObject {
             }
             queueTaskNotifications()
             updateLiveActivity()
-        } else if isRunning {
-            backgroundEnteredAt = Date()
-            updateLiveActivity()
+        } else {
+            if audioSession.owner == .tuner {
+                tuner.stopListening()
+                tuner.stopReferenceTone()
+                audioSession.release(.tuner)
+                if activeToolID == .tuner {
+                    pauseToolActivity()
+                }
+            }
+            if isRunning {
+                backgroundEnteredAt = Date()
+                updateLiveActivity()
+            }
         }
     }
 
